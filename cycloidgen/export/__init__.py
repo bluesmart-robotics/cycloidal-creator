@@ -53,6 +53,8 @@ def _write(out: Output, spec: GearSpec, directory: Path, analysis) -> list[Path]
         return [svg.write_svg(spec, target)]
     if out.key == "part_dxf":
         return dxf.write_part_dxfs(spec, target)
+    if out.key == "sketch_dxf":
+        return dxf.write_sketch_dxfs(spec, target)
     if out.key == "assembly_step":
         return [solid.write_step(spec, target)]
     if out.key == "part_step":

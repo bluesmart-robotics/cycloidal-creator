@@ -16,7 +16,7 @@ from ..core import profile as prof
 from ..core.spec import GearSpec
 from .manifest import disc_names
 
-__all__ = ["write_dxf", "write_part_dxfs"]
+__all__ = ["write_dxf", "write_part_dxfs", "write_sketch_dxfs"]
 
 LAYERS = {
     "DISC_PROFILE": 3,
@@ -274,4 +274,93 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
                               spec.hub_bore, motor_face=True))
     written.append(_end_plate(spec, directory, "output_end_plate",
                               spec.output_bearing_seat_diameter))
+    return written
+
+
+#: Degree of the fitted profile curve.  Cubic is what every modelling package
+#: reads without thinking about it, and it is what the fit in
+#: :mod:`cycloidgen.core.profile` solves for.
+_SPLINE_DEGREE = 3
+
+
+def _add_profile_spline(msp, control: np.ndarray) -> None:
+    """Write the fitted profile as a closed, periodic SPLINE.
+
+    Through ``set_closed`` rather than by hand.  A closed B-spline is written by
+    wrapping the first ``degree`` control points onto the end of the list over a
+    uniform knot vector - which is what this did first, and it produces the
+    identical curve, checked to 7e-15 against evaluating the closed form
+    directly.  What the library's own path adds is the pair of flags that says
+    so, and they are the difference between a reader knowing the curve is one
+    loop and a reader deciding for itself: without them the valid parameter
+    range is something each one works out, and the ones that take the whole knot
+    vector trace about three per cent of the loop twice.  An outline that
+    overlaps itself is one that will not close into a face, which is most of
+    what this file is for.
+    """
+    # Three components, because ``set_closed`` wraps by extending the stored
+    # control points and that store is strict about it.
+    spline = msp.add_spline(dxfattribs={"layer": "DISC_PROFILE"})
+    spline.set_closed([(float(x), float(y), 0.0) for x, y in control],
+                      degree=_SPLINE_DEGREE)
+
+
+def write_sketch_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
+    """One DXF per distinct disc, with the profile as a single curve.
+
+    The cutting files carry the profile as a polyline of about eighteen hundred
+    vertices.  That is the right answer for CAM and the wrong one for a
+    modelling package, where the profile is something to build *on*: eighteen
+    hundred vertices is not geometry you can offset, dimension or hang a feature
+    off, it is a cloud in the shape of a disc.  So the same outline goes out
+    again as one closed cubic B-spline - a hundred to a couple of hundred
+    control points, fitted to the tolerance the polyline is held to and stamped
+    with the deviation it actually reached.
+
+    A folder of its own rather than another layer in the cutting file, and that
+    is the point rather than an accident.  These files already carry geometry
+    that is not for cutting - pitch circles, the motor's pattern - but none of
+    it *looks* like the outline, and two outlines in a file somebody sends to a
+    laser is a part cut twice.
+
+    The construction geometry the disc never had is here too.  Every other part
+    in the cutting folder gets centre marks and a pitch circle; the disc, which
+    is the one part somebody is going to build on, got neither - so there was
+    nothing in it to place a feature against but the holes themselves.
+    """
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+
+    fitted = prof.profile_spline_from_spec(spec)
+    outer = float(np.hypot(*prof.profile_from_spec(spec).points.T).max())
+    bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
+    hole_r = spec.output_hole_diameter / 2.0
+    bolt_r = spec.output_bolt_circle_radius
+
+    phases = (spec.disc_hole_phases[:1] if spec.discs_are_identical
+              else spec.disc_hole_phases)
+    for name, hole_phase in zip(disc_names(spec), phases, strict=True):
+        doc, msp = _new_doc()
+        _add_profile_spline(msp, fitted.control_points)
+        msp.add_circle((0, 0), bore_r, dxfattribs={"layer": "DISC_BORE"})
+        _cross(msp, (0.0, 0.0), size=max(bore_r / 3.0, 2.0))
+        # The bolt circle the holes sit on, as construction: a hole pattern you
+        # can see the circle of is one you can add to.
+        msp.add_circle((0, 0), bolt_r, dxfattribs={"layer": "PITCH"})
+        for k in range(spec.output_pin_count):
+            a = 2.0 * np.pi * k / spec.output_pin_count + hole_phase
+            centre = (bolt_r * np.cos(a), bolt_r * np.sin(a))
+            msp.add_circle(centre, hole_r, dxfattribs={"layer": "OUTPUT_HOLES"})
+            _cross(msp, centre, size=max(hole_r / 2.0, 1.0))
+        _title(msp, spec,
+               f"{name} sketch  i={spec.ratio}:1  holes at "
+               f"{np.degrees(hole_phase):+.3f} deg  "
+               f"profile: one cubic spline, {fitted.samples} control points, "
+               f"within {1000 * fitted.deviation:.1f} um of the exact curve  "
+               f"- NOT a cutting file, see dxf/",
+               outer)
+        out = directory / f"{name}.dxf"
+        doc.saveas(out)
+        written.append(out)
     return written

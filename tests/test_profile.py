@@ -177,3 +177,70 @@ def test_spec_derived_values():
     assert s.pin_count == 12 and s.ratio == 11
     assert pytest.approx(1.5 * 12 / 50) == s.K1
     assert s.output_hole_diameter == pytest.approx(6 + 2 * 1.5)
+
+
+# --------------------------------------------------- the profile as one curve
+#
+# The polyline is for cutting and is checked above.  These are about the other
+# reading of the same outline: a single curve, for a modelling package, where
+# what matters is that it is easier to work with *and still the same disc*.
+
+
+@pytest.mark.parametrize("R,Rr,E,N", CASES)
+def test_the_fitted_curve_stays_inside_the_tolerance_it_was_given(R, Rr, E, N):
+    """The whole value of it. A curve that is easier to handle and is not the
+    profile is worse than no curve at all, so the deviation is measured against
+    the exact form rather than argued for."""
+    tol = 0.005
+    fitted = prof.profile_spline(R, Rr, E, N, tol)
+    assert fitted.deviation <= tol
+
+    # ...and the number it reports is the number it achieved, measured the slow
+    # way that has nothing in common with how the fit found it.
+    drawn = prof.evaluate_closed_bspline(fitted.control_points, per_segment=16)
+    exact = prof.disc_profile(np.linspace(0, 2 * np.pi, 4000, endpoint=False),
+                              R, Rr, E, N)
+    assert prof.distance_to_polyline(exact, drawn).max() == \
+        pytest.approx(fitted.deviation, rel=0.05)
+
+
+@pytest.mark.parametrize("R,Rr,E,N", CASES)
+def test_the_curve_passes_through_points_that_are_on_the_profile(R, Rr, E, N):
+    """A B-spline does not go through its control points, so a test that
+    compared those against the profile would be comparing the wrong things.
+
+    At every knot the curve is `(C[i-1] + 4 C[i] + C[i+1]) / 6`, and that is
+    what the cyclic solve is for: those points are exact profile samples, so the
+    curve is pinned to the disc at each of them and the deviation above is only
+    ever about what happens in between.
+    """
+    fitted = prof.profile_spline(R, Rr, E, N, 0.005)
+    at_knots = prof.evaluate_closed_bspline(fitted.control_points, per_segment=1)
+    exact = prof.disc_profile(np.linspace(0, 2 * np.pi, 80000, endpoint=False),
+                              R, Rr, E, N)
+    # Against the deviation rather than against an absolute figure, because at
+    # this scale what is left is the *comparison* polyline's own chord error -
+    # it falls by sixteen when the sampling is quadrupled, which is the sagitta
+    # law and not anything about the spline. Two orders between them is the
+    # statement: pinned at the knots, and the deviation is what happens between.
+    assert prof.distance_to_polyline(at_knots, exact).max() * 100 < fitted.deviation
+
+
+@pytest.mark.parametrize("R,Rr,E,N", CASES)
+def test_the_curve_keeps_the_disc_symmetry_the_polyline_keeps(R, Rr, E, N):
+    """Same property and the same reason as the sampled polygon's: a count that
+    divides by the lobe count lands the same points on every lobe, so turning
+    the disc by one pitch gives back the same curve rather than one fitted a
+    fraction of a step along."""
+    assert prof.profile_spline(R, Rr, E, N, 0.005).samples % N == 0
+
+
+@pytest.mark.parametrize("R,Rr,E,N", CASES)
+def test_the_curve_costs_far_fewer_points_than_the_polyline(R, Rr, E, N):
+    """The reason it exists. At the same tolerance a cubic converges on the
+    curve far faster than chords do, and the gap is what turns a cloud of
+    vertices back into geometry - so it is worth pinning that the gap is large
+    rather than marginal."""
+    tol = 0.005
+    chords = prof.sample_count_for_chord_tolerance(R, Rr, E, N, tol)
+    assert prof.profile_spline(R, Rr, E, N, tol).samples * 4 < chords

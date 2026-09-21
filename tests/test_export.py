@@ -329,6 +329,75 @@ def test_a_part_file_carries_the_colour_the_assembly_gives_it(spec, tmp_path):
             assembled[path.stem].color.toTuple()[:3]), path.name
 
 
+def test_the_sketch_carries_one_curve_and_the_cutting_file_keeps_its_polyline(
+        spec, tmp_path):
+    """The hazard this folder exists to avoid.
+
+    A second representation of the same outline is only safe where nobody is
+    going to cut from it. These files already carry geometry that is not for
+    cutting - pitch circles, the motor's pattern - but none of it looks like the
+    outline, and two outlines in a file sent to a laser is a part cut twice. So
+    the curve goes in a folder of its own and the cutting file is left alone.
+    """
+    sketch = dxf.write_sketch_dxfs(spec, tmp_path / "sketch")
+    assert {p.stem for p in sketch} == {"disc_1", "disc_2"}
+    for path in sketch:
+        msp = ezdxf.readfile(str(path)).modelspace()
+        assert len(msp.query("SPLINE")) == 1
+        assert len(msp.query("LWPOLYLINE")) == 0
+
+    cutting = tmp_path / "dxf"
+    dxf.write_part_dxfs(spec, cutting)
+    msp = ezdxf.readfile(str(cutting / "disc_1.dxf")).modelspace()
+    assert len(msp.query("LWPOLYLINE")) == 1
+    assert len(msp.query("SPLINE")) == 0
+
+
+def test_the_written_curve_is_still_the_disc(spec, tmp_path):
+    """Measured from the file rather than from the fit.
+
+    The fit is checked in `tests/test_profile.py`; what is checked here is
+    everything between it and the disk - the wrap that turns a closed spline
+    into an ordinary one, the knot vector, and whatever a reader makes of them.
+    A curve that is easier to work with and is not the profile is worse than no
+    curve.
+    """
+    path = dxf.write_sketch_dxfs(spec, tmp_path / "sketch")[0]
+    spline = ezdxf.readfile(str(path)).modelspace().query("SPLINE")[0]
+    assert spline.closed, "a reader has to be told this is one loop"
+
+    # `approximate` and not `flattening`, and the difference is worth writing
+    # down because it looks like a broken export and is not. A closed spline is
+    # written over a uniform knot vector whose ends run past the curve: the
+    # valid domain is knots[degree] to knots[count], and outside it the basis
+    # functions no longer sum to one, so the evaluation is arithmetic rather
+    # than geometry. `approximate` stays inside; ezdxf's adaptive `flattening`
+    # does not, and wanders 1.9 mm off a 5 um curve.
+    drawn = np.array([(p.x, p.y) for p in
+                      spline.construction_tool().approximate(4000)])
+    exact = prof.disc_profile(np.linspace(0, 2 * np.pi, 8000, endpoint=False),
+                              spec.effective_R, spec.effective_Rr,
+                              spec.eccentricity, spec.lobes)
+    # Both directions. One says the curve reaches every part of the disc, the
+    # other says it goes nowhere the disc does not - and an outline only wanted
+    # for building on has to satisfy the second as much as the first.
+    assert prof.distance_to_polyline(exact, drawn).max() <= spec.dxf_chord_tolerance
+    assert prof.distance_to_polyline(drawn, exact).max() <= spec.dxf_chord_tolerance
+
+
+def test_the_sketch_has_the_construction_geometry_the_disc_never_had(spec, tmp_path):
+    """Every other part in the cutting folder gets centre marks and a pitch
+    circle. The disc - the one part somebody is going to build on - got neither,
+    so there was nothing in it to place a feature against but the holes."""
+    path = dxf.write_sketch_dxfs(spec, tmp_path / "sketch")[0]
+    msp = ezdxf.readfile(str(path)).modelspace()
+    circles = msp.query('CIRCLE[layer=="PITCH"]')
+    assert len(circles) == 1
+    assert circles[0].dxf.radius == pytest.approx(spec.output_bolt_circle_radius)
+    # A centre mark at the bore and one in every output hole.
+    assert len(msp.query('LINE[layer=="PITCH"]')) == 2 * (1 + spec.output_pin_count)
+
+
 def test_identical_discs_collapse_to_one_file(tmp_path):
     """When the hole pre-rotation happens to be a whole hole pitch there is only
     one part, and shipping two files would imply otherwise."""

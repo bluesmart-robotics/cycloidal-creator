@@ -59,7 +59,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,189 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,212 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -224,6 +224,7 @@ the command line with `--only`, or with the two quick export buttons.
 | `disc.dxf` | drawings | Drawing of the whole drive: disc profile as a closed LWPOLYLINE sampled to the chord tolerance, plus bore, output holes, ring pins and housing, on separate layers |
 | `disc.svg` | drawings | Same drawing, 1 unit = 1 mm |
 | `dxf/` | drawings | One cutting file per part — each disc on its own, the ring plate, a carrier drilling template drilled for the *press fit* rather than for the disc's running hole, and the two end plates with their tie-bolt circle and motor pattern |
+| `sketch/` | drawings | The same disc outline as **one closed cubic spline** instead of the cutting file's ~1,800 vertices — a curve a CAD package can offset, dimension and build features against. Fitted to the design's own chord tolerance and stamped with the deviation it reached, with the centre marks and bolt circle the disc never had. Not a cutting file: two outlines in one file is a part cut twice |
 | `assembly.step` | solids | Full gearbox: housing and its two end plates, ring pins, phased discs, eccentric shaft, output flange with its bearing boss, every bearing that fits, coloured |
 | `step/` | solids | Each part as its own solid, in its own frame, carrying its own name and colour inside the file — so a part imported into your own assembly arrives as `housing` rather than as whatever the kernel calls it |
 | `stl/` | solids | Each part separately — STL has no assembly structure. A multi-disc stack gets `disc_1.stl`, `disc_2.stl`, … because **the discs are not the same part** (see below) |
@@ -798,7 +799,7 @@ cycloidgen/
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar), updates (the check, and asking before it
                 runs)
-tests/          1,189 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,212 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -814,7 +815,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,189 tests, about 520 s. Most of that is CadQuery writing solids; the pure
+1,212 tests, about 520 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

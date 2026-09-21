@@ -154,6 +154,16 @@ MANIFEST: tuple[Output, ...] = (
            contents=lambda s: [f"{n}.dxf" for n in disc_names(s)]
            + ["ring_plate.dxf", "output_carrier.dxf",
               "input_end_plate.dxf", "output_end_plate.dxf"]),
+    Output("sketch_dxf", "sketch/", "drawings", "DXF",
+           "Editable sketch, one per disc",
+           "The same disc outline as one closed cubic spline instead of the "
+           "cutting file's eighteen hundred vertices, so a CAD package has a "
+           "curve to build on rather than a cloud in the shape of a disc. "
+           "Fitted to the design's own chord tolerance and stamped with the "
+           "deviation it reached, and carrying the centre marks and bolt circle "
+           "the disc never had. Not for cutting: two outlines in one file is a "
+           "part cut twice, which is why this is a folder of its own.",
+           contents=lambda s: [f"{n}.dxf" for n in disc_names(s)]),
     Output("assembly_step", "assembly.step", "solids", "STEP",
            "Assembled gearbox",
            "Housing, ring pins, phased discs, eccentric shaft and output "
