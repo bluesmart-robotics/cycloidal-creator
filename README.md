@@ -59,7 +59,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,177 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,187 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -604,6 +604,17 @@ suggests it.
   either way, saying what is carrying it instead — a motor's own bearings do not
   stop the crank reaction existing.
 
+  A seat with no bearing in it also says what is *between* its surfaces. It is a
+  plain sliding contact, the film across it is already solved to get the
+  efficiency its friction coefficients, and the regime it lands in is what
+  separates an L10 column reading `—` from a wear rate: on a ground steel drive
+  with moly grease in it the cam journal floats and the fixed ring pin builds a
+  film an order of magnitude short of the roughness it has to clear. A seat
+  with a bearing *in* it is given no such sentence, because what that would take
+  is ISO 281's `a_ISO` — published curves over a viscosity ratio that needs a
+  reference-viscosity chart of its own, none of which is here, and a factor
+  invented to stand in for it would be exactly the kind of number this refuses.
+
   ![exploded](https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/exploded.png)
 
   It renders on the GPU through VTK — which costs no new dependency, because
@@ -787,7 +798,7 @@ cycloidgen/
                 branding (palette and stylesheet), plotbar (the trimmed
                 matplotlib toolbar), updates (the check, and asking before it
                 runs)
-tests/          1,177 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,187 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -803,7 +814,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,177 tests, about 520 s. Most of that is CadQuery writing solids; the pure
+1,187 tests, about 520 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

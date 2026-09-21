@@ -49,10 +49,35 @@ def test_every_load_path_appears():
                      "Main output bearing"}
 
 
-def test_the_ring_pin_roller_only_appears_when_it_is_selected():
-    roles = {c.role for c in _schedule(_spec(rollers=False))}
-    assert "Ring pin roller" not in roles
-    assert "Input shaft support" in roles
+def test_the_ring_pin_load_path_stays_when_the_roller_does_not():
+    """The row used to vanish with the switch, and it was the last one that did.
+
+    Every other seat leaves its row behind saying who takes the force instead;
+    that rule arrived with the cam, shaft and output switches and this branch,
+    which is older, was never brought under it. A drive with fixed ring pins
+    had four rows and no mention of the contact the mesh load goes through -
+    which is the exact reading the schedule was rewritten to stop.
+    """
+    schedule = {c.role: c for c in _schedule(_spec(rollers=False))}
+    assert "Input shaft support" in schedule
+    ring = schedule["Ring pin roller"]
+    assert not ring.fitted and ring.count == 0 and ring.bearing is None
+    # The force has not gone anywhere: it is carried here, sliding, which is
+    # a different answer from a load that leaves the gearbox.
+    assert not ring.carried_elsewhere
+    assert ring.load_N > 0.0
+    assert ring.carries and ring.note
+
+
+def test_the_fixed_ring_pin_row_does_not_overstate_its_own_loss():
+    """Its note calls that contact the largest sliding loss in the drive, which
+    is a claim rather than a flourish and is checked like one."""
+    for ratio in (10, 15, 21, 29):
+        spec = preset(ratio)
+        spec.ring_pins_are_rollers = False
+        e = analyse(spec).efficiency
+        assert e.loss_ring_pins_W > e.loss_output_pins_W
+        assert e.loss_ring_pins_W > e.loss_bearings_W
 
 
 def test_the_eccentric_bearing_fits_the_cam_and_not_the_shaft():
@@ -434,7 +459,8 @@ def test_the_load_path_stays_in_the_schedule_when_the_bearing_does_not():
     """
     schedule = {c.role: c for c in _schedule(_stripped())}
     assert set(schedule) == {"Eccentric cam bearing", "Output pin roller",
-                             "Input shaft support", "Main output bearing"}
+                             "Ring pin roller", "Input shaft support",
+                             "Main output bearing"}
     for role in ("Eccentric cam bearing", "Input shaft support",
                  "Main output bearing"):
         assert not schedule[role].fitted
@@ -470,6 +496,115 @@ def test_only_a_load_that_leaves_the_gearbox_is_reported_as_omitted():
     assert "input shaft support" in finding.message
     assert "main output bearing" in finding.message
     assert "eccentric cam bearing" not in finding.message
+
+
+# --------------------------------------------- what is between the surfaces
+
+#: The three contacts the lubrication module solves, and the seat each one is.
+_PLAIN_SEATS = {
+    "Eccentric cam bearing": "Disc bore / cam",
+    "Output pin roller": "Output pin / disc hole",
+    "Ring pin roller": "Ring pin / disc flank",
+}
+
+
+def _plain():
+    """A drive with nothing rolling anywhere, and something in the joints.
+
+    All three of the seats that can be run without a bearing are, so all three
+    are plain sliding contacts - which is the only case where this app has an
+    honest answer about what is between the surfaces.
+    """
+    spec = _spec(rollers=False)
+    spec.cam_bearing_fitted = False
+    spec.lubricant = "Grease NLGI 2 (EP, moly)"
+    return spec
+
+
+def test_the_regime_is_stated_at_every_seat_that_runs_without_a_bearing():
+    """An empty seat's L10 column reads "-", and what belongs in its place is a
+    wear rate. The regime is the first word on that, and it is already solved -
+    the efficiency needed the same film to get its friction coefficients."""
+    said = {c.role for c in analyse(_plain()).bearings if c.film}
+    assert said == set(_PLAIN_SEATS)
+
+
+def test_a_fitted_bearing_is_not_given_a_film_the_app_cannot_work_out():
+    """The line this feature is drawn at, and the reason it is only half of the
+    roadmap entry it comes from.
+
+    What a *fitted* bearing's life does under its lubrication is ISO 281's
+    `a_ISO`: published curves over a viscosity ratio that needs a reference
+    viscosity chart of its own, none of which is in this repository. Inventing a
+    factor to stand in for it would be the one thing this project refuses, so
+    the row says nothing rather than something made up.
+    """
+    assert not any(c.film for c in analyse(_spec()).bearings)
+
+
+def test_a_load_that_leaves_the_gearbox_has_no_contact_to_report():
+    """Separate from a seat left empty: a drive hung on its motor's bearings
+    does not carry that force at all, so there is no contact here to be in any
+    regime. Those two rows say who took the load and stop there."""
+    said = {c.role for c in analyse(_stripped()).bearings if c.film}
+    assert "Input shaft support" not in said
+    assert "Main output bearing" not in said
+
+
+def test_the_schedule_quotes_the_film_the_efficiency_was_solved_with():
+    """One answer to one question. Working the film out a second time here is
+    how two numbers that describe the same contact drift apart, and the report
+    prints both of them."""
+    a = analyse(_plain())
+    seats = {c.role: c for c in a.bearings}
+    for role, contact in _PLAIN_SEATS.items():
+        c = a.lubrication[contact]
+        film = seats[role].film
+        assert c.regime.capitalize() in film
+        assert f"lambda {c.lambda_ratio:.2f}" in film
+        assert f"mu {c.mu:.3f}" in film
+
+
+def test_the_seats_do_not_all_land_in_the_same_regime():
+    """The whole reason for saying it per seat rather than once per drive.
+
+    On a ground steel drive with grease in it the cam journal is the fastest
+    surface in the machine and floats; the ring pin is stationary, so its
+    contact is dragged rather than rolled and gets a film an order of magnitude
+    short of the roughness it has to clear. One sentence about "the
+    lubrication" cannot say both.
+    """
+    seats = {c.role: c for c in analyse(_plain()).bearings}
+    assert seats["Eccentric cam bearing"].film.startswith("Full film")
+    assert seats["Ring pin roller"].film.startswith("Boundary")
+
+
+def test_a_dry_drive_says_so_rather_than_quoting_a_lambda_it_does_not_have():
+    """There is no hydrodynamics to report and none is pretended."""
+    spec = _plain()
+    spec.lubricant = "None (dry)"
+    a = analyse(spec)
+    film = {c.role: c.film for c in a.bearings}["Ring pin roller"]
+    assert "lambda" not in film
+    assert "dry" in film.lower()
+    assert f"{a.lubrication['Ring pin / disc flank'].mu:.3f}" in film
+
+
+def test_a_bonded_film_is_not_reported_as_running_dry():
+    """A dry film is a choice that happens not to separate the surfaces, which
+    is not the same answer as nothing in the joint at all."""
+    spec = _plain()
+    spec.lubricant = "PTFE dry film"
+    film = {c.role: c.film for c in analyse(spec).bearings}["Ring pin roller"]
+    assert "PTFE dry film" in film
+    assert "lambda" not in film
+
+
+def test_the_schedule_is_what_it_always_was_where_no_film_is_handed_in():
+    """Most callers have a spec and no operating point. The film depends on the
+    running temperature, which is a fixed point solved with the efficiency, and
+    re-solving it to decorate a schedule would cost every one of them."""
+    assert not any(c.film for c in _schedule(_plain()))
 
 
 def test_the_cam_grows_to_fill_the_bore_when_nothing_sits_between_them():

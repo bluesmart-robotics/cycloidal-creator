@@ -286,6 +286,7 @@ def report_dict(a: DesignAnalysis) -> dict:
                 "speed_rpm": b.speed_rpm,
                 "L10_hours": None if b.life_hours == float("inf") else b.life_hours,
                 "note": b.note,
+                "film": b.film,
             }
             for b in a.bearings
         ],
@@ -850,7 +851,14 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
         # The seat under the role, not a column of its own: where a bearing goes
         # is a sentence, and a table that only names the part leaves the builder
         # to guess it - which is the question this whole page exists to answer.
-        rows.append([Paragraph(f"<b>{b.role}</b><br/>{b.seat or b.note}", body),
+        # The film goes under both, where there is one to state: a seat this
+        # drive runs without a bearing has an L10 column that reads "-", and
+        # what is in its place is a wear rate the regime is the first word on.
+        # A line of its own rather than the next sentence along: neither the
+        # seat nor the note ends in a full stop, so run together they read as
+        # one sentence that changes subject half way through.
+        detail = "<br/>".join(p for p in (b.seat or b.note, b.film) if p)
+        rows.append([Paragraph(f"<b>{b.role}</b><br/>{detail}", body),
                      f"{b.count}" if b.count else "-",
                      b.bearing.designation if b.bearing else "-",
                      size, f"{b.load_N:.0f} N", f"{b.speed_rpm:.0f} rpm", life])

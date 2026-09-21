@@ -147,7 +147,8 @@ def test_analysis_bundles_findings():
     a = analyse(preset(29))
     assert a.spec.ratio == 29
     assert a.contact.max_pin_force_N > 0
-    # Four load paths on fixed ring pins, five when they are rollers: the
-    # eccentric cam, the output pins, the input shaft and the output flange.
-    assert len(a.bearings) == 4 + int(a.spec.ring_pins_are_rollers)
+    # Five load paths, whatever this design switches off: the eccentric cam,
+    # the output pins, the ring pins, the input shaft and the output flange.
+    # A row left out reads as a load path that does not exist.
+    assert len(a.bearings) == 5
     assert all(f.severity in Severity for f in a.report.findings)

@@ -9,7 +9,8 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ..core.spec import AUTOMATIC, CARRIER_DROP, GearSpec, OutputMember
+from ..core.spec import AUTOMATIC, CARRIER_DROP, DRY, GearSpec, OutputMember
+from .lubrication import ContactFilm, LubricationResult
 
 __all__ = ["CATALOGUE", "Bearing", "BearingChoice", "BearingPlacement", "BearingRing",
            "bearing_placements", "bearing_schedule", "life_hours",
@@ -119,6 +120,11 @@ class BearingChoice:
     problem: str = ""
     #: Whether the part physically goes in the seat.  See :class:`_Filled`.
     fits: bool = True
+    #: What is between the surfaces here, in words, where the app knows - and it
+    #: only knows at a seat with *no* bearing in it.  See :func:`_film_sentence`
+    #: for why that is the whole of the honest answer.  Empty everywhere else,
+    #: rather than a sentence that has to be read to find out it says nothing.
+    film: str = ""
 
 
 def life_hours(b: Bearing, load_N: float, rpm: float) -> float:
@@ -265,9 +271,90 @@ def _fill(seat: _Seat, named: str, min_life_hours: float) -> _Filled:
     return _Filled(chosen, seat.standoff(chosen))
 
 
+#: The sliding contact each seat becomes when there is no bearing in it.
+#: :mod:`cycloidgen.analysis.lubrication` solves exactly these three, so what is
+#: between the surfaces at an empty seat is a computed fact rather than a guess.
+#: The two seats not listed here - the shaft supports and the main output
+#: bearing - have no contact in this drive at all when they are left out: the
+#: load leaves the gearbox and what holds it is somebody else's bearing.
+_PLAIN_CONTACT = {
+    "Eccentric cam bearing": "Disc bore / cam",
+    "Output pin roller": "Output pin / disc hole",
+    "Ring pin roller": "Ring pin / disc flank",
+}
+
+#: What each regime means for the seat, rather than for the oil.  The lambda
+#: ratio is the answer and this is what the answer is *for*: whether the number
+#: in the L10 column is a life or a category error.
+_WHAT_THE_REGIME_MEANS = {
+    "boundary": "The peaks are carrying the load and the additives are "
+                "carrying the peaks, so this seat wears at a rate rather than "
+                "lasting a life.",
+    "thin mixed": "Most of the load is still on the peaks, so this seat wears "
+                  "at a rate rather than lasting a life.",
+    "mixed": "The film takes part of the load and the peaks take the rest, so "
+             "this seat still wears.",
+    "full film": "The surfaces are apart, so this seat wears at start and stop "
+                 "rather than in service.",
+}
+
+
+def _film_sentence(lubricant: str, c: ContactFilm) -> str:
+    """What the lubricant is doing at a seat with no bearing in it, in words.
+
+    Qualitative on purpose, and only for the empty seats, because that is the
+    limit of what this app can honestly say.  A *fitted* bearing's life under
+    its lubrication is ISO 281's ``a_ISO``, which is a family of published
+    curves over a viscosity ratio that needs a reference-viscosity chart of its
+    own; none of that is here, and a factor invented to stand in for it would be
+    the one thing this project refuses - a confident number with nothing behind
+    it.  An *empty* seat is a different question and an answerable one: it is a
+    plain sliding contact, :mod:`cycloidgen.analysis.lubrication` has already
+    built the film across it for the efficiency solve, and saying which regime
+    it lands in costs nothing and is the difference between reading the L10
+    column as a life and reading it as a wear rate.
+
+    So the schedule says what it knows and is silent where it does not, rather
+    than filling every row with a sentence that has to be read before it turns
+    out to say nothing.
+    """
+    if not c.slides:
+        return ""
+    if c.film_um <= 0.0:
+        # Dry, or a bonded film that works by shearing rather than separating.
+        # There is no lambda to quote because there is no hydrodynamics, and
+        # pretending otherwise is what this module is here not to do.  The two
+        # cases are said differently because they are different: one is an
+        # absence and the other is a choice that happens not to build a film.
+        how = ("Running dry: nothing is between the surfaces at all"
+               if lubricant == DRY else
+               f"No film: {lubricant} works by shearing rather than by "
+               f"separating, so the surfaces touch")
+        return (f"{how}, and mu is {c.mu:.3f}. What limits this seat is PV "
+                f"rather than a life.")
+    return (f"{c.regime.capitalize()}: {1000 * c.film_um:.0f} nm of film "
+            f"against {1000 * c.roughness_um:.0f} nm of roughness is lambda "
+            f"{c.lambda_ratio:.2f}, mu {c.mu:.3f}. "
+            + _WHAT_THE_REGIME_MEANS[c.regime])
+
+
+def _state_the_film(schedule: list[BearingChoice],
+                    lubrication: LubricationResult) -> None:
+    """Put the regime beside every seat this drive runs without a bearing."""
+    for choice in schedule:
+        if choice.fitted:
+            continue
+        name = _PLAIN_CONTACT.get(choice.role)
+        if name is None:
+            continue
+        choice.film = _film_sentence(lubrication.lubricant, lubrication[name])
+
+
 def select_bearings(spec: GearSpec, eccentric_load_N: float,
                     output_pin_load_N: float,
-                    ring_pin_load_N: float = 0.0) -> list[BearingChoice]:
+                    ring_pin_load_N: float = 0.0,
+                    lubrication: LubricationResult | None = None
+                    ) -> list[BearingChoice]:
     """The whole bearing schedule: every rolling interface, counted and placed.
 
     Five roles, not three.  The two that used to be missing are the ones a
@@ -275,6 +362,13 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
     rollers - a switch that already changes the efficiency and the PV duty - were
     never sized.  A schedule that skips a load path reads as if that path did not
     need a bearing.
+
+    ``lubrication`` is optional because most callers have a spec and not an
+    operating point: the film depends on the running temperature, which is a
+    fixed point solved with the efficiency, and re-solving it here to decorate a
+    schedule would double the cost of every caller that does not want it.  Hand
+    it in and each seat without a bearing says what is between its surfaces;
+    leave it out and the schedule is exactly what it was.
     """
     out: list[BearingChoice] = []
 
@@ -397,6 +491,30 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
                   "turning on a smaller pin, which is what most builds at "
                   "this size do"),
         ))
+    else:
+        # The one load path that still vanished.  Every other switch in this
+        # function leaves its row behind saying who takes the force instead -
+        # that rule arrived with the cam, shaft and output switches and this
+        # branch, which is older, was never brought under it.  So a drive with
+        # fixed ring pins had four rows and no mention of the contact the mesh
+        # load actually goes through, which is the reading this schedule was
+        # rewritten to stop: a row that is not there reads as a load path that
+        # does not exist.
+        #
+        # The speed is the same one the fitted row quotes, and it is a surface
+        # travel rather than a rotation here: nothing turns, which is exactly
+        # why this contact is dragged rather than rolled and why it gets no
+        # film worth the name.  See `_roller_rpm` and `analysis.lubrication`.
+        out.append(BearingChoice(
+            role="Ring pin roller", fitted=False, count=0, bearing=None,
+            load_N=ring_pin_load_N, speed_rpm=_roller_rpm(spec),
+            life_hours=float("inf"),
+            carries="nothing - the lobe sweeps across a pin that cannot turn",
+            seat="",
+            note="fixed ring pins selected - the flank rubs on a stationary "
+                 "pin, which is the largest sliding loss in the drive and the "
+                 "contact least able to build a film",
+        ))
 
     # 4. input shaft support - two of them, and until now nothing held the shaft
     # at all.  The cam sits between them, so each takes about half of what the
@@ -505,10 +623,14 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
                   "consider a crossed-roller or a pair of angular contact "
                   "bearings"),
         ))
+    if lubrication is not None:
+        _state_the_film(out, lubrication)
     return out
 
 
-def bearing_schedule(spec: GearSpec, contact=None) -> list[BearingChoice]:
+def bearing_schedule(spec: GearSpec, contact=None,
+                     lubrication: LubricationResult | None = None
+                     ) -> list[BearingChoice]:
     """The schedule from a spec alone, working the loads out on the way.
 
     :func:`select_bearings` takes the loads because that is what it needs; every
@@ -520,7 +642,8 @@ def bearing_schedule(spec: GearSpec, contact=None) -> list[BearingChoice]:
         contact = analyse_contacts(spec)
     return select_bearings(spec, contact.eccentric_bearing_load_N,
                            contact.max_output_force_N,
-                           ring_pin_load_N=contact.max_pin_force_N)
+                           ring_pin_load_N=contact.max_pin_force_N,
+                           lubrication=lubrication)
 
 
 # ------------------------------------------------------------------- placement

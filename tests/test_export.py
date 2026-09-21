@@ -92,7 +92,10 @@ def test_json_report_round_trips(spec, tmp_path):
     assert data["derived"]["pin_count"] == spec.pin_count
     assert data["contact"]["max_pin_force_N"] > 0
     assert 0 < data["efficiency"]["efficiency"] < 1
-    assert len(data["bearings"]) == 4 + int(spec.ring_pins_are_rollers)
+    # Five, whatever the design switches off: a row that vanishes reads as a
+    # load path that does not exist.
+    assert len(data["bearings"]) == 5
+    assert all("film" in b for b in data["bearings"])
     assert data["spec"]["lobes"] == spec.lobes
 
 

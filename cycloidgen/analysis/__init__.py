@@ -97,9 +97,15 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # fatigue strength goes down with it.
     fatigue = analyse_fatigue(spec, mass.web_shear_MPa, mass.min_web_mm,
                               temperature_C=therm.temperature_C)
+    # The film comes in with the loads rather than being looked up afterwards:
+    # a seat this drive runs without a bearing is a plain sliding contact, the
+    # efficiency solve has already built the film across it at the running
+    # temperature, and that is the difference between reading the L10 column as
+    # a life and reading it as a wear rate.
     bearings = select_bearings(spec, contact.eccentric_bearing_load_N,
                                contact.max_output_force_N,
-                               ring_pin_load_N=contact.max_pin_force_N)
+                               ring_pin_load_N=contact.max_pin_force_N,
+                               lubrication=eff.lubrication)
     capacity = torque_capacity(spec, contact=contact)
     # After the efficiency solve rather than beside it: what the motor is asked
     # for is the input torque *including* the loss, and on a printed drive with
