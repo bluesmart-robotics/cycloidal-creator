@@ -470,6 +470,13 @@ class Updater(QObject):
 
     # ----------------------------------------------------------------- offer
     def _offer(self, release: Release) -> None:
+        # The other end of the same errand, and the same guard for the same
+        # reason - see `_tell`.  This one also covers the download, because the
+        # progress dialog is only ever reached from a button in here.
+        if unattended():
+            logger.info("update available: %s, not offered - no display (%s)",
+                        release.version, release.page)
+            return
         dialog = UpdateDialog(release, self._window)
         dialog.exec()
         if dialog.choice == UpdateDialog.SKIP:
@@ -569,6 +576,28 @@ class Updater(QObject):
         self.announced.emit(message, level, seconds)
 
     def _tell(self, message: str, *, icon=QMessageBox.Information) -> None:
+        """Say something, where there is somebody to say it to.
+
+        The guard is here rather than only at :meth:`start`, and that move is
+        the whole of a bug.  ``start`` asks whether anybody is there before it
+        raises the first-run question, because that was the one modal put up by
+        a *timer* - and the reasoning stopped at timers.  A check started from
+        the Help menu is not a timer, but it is still an errand that finishes on
+        its own some seconds later, and every way it can finish ends in a
+        dialog: the version is current, or it is not, or GitHub could not be
+        reached.  So the property that matters belongs to the dialog and not to
+        what asked for it.
+
+        It cost a test suite that never finished.  ``tests/test_workspace.py``
+        triggers every entry on the Help menu, which was written when they were
+        all links; 7.8.0 put a check on that menu, the sweep started one, the
+        answer came back, and the run stopped at a message box nobody could
+        press OK on - which is precisely what :func:`unattended` was written to
+        describe and was not yet being asked.
+        """
+        if unattended():
+            logger.info("%s", message)
+            return
         box = QMessageBox(self._window)
         box.setWindowTitle("Updates")
         box.setIcon(icon)

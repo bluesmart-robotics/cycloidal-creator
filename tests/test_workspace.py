@@ -1230,11 +1230,21 @@ def test_the_help_menu_offers_the_project_and_the_company(app, monkeypatch):
     there the repository was reachable only by knowing the address."""
     from PySide6.QtGui import QDesktopServices
 
+    from cycloidgen import update
     from cycloidgen.ui import branding
 
     opened: list[str] = []
     monkeypatch.setattr(QDesktopServices, "openUrl",
                         staticmethod(lambda url: opened.append(url.toString()) or True))
+
+    # This sweep triggers *every* entry on the menu, which was a safe thing to
+    # do while they were all links. 7.8.0 put a check for updates on it, so the
+    # sweep asked GitHub a real question over a real socket - in a suite that
+    # otherwise never touches the network - and then sat at the message box that
+    # came back. Turning the feature off leaves both of its entries on the menu
+    # and disabled, which a trigger does nothing to, so the sweep still covers
+    # everything it was written to cover.
+    monkeypatch.setenv(update.ENV_VAR, "1")
 
     w = _window(app)
     try:

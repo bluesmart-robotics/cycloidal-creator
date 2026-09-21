@@ -131,11 +131,48 @@ def test_nothing_is_raised_where_there_is_nobody_to_answer_it(updater,
 def test_the_menu_still_works_where_the_timer_does_not(updater, monkeypatch):
     """Off-screen suppresses what nobody asked for, not what somebody clicked."""
     asked = []
-    monkeypatch.setattr(update, "latest", lambda: asked.append(True))
+
+    def latest():
+        asked.append(True)
+        return _release(__version__)
+
+    # `update.latest` returns a Release or raises UpdateError; it never returns
+    # None. A stub that does - which `list.append` quietly is - puts a value
+    # through the worker that no caller is written for, and the AttributeError
+    # lands in the Qt event loop belonging to whichever test is running by then.
+    monkeypatch.setattr(update, "latest", latest)
     updater.enabled = True
     updater.check(explicit=True)
     updater.shutdown()
+    QApplication.processEvents()
     assert asked == [True]
+
+
+def test_a_check_that_finishes_raises_no_dialog_with_nobody_to_dismiss_it(
+        updater, monkeypatch):
+    """The failure this guards against is a hang rather than an error.
+
+    Every other test here replaces `_tell` and `_offer` before going near them,
+    which is what kept this hidden: the dialogs were never reached with the real
+    ones in place. `tests/test_workspace.py` reached them by accident - it
+    triggers every entry on the Help menu, that menu grew a check in 7.8.0, and
+    the run stopped at a message box nobody could answer.
+
+    Both outcomes are exercised, because they end in different dialogs.
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    assert updates.unattended(), "these tests are supposed to run offscreen"
+    monkeypatch.setattr(QMessageBox, "exec",
+                        lambda self: pytest.fail("a modal question with no user"))
+    monkeypatch.setattr(UpdateDialog, "exec",
+                        lambda self: pytest.fail("a modal question with no user"))
+
+    updater.enabled = True
+    updater._found(_release(__version__))          # current: "you are up to date"
+    updater._explicit = True
+    updater._found(_release("99.0.0"))             # newer: the offer
+    updater._check_failed("GitHub said no")        # and the way it goes wrong
 
 
 # ---------------------------------------------------------------- schedule --
