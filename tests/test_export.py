@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import xml.etree.ElementTree as ET
 
 import ezdxf
@@ -291,6 +292,41 @@ def test_part_steps_are_written_one_per_distinct_part(spec, tmp_path):
     disc = cq.importers.importStep(str(tmp_path / "step" / "disc_1.step"))
     assert disc.val().Volume() == pytest.approx(
         solid.disc_solid(spec, spec.disc_hole_phases[0]).val().Volume(), rel=1e-6)
+
+
+def test_a_part_file_says_which_part_it_is_from_the_inside(spec, tmp_path):
+    """The file name is the first thing lost.
+
+    A solid exported on its own carries whatever OCCT calls it, so every file in
+    this folder opened in a CAD package as `Open CASCADE STEP translator 7.9 2`
+    - eight parts told apart by a trailing number with nothing to do with the
+    part. That was survivable only while the file name carried the identity, and
+    it does not survive being imported: an import keeps the product name and
+    drops the path. A part somebody means to build on has to say what it is from
+    the inside.
+    """
+    products = re.compile(r"PRODUCT\('([^']*)'")
+    for path in solid.write_part_steps(spec, tmp_path / "step"):
+        named = set(products.findall(path.read_text(errors="replace")))
+        assert path.stem in named, path.name
+        assert not [n for n in named if "STEP translator" in n], path.name
+
+
+def test_a_part_file_carries_the_colour_the_assembly_gives_it(spec, tmp_path):
+    """One colour table, checked rather than asserted in a comment.
+
+    The viewer, the assembly file and the part files are the same gearbox. Two
+    hand-written colour lists agree on the day they are written and not for very
+    long after, which is what `_colour` was introduced to stop - and the per-part
+    export had no colour at all, so it could not even disagree.
+    """
+    colour = re.compile(r"COLOUR_RGB\('[^']*',([-0-9.eE]+),([-0-9.eE]+),([-0-9.eE]+)\)")
+    assembled = {c.name: c for c in solid.build_assembly(spec).children}
+    for path in solid.write_part_steps(spec, tmp_path / "step"):
+        found = colour.findall(path.read_text(errors="replace"))
+        assert len(found) == 1, path.name
+        assert tuple(float(v) for v in found[0]) == pytest.approx(
+            assembled[path.stem].color.toTuple()[:3]), path.name
 
 
 def test_identical_discs_collapse_to_one_file(tmp_path):

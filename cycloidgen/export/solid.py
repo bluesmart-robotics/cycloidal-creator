@@ -52,6 +52,32 @@ def _colour(group: str) -> cq.Color:
     return cq.Color(r / 255.0, g / 255.0, b / 255.0)
 
 
+#: Which colour group each exported part belongs to.  One table rather than a
+#: list of groups written out at the assembly and a second one at the per-part
+#: export: they are the same gearbox, and somebody who opens both files should
+#: not have to wonder whether they are.  Discs and bearings are matched by
+#: prefix because there are as many of them as the design says.
+_PART_GROUP = {
+    "housing": "housing",
+    "ring_pins": "ring_pins",
+    "eccentric_shaft": "shaft",
+    "output_flange": "carrier",
+    "end_cap": "carrier",
+    "input_end_plate": "end_plates",
+    "output_end_plate": "end_plates",
+    "tie_bolts": "fasteners",
+}
+
+
+def _part_colour(name: str) -> cq.Color:
+    """The colour of one part, by the name it is exported under."""
+    if name.startswith("disc_"):
+        return _colour("discs")
+    if name.startswith("bearing_"):
+        return _colour("bearings")
+    return _colour(_PART_GROUP[name])
+
+
 def _profile_points(spec: GearSpec) -> list[tuple[float, float]]:
     n = prof.sample_count_for_chord_tolerance(
         spec.effective_R, spec.effective_Rr, spec.eccentricity, spec.lobes,
@@ -396,11 +422,12 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     planar: dict[str, cq.Location] = {}
     identity = cq.Location(cq.Vector(0, 0, 0))
 
-    assy.add(ring_housing(spec), name="housing", color=_colour("housing"))
+    assy.add(ring_housing(spec), name="housing",
+             color=_part_colour("housing"))
     planar["housing"] = identity
     if not spec.ring_pins_integral:
         assy.add(ring_pins(spec, placements), name="ring_pins",
-                 color=_colour("ring_pins"))
+                 color=_part_colour("ring_pins"))
         planar["ring_pins"] = identity
 
     z = 0.0
@@ -412,15 +439,16 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
         rot = math.degrees(phase / spec.lobes)
         assy.add(disc_solid(spec, hole_phase), name=f"disc_{i + 1}",
                  loc=cq.Location(cq.Vector(cx, cy, z), cq.Vector(0, 0, 1), rot),
-                 color=_colour("discs"))
+                 color=_part_colour(f"disc_{i + 1}"))
         planar[f"disc_{i + 1}"] = cq.Location(cq.Vector(cx, cy, 0.0),
                                               cq.Vector(0, 0, 1), rot)
         z += spec.disc_thickness + spec.disc_gap
 
-    assy.add(eccentric_shaft(spec), name="eccentric_shaft", color=_colour("shaft"))
+    assy.add(eccentric_shaft(spec), name="eccentric_shaft",
+             color=_part_colour("eccentric_shaft"))
     assy.add(output_flange(spec, placements), name="output_flange",
              loc=cq.Location(cq.Vector(0, 0, -CARRIER_DROP)),
-             color=_colour("carrier"))
+             color=_part_colour("output_flange"))
     planar["eccentric_shaft"] = planar["output_flange"] = identity
 
     # The end cap, on a ring-output drive: the far end of the output pins, and
@@ -428,7 +456,7 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     # it needs no placement of its own.
     if spec.ground_frame_fitted:
         assy.add(end_cap(spec, placements), name="end_cap",
-                 color=_colour("carrier"))
+                 color=_part_colour("end_cap"))
         planar["end_cap"] = identity
 
     # The plates close the housing, one on each face.  The output one sits
@@ -438,21 +466,21 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     assy.add(housing_end_plate(spec, spec.input_plate_bore, motor_face=True),
              name="input_end_plate",
              loc=cq.Location(cq.Vector(0, 0, spec.barrel_top)),
-             color=_colour("end_plates"))
+             color=_part_colour("input_end_plate"))
     assy.add(housing_end_plate(spec, spec.output_bearing_seat_diameter),
              name="output_end_plate",
              loc=cq.Location(cq.Vector(
                  0, 0, -CARRIER_DROP - spec.output_flange_thickness
                  - spec.plate_thickness)),
-             color=_colour("end_plates"))
+             color=_part_colour("output_end_plate"))
     planar["input_end_plate"] = planar["output_end_plate"] = identity
 
     for name, body in bearing_solids(spec, placements).items():
         host = next(p.host for p in placements if p.name == name)
-        assy.add(body, name=name, loc=planar[host], color=_colour("bearings"))
+        assy.add(body, name=name, loc=planar[host], color=_part_colour(name))
 
     if spec.housing_bolt_count:
-        assy.add(tie_bolts(spec), name="tie_bolts", color=_colour("fasteners"))
+        assy.add(tie_bolts(spec), name="tie_bolts", color=_part_colour("tie_bolts"))
     return assy
 
 
@@ -504,13 +532,29 @@ def write_part_steps(spec: GearSpec, directory: str | Path) -> list[Path]:
     The assembly file is for looking at and for checking fit.  These are for
     handing one part to a machine shop, or to a CAM package that would otherwise
     make you fish the body out of an assembly first.
+
+    Written through the assembly writer rather than as a bare solid, and the
+    reason is the *name*.  A solid exported on its own carries whatever OCCT
+    calls it, which is ``Open CASCADE STEP translator 7.9 2`` - so every file in
+    this folder opened in a CAD package as that, eight parts told apart by a
+    trailing number that has nothing to do with the part.  The file name was the
+    only thing carrying the identity, and the file name is the first thing lost:
+    importing a part into an assembly keeps the product name and drops the path.
+    A part somebody means to build on has to say what it is from the inside.
+
+    So each one goes out as a single named part under the design it came from,
+    in the colour the assembly and the 3D view already give it.  It costs about
+    1% of the file, and what arrives is ``cycloidal_21to1 > housing`` rather
+    than a numbered translator string.
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     for name, wp in parts(spec).items():
         out = directory / f"{name}.step"
-        cq.exporters.export(wp.val(), str(out))
+        one = cq.Assembly(name=f"cycloidal_{spec.ratio}to1")
+        one.add(wp, name=name, color=_part_colour(name))
+        one.export(str(out))
         written.append(out)
     return written
 
