@@ -5,6 +5,87 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.9.0
+
+**Numbers** — none move, and this time that is measured rather than argued. Nine
+designs - the four presets, rollers, a plain cam in grease, a ground steel
+drive, a ring-output drive and one with its bearings stripped - were analysed by
+7.8.0 and by 7.9.0 and the whole of `report.json` compared: every computed value
+is identical to the bit, and so is every finding, so no check passes or fails a
+design it did not before. What the report *says* is larger: see the bearing
+schedule under **Changed**.
+
+**Added**
+
+- **An editable sketch of every disc,** as `sketch/disc_1.dxf` and on. The
+  cutting files carry the outline as a polyline held to the chord tolerance,
+  which at 5 µm is about 1,800 vertices - the right answer for a laser and the
+  wrong one for a CAD package, where the profile is something to build *on*.
+  Eighteen hundred vertices cannot be offset, dimensioned or hung a feature off;
+  it is a cloud in the shape of a disc. The sketch carries the same outline as
+  one closed cubic spline: 100 to 231 control points across the presets, fitted
+  to the design's own tolerance, with the deviation it actually reached stamped
+  on the drawing. It also carries the construction geometry the disc never had
+  - a centre mark at the bore and in every hole, and the bolt circle - which
+  every other part in the cutting folder already got.
+
+  It is a folder of its own on purpose. Two outlines in a file somebody sends
+  to a laser is a part cut twice, so the cutting files are untouched and a test
+  holds both halves of that.
+
+- **What is between the surfaces, at every seat without a bearing.** A plain cam
+  journal, a fixed output pin or a fixed ring pin has no life, it has a wear
+  rate, and the L10 column read "-" with nothing in its place. The film at those
+  contacts was already being solved for the efficiency; the schedule now states
+  the regime it lands in - in the PDF under the seat, and as `film` in
+  `report.json`. It is *not* stated for a seat with a bearing in it, because that
+  needs ISO 281's `a_ISO` and its reference-viscosity chart, and a factor made up
+  to stand in for them would be a confident number with nothing behind it.
+
+  Stated per seat because the seats disagree: on a ground steel 21:1 in moly
+  grease the cam journal floats at lambda 4.7 while the fixed ring pin sits at
+  0.08.
+
+**Changed**
+
+- **The bearing schedule keeps a row for fixed ring pins.** Every other seat
+  left without a bearing already stayed on the schedule saying who carries the
+  load instead; the ring pins were the one load path that vanished, so a drive
+  with fixed pins had four rows and no mention of the contact the mesh load goes
+  through. `report.json`'s `bearings` array is now always five rows. Rows with a
+  null `designation` were already there for the other unfitted seats, so
+  anything reading the array already meets one.
+
+- **Each file in `step/` says which part it is from the inside.** A solid
+  exported on its own carried the kernel's name for it, so every part opened in
+  a CAD package as `Open CASCADE STEP translator 7.9 2` - told apart by a number
+  unrelated to the part, and the file name that did carry the identity is the
+  first thing an import throws away. Each one is now a single named part under
+  the design it came from, `cycloidal_21to1 > housing`, in the colour the
+  assembly and the 3D view already give it. The geometry is unchanged, and
+  `importStep` returns the same solid it did.
+
+- **`--pin-material`, `--housing-material` and `--process` are checked,** as
+  `--disc-material` already was. A typo in any of them used to come back as a
+  traceback from several frames inside the search, naming none of the accepted
+  words; it now comes back as the list.
+
+**Fixed**
+
+- **The test suite could hang forever,** and a copy running without a display
+  could too. A check for updates started from the Help menu ends in a dialog
+  whichever way it goes - up to date, a newer version, or GitHub unreachable -
+  and the guard against raising a question nobody can answer was only on the
+  start-up path. Under `offscreen` that is a message box nobody can close, and
+  the suite sat at one at zero CPU. The guard is on the dialogs now, so an
+  unattended check logs its answer instead.
+
+- **The PDF lost its wordmark when written headless** - from CI, a notebook, or
+  `python -m cycloidgen --out` on a machine without Qt - because the logo's
+  *path* was looked up through a module that imports PySide6. One design, two
+  different PDFs, decided by something unrelated to the design. It is the same
+  file either way now.
+
 ## 7.8.0
 
 **Numbers** — none move. Nothing here touches the geometry, the analysis or what
