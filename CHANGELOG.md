@@ -5,6 +5,111 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 7.10.0
+
+**Numbers** — they move, on every design, and here is by how much. Nine designs
+- the six presets, rollers, a ground steel 21:1 and a ring-output drive - were
+analysed by 7.9.0 and by 7.10.0 and the whole of `report.json` compared.
+
+- **Mass, everywhere.** Each bearing seat is now bored to its bearing and has a
+  lip, the shaft is located by two sleeves, and the discs are held apart by
+  washers, and all of that is metal or plastic the mass model weighs. Assembled
+  mass is up 0.9% to 1.5% on the presets (781.1 to 791.8 g on the 21:1), 1.0% on
+  ground steel and 0.6% on the ring-output drive. `mass.spacers_mass_g` is new:
+  3.7 to 5.5 g across the presets, 9.5 g in steel. Inertia, the unbalance couple
+  and power density follow.
+- **The contact, on a printed disc.** An FDM disc in a printed material now has
+  its first-layer edge broken back 0.3 mm, so the analysis counts that much less
+  of every line contact on it. On every preset: contact pressure +1.9% and the
+  safety factors down by it, torque capacity -3.75% (3.51 to 3.38 Nm on the
+  21:1), -2.5% to -3.2% with clearance (0.898 to 0.875 Nm), torsional stiffness
+  -1.2% to -2.1% with its contact share -2.4% to -3.3%, wind-up +1.0% to +1.9%,
+  PV at the ring and output pins +3.9%. Transmission error moves 1.4% on the
+  10:1 and the 15:1 and under 0.6% elsewhere. Lost motion, efficiency and
+  temperature do not move.
+- **A machined drive moves only by its mass.** The ground steel 21:1 is
+  identical in every other value.
+
+No check passes or fails a design it did not before. The ring-output drive gains
+the new `TIE_NUTS_ON_OUTPUT_FACE` warning: its tie bolts have nuts now, and on
+that drive they stand on the face that turns.
+
+**Added**
+
+- **Parts you can build.** The model had every part's shape and none of what
+  holds a gearbox together, and now has it:
+  - *Seats bored to the bearing in them,* not to the room it left. The 6800
+    shaft supports, 19 mm outside, sat in 22 mm bores on every preset, and a
+    laser-cut 21:1 disc was one its cam bearing fell out of. The disc, both end
+    plates, the carrier's boss and the end cap are bored to the bearing's own
+    outside in the STEP, the meshes, the 3D view, the drawings and the cutting
+    DXFs; a seat with no bearing keeps its running clearance.
+  - *A lip behind every seat,* its hole at the bearing's pitch circle, so a
+    bearing is held in by something other than its press fit. The end-plate
+    drawings say which face each seat is bored from and how deep.
+  - *Two sleeves and the disc washers,* locating the shaft from cam to shoulder
+    and holding the discs at their designed gap. Made parts with their own
+    files and lines on the bill of materials.
+  - *Tie bolts as screws with a size, a length, a head and a nut* - ISO 4762
+    cap screws named off the clearance hole (4.5 mm is an M4) at the next
+    preferred length past the stack, ISO 4032 nuts, from a new
+    `core/fasteners.py` table for M2.5 to M16.
+  - *A flat on the input shaft* for a coupling's set screw, on a carrier drive.
+  - *Edge breaks and lead-ins,* `edge_chamfer`, 0.5 mm by default: outside
+    edges and every bearing-seat mouth on the solids, never on a running
+    surface. Outside corners only, so it never adds a fillet into a corner a
+    bearing seats against.
+- **A printed part comes out ready to print.** Each part in `stl/` stands on the
+  face that needs least support, at the origin, and on FDM the bed face's edges
+  are broken back 0.3 mm for the first layer's squash. The 3MF carries the same
+  edge break on the same face.
+- **The 3D view says what you click.** A picked part is tinted and its line on
+  the bill of materials is read out under the viewport. **X-ray** sees through
+  the housing and its end plates, and clicks go through them. **Measure** gives
+  the distance between two clicked points, in the window's unit. **Clashes**
+  tints every part a clash check is about, and selecting any check in the list
+  tints that check's parts.
+- **Two checks.** `SEAT_HAS_NO_SHOULDER` warns of a seat with less than a
+  millimetre past its bearing - including a motor register cut into the same
+  face as a shaft support, which the model has had since registers existed.
+  `TIE_NUTS_ON_OUTPUT_FACE` warns that on a ring-output drive the nuts stand
+  proud of the face the driven machine bolts to.
+- **An Advanced switch on the parameter panel.** It opens on the seventeen
+  fields a design is made with; the other forty-four are behind the switch
+  (also View ▸ Advanced parameters, `Ctrl+Shift+A`). Hidden fields keep their
+  values and are still analysed and checked, a search finds them with the
+  switch off, and a selected check shows the ones it points at.
+
+**Changed**
+
+- **The STEP disc is the sketch's spline,** not a polygon of several hundred
+  flat faces up to 55 µm off the profile: one face per flank, a vertex at every
+  root and crest. A CAD package can offset and dimension it, and the file is
+  about a seventh of the size. "DXF tolerance" is now "Profile tolerance", because it
+  decides the STEP disc as well.
+- **The window is quieter.** One primary action, **Export ▾**, in the header
+  beside the readings, with a red *Export blocked* pill naming the checks when
+  it is blocked; the row of export buttons under every tab is gone, *Pin as
+  reference* is on the Compare tab, and the not-verified notice runs along the
+  status bar. Sentence case instead of capitals throughout, toolbar toggles as
+  chips, the camera views as one joined control, parameter groups that fold
+  behind their headings and are remembered. A session left on a tab under its
+  old capitalised name still opens on it.
+- **A short checks list is one line per finding,** so a 1366x768 laptop shows
+  four of them rather than two wrapped ones; the full sentence is the tooltip
+  and the explanation panel.
+- **`report.json`** gains `mass.spacers_mass_g` and `spec.edge_chamfer`, and a
+  saved design gains `edge_chamfer`. Older design files load, with the 0.5 mm
+  default.
+
+**Fixed**
+
+- **The cutting DXF of the input end plate on a ring-output drive** was drawn
+  to the shaft support's seat where the solid has the second main bearing's,
+  and the carrier's drilling template had an 11 mm hole where the carrier is
+  bored to its support. The mass model had weighed the first of those wrong
+  too.
+
 ## 7.9.0
 
 **Numbers** — none move, and this time that is measured rather than argued. Nine
