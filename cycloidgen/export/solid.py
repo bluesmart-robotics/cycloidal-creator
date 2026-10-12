@@ -80,6 +80,54 @@ def _part_colour(name: str) -> cq.Color:
     return _colour(_PART_GROUP[name])
 
 
+def _convex(body: cq.Shape, edge: cq.Edge, step: float = 1e-3) -> bool:
+    """Whether ``edge`` is an outside corner of ``body`` rather than an inside one.
+
+    Step off the edge along one face's outward normal and against the other's.
+    At an outside corner - a rim, or the mouth of a bore - both points land in
+    air; at an inside one, where a boss stands on a plate or the shaft runs into
+    a cam, both land in metal.  A chamfer only belongs on the first kind: on the
+    second OCCT *adds* a wedge, which is a fillet nobody drew, and it fills the
+    corner a bearing's inner ring is meant to sit against.
+    """
+    faces = [f for f in body.Faces() if any(edge.isSame(e) for e in f.Edges())]
+    if len(faces) != 2:
+        return False
+    p = edge.positionAt(0.5)
+    a, b = faces[0].normalAt(p), faces[1].normalAt(p)
+    return not (body.isInside(p + a * step - b * step)
+                or body.isInside(p + b * step - a * step))
+
+
+def _break_edges(wp: cq.Workplane, radii: Sequence[float],
+                 size: float) -> cq.Workplane:
+    """Chamfer the outside circular edges of ``wp`` that lie on ``radii``.
+
+    Chosen by radius rather than by face, because a radius is what names a
+    feature here - the rim, a bearing seat, a shaft end - whichever face of the
+    part it turns up on, and the inside corners at the same radius are dropped
+    by :func:`_convex` rather than listed.
+    """
+    if size <= 0.0:
+        return wp
+    body = wp.val()
+    edges = [e for e in body.Edges()
+             if e.geomType() == "CIRCLE"
+             and any(abs(e.radius() - r) < 1e-6 for r in radii)
+             and _convex(body, e)]
+    if not edges:
+        return wp
+    return cq.Workplane("XY").add(body.chamfer(size, None, edges))
+
+
+def _rim_land(spec: GearSpec) -> float:
+    """Metal between the tie-bolt holes and the outside of the housing."""
+    if not spec.housing_bolt_count:
+        return spec.housing_wall
+    return (spec.housing_outer_radius - spec.housing_bolt_radius
+            - spec.housing_bolt_diameter / 2.0)
+
+
 def _profile_edges(spec: GearSpec) -> list[cq.Edge]:
     """The disc outline as the curve itself: one cubic B-spline edge per flank.
 
@@ -143,12 +191,18 @@ def disc_solid(spec: GearSpec, hole_phase: float = 0.0) -> cq.Workplane:
     outline = cq.Face.makeFromWires(cq.Wire.assembleEdges(_profile_edges(spec)))
     disc = cq.Workplane("XY").add(cq.Solid.extrudeLinear(
         outline, cq.Vector(0, 0, spec.disc_thickness)))
-    disc = disc.faces(">Z").workplane().hole(spec.center_bore_diameter + spec.hole_clearance)
+    bore = spec.center_bore_diameter + spec.hole_clearance
+    disc = disc.faces(">Z").workplane().hole(bore)
     disc = (disc.faces(">Z").workplane()
             .polarArray(spec.output_bolt_circle_radius, math.degrees(hole_phase),
                         360, spec.output_pin_count)
             .hole(spec.output_hole_diameter))
-    return disc
+    # The bore is a seat - a cam bearing presses into it, or it runs on the cam
+    # - so it gets a lead-in.  The flank and the output holes get nothing: they
+    # are where the pins roll, and a chamfer there is contact length the
+    # analysis is still counting.
+    return _break_edges(disc, [bore / 2.0],
+                        min(spec.edge_chamfer, spec.disc_thickness / 4.0))
 
 
 def ring_housing(spec: GearSpec) -> cq.Workplane:
@@ -186,7 +240,11 @@ def ring_housing(spec: GearSpec) -> cq.Workplane:
                  .circle(spec.housing_bolt_diameter / 2.0)
                  .extrude(h))
         body = body.cut(bolts)
-    return body
+    # The rim only.  The bore and its pockets are where the pins sit and the
+    # disc runs; and the rim's break stops at half the metal between it and the
+    # tie-bolt holes, which on the default wall is under a millimetre.
+    return _break_edges(body, [spec.housing_outer_radius],
+                        min(spec.edge_chamfer, _rim_land(spec) / 2.0))
 
 
 def ring_pins(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq.Workplane:
@@ -223,7 +281,16 @@ def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
                .extrude(spec.disc_thickness))
         shaft = shaft.union(cam)
         z += spec.disc_thickness + spec.disc_gap
-    return shaft
+    # Both ends, and both ends of every cam - which is a bearing seat or, with
+    # no cam bearing, the journal the disc runs on, and either way wants a
+    # lead-in.  A cam is thinnest on the side it is offset towards the axis,
+    # so that is what its break is held to; where the shaft runs into a cam is
+    # an inside corner and is left alone.
+    c = spec.edge_chamfer
+    shaft = _break_edges(shaft, [spec.input_shaft_diameter / 2.0],
+                         min(c, spec.input_shaft_diameter / 8.0))
+    land = (spec.cam_diameter - spec.input_shaft_diameter) / 2.0 - spec.eccentricity
+    return _break_edges(shaft, [spec.cam_diameter / 2.0], min(c, land / 2.0))
 
 
 def _motor_pattern(wp: cq.Workplane, spec: GearSpec) -> cq.Workplane:
@@ -304,9 +371,16 @@ def output_flange(spec: GearSpec,
     # Bored through the lot in one go, from the far face: the shaft passes
     # through all of it and a two-diameter bore here would be a fit this app has
     # no reason to claim.
-    return (body.faces("<Z").workplane()
+    body = (body.faces("<Z").workplane()
             .circle(spec.hub_bore / 2.0)
             .cutThruAll())
+    # The plate's rim, the end of the boss and both mouths of the bore - the
+    # output bearing goes on over one and a shaft support into the other.  Not
+    # the pins: they are what the disc's holes and the rollers run on.
+    radii = [plate_r, spec.hub_diameter / 2.0, spec.hub_bore / 2.0]
+    if spec.ground_frame_fitted:
+        radii.append(spec.housing_outer_radius)
+    return _break_edges(body, radii, min(spec.edge_chamfer, t / 4.0))
 
 
 def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq.Workplane:
@@ -353,7 +427,9 @@ def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq.W
     bore = (cq.Workplane("XY").workplane(offset=spec.end_cap_bottom)
             .circle(spec.hub_bore / 2.0)
             .extrude(spec.cap_boss_top - spec.end_cap_bottom))
-    return plate.union(boss).cut(pins).cut(bore)
+    return _break_edges(plate.union(boss).cut(pins).cut(bore),
+                        [plate_r, spec.hub_diameter / 2.0, spec.hub_bore / 2.0],
+                        min(spec.edge_chamfer, spec.output_flange_thickness / 4.0))
 
 
 def housing_end_plate(spec: GearSpec, bore: float,
@@ -401,7 +477,11 @@ def housing_end_plate(spec: GearSpec, bore: float,
                      .circle(frame.pilot_diameter / 2.0)
                      .cutBlind(-frame.pilot_depth))
         plate = _motor_pattern(plate.faces(">Z").workplane(), spec)
-    return plate
+    # The rim, held clear of the tie-bolt holes as the barrel's is, and both
+    # mouths of the bore, which is a bearing seat in either plate.
+    return _break_edges(plate, [spec.housing_outer_radius, max(bore, 1e-3) / 2.0],
+                        min(spec.edge_chamfer, spec.plate_thickness / 4.0,
+                            _rim_land(spec) / 2.0))
 
 
 def bearing_solids(spec: GearSpec,

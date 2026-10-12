@@ -120,6 +120,10 @@ GROUPS: list[tuple[str, list[Field]]] = [
               0.001, decimals=4, suffix=" mm"),
         Field("stl_linear_tolerance", "STL tolerance", "float", 0.005, 1.0, 0.01,
               decimals=3, suffix=" mm"),
+        Field("edge_chamfer", "Edge chamfer", "float", 0, 3, 0.1,
+              decimals=2, suffix=" mm",
+              tip="Outside edges and bearing-seat lead-ins on the solids. "
+                  "Never on the profile, the pins or their holes. 0 for none."),
     ]),
     ("Materials", [
         Field("disc_material", "Disc", "choice", choices=tuple(MATERIALS)),

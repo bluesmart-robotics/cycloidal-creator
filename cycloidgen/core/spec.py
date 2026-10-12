@@ -407,6 +407,12 @@ class GearSpec(BaseModel):
     )
     dxf_chord_tolerance: float = Field(0.005, gt=0)
     stl_linear_tolerance: float = Field(0.05, gt=0)
+    edge_chamfer: float = Field(
+        0.5, ge=0,
+        description="45 degree break on the outside edges of the made parts and "
+                    "a lead-in on their bearing seats; never on the profile, the "
+                    "pins or the holes they run in. 0 for none",
+    )
 
     # ---- materials ------------------------------------------------------------
     disc_material: str = "PLA"

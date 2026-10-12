@@ -275,6 +275,19 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "is a print-quality setting.",
         "File size and mesh handling time, and nothing else. A mesh is an "
         "output and no analysis reads it."),
+    "edge_chamfer": ParameterGuide(
+        "A 45 degree break on the outside edges of the parts you make - rims, "
+        "shaft ends, the end of the output boss - and a lead-in on every "
+        "bearing seat, so a bearing starts square instead of on a sharp edge. "
+        "In the STEP, STL and 3MF files; the cutting DXFs are outlines and carry "
+        "none.",
+        "Half a millimetre suits most of what is built here. A break never "
+        "takes more than a quarter of the plate it is on or half the metal "
+        "beside a tie-bolt hole, so a large value is trimmed where it would cut "
+        "into a feature rather than refused.",
+        "Nothing computed. The disc's flank, its output holes, the pins and "
+        "the pockets are never broken, because those are contact length the "
+        "analysis counts."),
 
     # --------------------------------------------------------------- materials --
     "disc_material": ParameterGuide(

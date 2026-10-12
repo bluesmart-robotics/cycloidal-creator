@@ -107,8 +107,7 @@ def test_the_step_disc_is_the_sketch_curve_not_a_polygon_of_it(spec):
     disc = solid.disc_solid(spec)
     edges = _outline_edges(disc)
     assert {e.geomType() for e in edges} == {"BSPLINE"}
-    flanks = {f for f in disc.val().Faces()
-              if f.geomType() not in ("PLANE", "CYLINDER")}
+    flanks = {f for f in disc.val().Faces() if f.geomType() == "EXTRUSION"}
     assert len(flanks) == 2 * spec.lobes
 
     drawn = np.array([(p.x, p.y) for e in edges
@@ -156,6 +155,7 @@ def test_the_spline_disc_reports_its_own_volume(ratio, tol):
     """
     s = preset(ratio)
     s.dxf_chord_tolerance = tol
+    s.edge_chamfer = 0.0          # the bore's lead-in is not what is measured here
     area = prof.sampled_profile(s.effective_R, s.effective_Rr, s.eccentricity,
                                 s.lobes, 400_000).area()
     bore = np.pi * ((s.center_bore_diameter + s.hole_clearance) / 2) ** 2

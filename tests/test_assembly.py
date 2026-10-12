@@ -139,7 +139,9 @@ def test_the_tie_bolts_pass_through_the_thing_they_clamp(ratio):
 
     from cycloidgen.export.solid import ring_housing
 
-    spec = preset(ratio)
+    # Without the rim's break, which is held clear of the bolt holes and so is
+    # not the same break on a barrel that has none.
+    spec = preset(ratio).model_copy(update={"edge_chamfer": 0.0})
     assert spec.housing_bolt_count, "this preset has no tie bolts to check"
 
     drilled = ring_housing(spec).val().Volume()
@@ -341,3 +343,87 @@ def test_nothing_you_have_to_make_weighs_nothing(ratio):
     made = [i for i in bom_items(analyse(preset(ratio))) if i.source == "make"]
     assert made
     assert not [i.part for i in made if i.mass_each_g <= 0.0]
+
+
+# ------------------------------------------------------------ broken edges
+
+
+def _radius(face) -> float:
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    return BRepAdaptor_Surface(face.wrapped).Cylinder().Radius()
+
+
+def _made_parts(spec: GearSpec) -> dict:
+    from cycloidgen.export import solid
+    parts = solid.parts(spec)
+    parts.pop("ring_pins", None)          # dowels: bought, and their own maker's edges
+    return parts
+
+
+@pytest.mark.parametrize("output", ["output pin carrier", "ring housing"])
+def test_a_break_only_ever_takes_metal_away(output):
+    """A chamfer on an inside corner is a wedge OCCT *adds*.
+
+    That is a fillet nobody drew, standing in the corner a bearing's inner ring
+    is meant to sit against - where the boss meets the carrier plate, or where
+    the shaft runs into a cam.  So every broken part has to fit wholly inside
+    the same part unbroken, which is a sharper statement than its volume going
+    down: a wedge added in one place hides behind a chamfer taken off another.
+    """
+    spec = preset(21)
+    spec.output_member = output
+    broken = _made_parts(spec)
+    sharp = _made_parts(spec.model_copy(update={"edge_chamfer": 0.0}))
+    for name, wp in broken.items():
+        added = wp.val().cut(sharp[name].val()).Volume()
+        taken = sharp[name].val().Volume() - wp.val().Volume()
+        assert added < 1e-6, f"{name} gained {added:.4f} mm^3"
+        assert taken > 0.0, f"{name} has no break on it at all"
+
+
+def test_no_break_touches_a_running_surface():
+    """The flank, the output holes and the pins are contact length.
+
+    The analysis counts the whole disc thickness as the length of every line
+    contact in the drive, so a chamfer on any of them would be a drawing that
+    disagrees with its own numbers.  Each of those faces is checked to still
+    run the full height it ran before the edges were broken.
+    """
+    from cycloidgen.export import solid
+
+    spec = preset(21)
+    disc = solid.disc_solid(spec).val()
+    t = spec.disc_thickness
+    flank = [f for f in disc.Faces() if f.geomType() == "EXTRUSION"]
+    holes = [f for f in disc.Faces() if f.geomType() == "CYLINDER"
+             and abs(_radius(f) - spec.output_hole_diameter / 2.0) < 1e-6]
+    assert len(flank) == 2 * spec.lobes and len(holes) == spec.output_pin_count
+    for face in flank + holes:
+        assert face.BoundingBox().zlen == pytest.approx(t, abs=1e-6)
+
+    flange = solid.output_flange(spec).val()
+    pins = [f for f in flange.Faces() if f.geomType() == "CYLINDER"
+            and abs(_radius(f) - spec.output_pin_diameter / 2.0) < 1e-6]
+    assert len(pins) == spec.output_pin_count
+    for face in pins:
+        assert face.BoundingBox().zlen == pytest.approx(spec.output_pin_length,
+                                                        abs=1e-6)
+
+
+def test_no_edge_chamfer_is_the_sharp_part():
+    """Zero means none: no cone anywhere, and the volume the part had before."""
+    spec = preset(15).model_copy(update={"edge_chamfer": 0.0})
+    for name, wp in _made_parts(spec).items():
+        assert not any(f.geomType() == "CONE" for f in wp.val().Faces()), name
+
+
+@pytest.mark.parametrize("ratio", RATIOS)
+def test_a_large_break_is_trimmed_rather_than_refused(ratio):
+    """The field goes to 3 mm and the metal beside a tie-bolt hole is under one.
+
+    A break is held to a quarter of its plate and half the land it stands on,
+    so the largest value the panel allows still builds every part, valid.
+    """
+    spec = preset(ratio).model_copy(update={"edge_chamfer": 3.0})
+    for name, wp in _made_parts(spec).items():
+        assert wp.val().isValid(), name
