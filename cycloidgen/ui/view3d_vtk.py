@@ -21,6 +21,7 @@ import sys
 import traceback
 
 import numpy as np
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy
 
@@ -29,7 +30,13 @@ from ..viz.mesh import EDGE_SHADE, Mesh, mesh_for_spec
 from ..viz.scene import Camera
 from . import branding
 from .logpanel import logger
-from .view3d import STANDARD_VIEWS
+from .view3d import (
+    CLICK_SLOP_PX,
+    FLAGGED_TINT,
+    SELECTED_TINT,
+    STANDARD_VIEWS,
+    tinted,
+)
 
 __all__ = ["VtkAssemblyView", "available"]
 
@@ -183,6 +190,9 @@ def _render_widget(v: dict, parent):
 class VtkAssemblyView(QWidget):
     """Same interface as the software view, so the tab can hold either."""
 
+    #: A part was clicked: its name, or ``None`` for empty space.
+    part_picked = Signal(object)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -203,6 +213,9 @@ class VtkAssemblyView(QWidget):
         self._edges = False
         self._section = 0.0
         self._mode = "light"
+        self._selected: str | None = None
+        self._flagged: frozenset[str] = frozenset()
+        self._press: tuple[int, int] | None = None
 
         self._widget = _render_widget(v, self)
         layout = QVBoxLayout(self)
@@ -238,7 +251,8 @@ class VtkAssemblyView(QWidget):
         kit.AddLightsToRenderer(self._renderer)
 
         self._interactor = window.GetInteractor()
-        self._interactor.SetInteractorStyle(v["vtkInteractorStyleTrackballCamera"]())
+        self._style = v["vtkInteractorStyleTrackballCamera"]()
+        self._interactor.SetInteractorStyle(self._style)
 
         axes = v["vtkAxesActor"]()
         axes.SetXAxisLabelText("X")
@@ -257,6 +271,24 @@ class VtkAssemblyView(QWidget):
         # catches every way the view can move, including the interactor's own
         # drag handling, which never comes back through our code.
         window.AddObserver("StartEvent", self._before_render)
+
+        # A click is told from an orbit by how far the pointer went, so both
+        # ends of it are watched.  On the *style*, not the interactor: the
+        # trackball style grabs the interactor's focus when the button goes
+        # down, and from then until it comes up the events go to the style
+        # alone - an observer on the interactor sees the press and never the
+        # release, so a click there is never a click.  A style observer
+        # replaces the style's own handling of that event, so each one hands
+        # the event back to it and the orbit is untouched.
+        #
+        # A cell picker rather than a prop picker: it finds the triangle under
+        # the pointer, which is what a measurement needs as well as what a
+        # selection does.
+        from vtkmodules.vtkRenderingCore import vtkCellPicker
+        self._picker = vtkCellPicker()
+        self._picker.SetTolerance(0.0005)
+        self._style.AddObserver("LeftButtonPressEvent", self._on_press)
+        self._style.AddObserver("LeftButtonReleaseEvent", self._on_release)
 
         self._clip = None
         self._apply_background()
@@ -362,6 +394,7 @@ class VtkAssemblyView(QWidget):
             edge_actor.GetProperty().SetLighting(False)
             edge_actor.GetProperty().SetLineWidth(1.0)
             edge_actor.VisibilityOff()
+            edge_actor.PickableOff()          # a click lands on the part
             self._renderer.AddActor(edge_actor)
 
             self._actors[part.name] = {
@@ -380,6 +413,67 @@ class VtkAssemblyView(QWidget):
         self._apply_visibility()
         self._apply_edges()
         self._apply_section()
+        self._apply_highlight()
+
+    # -------------------------------------------------------------- selection
+    def set_selected(self, name: str | None) -> None:
+        """Tint one part towards the accent: the one the info strip describes."""
+        self._selected = name
+        self._apply_highlight()
+        self._render()
+
+    def set_flagged(self, names) -> None:
+        """Tint these parts towards the error red: the ones a clash names."""
+        self._flagged = frozenset(names)
+        self._apply_highlight()
+        self._render()
+
+    def _apply_highlight(self) -> None:
+        """Every part's colour, tinted where it is picked or flagged.
+
+        On the surface and on the capping filter both, so a tint survives the
+        section being turned on - the cut faces take the darker shade of the
+        tinted colour, as they would of the plain one.
+        """
+        p = branding.palette(self._mode)
+        for name, record in self._actors.items():
+            rgb = record["part"].colour
+            if name == self._selected:
+                rgb = tinted(rgb, p.accent, SELECTED_TINT)
+            elif name in self._flagged:
+                rgb = tinted(rgb, p.error, FLAGGED_TINT)
+            colour = [c / 255.0 for c in rgb]
+            record["actor"].GetProperty().SetColor(*colour)
+            record["clipper"].SetBaseColor(*colour)
+            record["clipper"].SetClipColor(*[c * 0.62 for c in colour])
+
+    def pick(self, x: int, y: int) -> tuple[str | None, tuple[float, float, float] | None]:
+        """The part under the display pixel ``(x, y)`` and the world point hit.
+
+        Display pixels are VTK's: from the bottom left, as the interactor
+        reports them.  ``(None, None)`` for empty space.
+        """
+        if not self._picker.Pick(x, y, 0, self._renderer):
+            return None, None
+        actor = self._picker.GetActor()
+        for name, record in self._actors.items():
+            if record["actor"] is actor:
+                return name, tuple(self._picker.GetPickPosition())
+        return None, None
+
+    def _on_press(self, style, _event) -> None:
+        self._press = self._interactor.GetEventPosition()
+        style.OnLeftButtonDown()
+
+    def _on_release(self, style, _event) -> None:
+        style.OnLeftButtonUp()
+        at = self._interactor.GetEventPosition()
+        press, self._press = self._press, None
+        if press is None or (abs(at[0] - press[0]) > CLICK_SLOP_PX
+                             or abs(at[1] - press[1]) > CLICK_SLOP_PX):
+            return
+        name, _ = self.pick(*at)
+        self.part_picked.emit(name)
 
     def set_crank(self, degrees: float) -> None:
         """Re-pose every part.  No geometry moves; the transforms do."""
@@ -532,6 +626,7 @@ class VtkAssemblyView(QWidget):
         self._mode = mode
         self._apply_background()
         self._apply_edges()
+        self._apply_highlight()
         self._render()
 
     def _apply_background(self) -> None:

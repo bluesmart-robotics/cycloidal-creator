@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import csv
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ..analysis import DesignAnalysis
@@ -35,6 +35,12 @@ class BomItem:
     mass_each_g: float
     source: str          # "make" or "buy"
     note: str = ""
+    #: The assembly parts this line orders, by the names the STEP file and
+    #: the 3D view give them - which is what lets a part picked in the view
+    #: say what it is.  Empty for a line that is not drawn: a motor bolt, a
+    #: dowel that is part of the carrier's body in the model.  Not in the CSV
+    #: or the report; it is a cross-reference, not a column.
+    assembly: tuple[str, ...] = ()
 
     @property
     def mass_total_g(self) -> float:
@@ -254,7 +260,38 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
             note=f"{choice.seat}; {choice.load_N:.0f} N at "
                  f"{choice.speed_rpm:.0f} rpm, {life}"))
 
-    return items
+    return [replace(item, assembly=_assembly(item.part, s)) for item in items]
+
+
+def _assembly(part: str, spec) -> tuple[str, ...]:
+    """The assembly part names a bill-of-materials line stands for.
+
+    By the line's own name, in one table, because that is the one place the
+    two vocabularies meet; a test holds every drawn part to exactly one line.
+    """
+    if part == "Cycloidal disc":
+        return tuple(f"disc_{i + 1}" for i in range(spec.disc_count))
+    if part.startswith("Cycloidal disc "):
+        return (f"disc_{part.rsplit(' ', 1)[1]}",)
+    if part == "Eccentric cam bearing":
+        return tuple(f"bearing_cam_{i + 1}" for i in range(spec.disc_count))
+    return {
+        "Ring housing": ("housing",),
+        "Housing end plate": ("input_end_plate", "output_end_plate"),
+        "Output flange / carrier": ("output_flange",),
+        "End cap": ("end_cap",),
+        "Eccentric input shaft": ("eccentric_shaft",),
+        "Shaft spacer, input side": ("shaft_spacer_input",),
+        "Shaft spacer, output side": ("shaft_spacer_output",),
+        "Disc washer": ("washers",),
+        "Ring pin (dowel)": ("ring_pins",),
+        "Tie bolt": ("tie_bolts",),
+        "Tie bolt nut": ("tie_nuts",),
+        "Input shaft support": ("bearing_shaft_input", "bearing_shaft_output"),
+        "Main output bearing": ("bearing_output_main", "bearing_output_input"),
+        "Ring pin roller": ("bearing_ring_pins",),
+        "Output pin roller": ("bearing_output_pins",),
+    }.get(part, ())
 
 
 def write_bom_csv(a: DesignAnalysis, path: str | Path) -> Path:

@@ -1748,6 +1748,7 @@ class MainWindow(QMainWindow):
         self._fill_datasheet()
         self._fill_compare()
         self._log_findings()
+        self._view3d.set_analysis(self.analysis)
         self._trade.set_spec(self.spec)
         self._outputs.set_spec(self.spec)
         self._outputs.set_blocked([f.code for f in analysis.report.errors])

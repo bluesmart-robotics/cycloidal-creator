@@ -574,6 +574,13 @@ suggests it.
   features — rims, hole lips, the join between a cylinder and its end — and not
   the triangulation underneath them.
 
+  Click a part and it is tinted, and the strip under the viewport reads its
+  line on the bill of materials: what it is, how many, out of what, how big,
+  what it weighs, whether it is made or bought, and the note that goes with it —
+  the input end plate is one of two "Housing end plates", bored for the shaft
+  support and not interchangeable with the other. A drag still orbits; only a
+  click that does not move picks.
+
   The bearings are in there too, at the size the sizing study picked rather than
   the size of the space they go in — a ring on the cam inside each disc bore,
   sleeves over the ring and output pins where a roller was selected, and the two

@@ -10,12 +10,13 @@ software is fast enough, and it can be checked without a display.
 """
 from __future__ import annotations
 
+import html
 import math
 import traceback
 from contextlib import suppress
 
 import numpy as np
-from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPolygonF
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -165,6 +166,24 @@ _ZOOM_PER_NOTCH = 0.86
 #: on are not is a stranger picture than either.
 _HIDDEN_BY_DEFAULT: frozenset[str] = frozenset({"end_plates", "fasteners"})
 
+#: A press and release closer together than this is a click, not a drag.  Both
+#: views orbit on the left button, so the one gesture has to be told from the
+#: other by how far the pointer went in between.
+CLICK_SLOP_PX = 4
+
+#: How far a picked part's colour goes towards the accent, and a flagged one's
+#: towards the error red.  Far enough to find at a glance, not so far that the
+#: part stops looking like what it is made of.
+SELECTED_TINT = 0.45
+FLAGGED_TINT = 0.6
+
+
+def tinted(rgb, hex_colour: str, amount: float) -> tuple[int, int, int]:
+    """``rgb`` (0-255) moved ``amount`` of the way towards ``hex_colour``."""
+    target = [int(hex_colour[i:i + 2], 16) for i in (1, 3, 5)]
+    return tuple(round(float(c) + (t - float(c)) * amount)
+                 for c, t in zip(rgb, target, strict=True))
+
 
 def _polygon(points: np.ndarray) -> QPolygonF:
     return QPolygonF([QPointF(float(x), float(y)) for x, y in points])
@@ -172,6 +191,9 @@ def _polygon(points: np.ndarray) -> QPolygonF:
 
 class AssemblyView(QWidget):
     """Orbit, pan and zoom around one design at one crank angle."""
+
+    #: A part was clicked: its name, or ``None`` for empty space.
+    part_picked = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -194,6 +216,10 @@ class AssemblyView(QWidget):
         self._drag_button = Qt.NoButton
         self._failed = ""
         self._label_font = branding.mono_font(9)
+        self._press: tuple[float, float] | None = None
+        self._selected: str | None = None
+        self._flagged: frozenset[str] = frozenset()
+        self._last_draw = None
 
     # ------------------------------------------------------------------ state
     def set_spec(self, spec: GearSpec) -> None:
@@ -269,6 +295,38 @@ class AssemblyView(QWidget):
         self._mode = mode
         self.update()
 
+    def set_selected(self, name: str | None) -> None:
+        """Tint one part towards the accent: the one the info strip describes."""
+        self._selected = name
+        self.update()
+
+    def set_flagged(self, names) -> None:
+        """Tint these parts towards the error red: the ones a clash names."""
+        self._flagged = frozenset(names)
+        self.update()
+
+    def pick(self, x: float, y: float) -> str | None:
+        """The part under the pixel ``(x, y)``, or ``None``.
+
+        Off the frame last painted, front to back: the draw list is ordered
+        back to front, so the last face that contains the point is the one on
+        top.  Each face is tested with its holes, so a click down a bore finds
+        whatever is at the bottom of it.
+        """
+        draw, mesh = self._last_draw, self._mesh
+        if draw is None or mesh is None:
+            return None
+        point = QPointF(float(x), float(y))
+        for i in range(len(draw.loops) - 1, -1, -1):
+            path = QPainterPath()
+            path.setFillRule(Qt.OddEvenFill)
+            for loop in draw.loops[i]:
+                path.addPolygon(_polygon(loop))
+                path.closeSubpath()
+            if path.contains(point):
+                return mesh.parts[int(draw.parts[i])].name
+        return None
+
     def set_standard_view(self, name: str) -> None:
         azimuth, elevation = STANDARD_VIEWS[name]
         self._camera = Camera(target=self._camera.target, azimuth=azimuth,
@@ -309,12 +367,20 @@ class AssemblyView(QWidget):
         width, height = max(self.width(), 1), max(self.height(), 1)
         draw = render(self._mesh, math.radians(self._crank), self._camera,
                       width, height, explode=self._explode, hidden=self._hidden)
+        self._last_draw = draw
+        names = [part.name for part in self._mesh.parts]
 
         # One pen and one brush per face.  The pen matters: filling a polygon
         # without outlining it leaves an antialiased hairline of background
         # between it and its neighbour, and a solid part ends up looking like a
         # wireframe of its own seams.
-        for loops, rgb in zip(draw.loops, draw.colours, strict=True):
+        for loops, rgb, index in zip(draw.loops, draw.colours, draw.parts,
+                                     strict=True):
+            name = names[int(index)]
+            if name == self._selected:
+                rgb = tinted(rgb, p.accent, SELECTED_TINT)
+            elif name in self._flagged:
+                rgb = tinted(rgb, p.error, FLAGGED_TINT)
             fill = QColor(int(rgb[0]), int(rgb[1]), int(rgb[2]))
             painter.setBrush(fill)
             # The same rule the hardware path uses - `EDGE_SHADE` is shared
@@ -369,6 +435,7 @@ class AssemblyView(QWidget):
     def mousePressEvent(self, event) -> None:
         pos = event.position()
         self._drag = (pos.x(), pos.y())
+        self._press = (pos.x(), pos.y())
         self._drag_button = event.button()
 
     def mouseMoveEvent(self, event) -> None:
@@ -388,6 +455,12 @@ class AssemblyView(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event) -> None:
+        pos = event.position()
+        if (self._press is not None and event.button() == Qt.LeftButton
+                and abs(pos.x() - self._press[0]) <= CLICK_SLOP_PX
+                and abs(pos.y() - self._press[1]) <= CLICK_SLOP_PX):
+            self.part_picked.emit(self.pick(pos.x(), pos.y()))
+        self._press = None
         self._drag = None
         self._drag_button = Qt.NoButton
 
@@ -526,10 +599,73 @@ class Assembly3DTab(QWidget):
 
         layout.addWidget(self.view, 1)
 
+        # What the picked part is.  Under the viewport rather than over it: the
+        # hardware viewport is a native window, and a Qt widget laid over one is
+        # drawn under it on some platforms and not at all on others.
+        self._info = QLabel()
+        self._info.setObjectName("BrandTagline")
+        self._info.setWordWrap(True)
+        self._info.setTextFormat(Qt.RichText)
+        layout.addWidget(self._info)
+        self._bom: dict = {}
+        self._labels: dict[str, str] = {}
+        self._selected: str | None = None
+        self.view.part_picked.connect(self._picked)
+        self._describe()
+
     # ------------------------------------------------------------------ state
     def set_spec(self, spec: GearSpec) -> None:
         self.view.set_spec(spec)
         self._rebuild_bearing_menu()
+        try:
+            self._labels = {p.name: p.label for p in mesh_for_spec(spec).parts}
+        except Exception:                 # the view has already said why
+            self._labels = {}
+        # A part this design no longer has cannot stay picked.
+        if self._selected not in self._labels:
+            self._picked(None)
+
+    def set_analysis(self, analysis) -> None:
+        """What each part is, off the bill of materials for this analysis."""
+        from ..export.bom import bom_items
+
+        self._bom = {name: item for item in bom_items(analysis)
+                     for name in item.assembly}
+        self._describe()
+
+    def _picked(self, name: str | None) -> None:
+        self._selected = name
+        self.view.set_selected(name)
+        self._describe()
+
+    def _describe(self) -> None:
+        """The info strip: the picked part's line on the bill of materials.
+
+        In the bill's own words and units, because that is what it is - the
+        same line the CSV carries, for the part under the pointer.
+        """
+        name = self._selected
+        if name is None:
+            self._info.setText("Click a part to see what it is, what it is made "
+                               "of and what it weighs.")
+            return
+        label = html.escape(self._labels.get(name, name))
+        item = self._bom.get(name)
+        if item is None:
+            self._info.setText(f"<b>{label}</b>")
+            return
+        mass = (f", {item.mass_each_g:.1f} g each" if item.mass_each_g else "")
+        # The bill's name only where it says something the label does not -
+        # "Housing end plate" for the input plate, not "Ring housing" twice.
+        line_name = ("" if item.part == self._labels.get(name)
+                     else f"{html.escape(item.part)}: ")
+        line = (f"<b>{label}</b> &nbsp;&middot;&nbsp; "
+                f"{line_name}{item.quantity} x "
+                f"{html.escape(item.material)}, {html.escape(item.size)}{mass}, "
+                f"{'made' if item.source == 'make' else 'bought'}")
+        if item.note:
+            line += f"<br>{html.escape(item.note)}"
+        self._info.setText(line)
 
     def _rebuild_bearing_menu(self) -> None:
         """One entry per bearing this design actually has.
