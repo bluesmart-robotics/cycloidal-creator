@@ -629,6 +629,12 @@ suggests it.
   the output holes however the discs have orbited. All three are made parts,
   with their own files and their own lines on the bill of materials.
 
+  Where the shaft stands out of the input plate for a coupling it carries a
+  flat, a tenth of its diameter deep - a stepper's own D-cut on a 5 mm shaft is
+  half a millimetre - so a set screw drives through a face rather than biting
+  a round shaft and walking. A ring-output drive gets none: its driven end is
+  inside the carrier's boss, where no set screw can reach.
+
   Three of the five load paths can also be built without a bearing at all, and
   plenty of drives are. Switching one
   off takes the part out of the schedule, the BOM, the STEP and the 3D view, and

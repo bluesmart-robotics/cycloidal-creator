@@ -342,7 +342,17 @@ def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
     shaft = _break_edges(shaft, [spec.input_shaft_diameter / 2.0],
                          min(c, spec.input_shaft_diameter / 8.0))
     land = (spec.cam_diameter - spec.input_shaft_diameter) / 2.0 - spec.eccentricity
-    return _break_edges(shaft, [spec.cam_diameter / 2.0], min(c, land / 2.0))
+    shaft = _break_edges(shaft, [spec.cam_diameter / 2.0], min(c, land / 2.0))
+    # The flat a coupling's set screw bears on, cut after the breaks so the end
+    # chamfer is a circle when it is made and the flat simply runs through it.
+    flat = spec.input_flat
+    if flat is not None:
+        z0, z1, depth = flat
+        r = spec.input_shaft_diameter / 2.0
+        shaft = shaft.cut(cq.Workplane("XY").box(
+            depth + 1.0, 2.0 * r + 2.0, z1 - z0 + 1.0, centered=False)
+            .translate((r - depth, -r - 1.0, z0)))
+    return shaft
 
 
 def _motor_pattern(wp: cq.Workplane, spec: GearSpec) -> cq.Workplane:

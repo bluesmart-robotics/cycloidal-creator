@@ -565,3 +565,36 @@ def test_nuts_on_a_turning_output_face_are_reported():
     ring.output_member = "ring housing"
     (found,) = raised(ring)
     assert found.value == pytest.approx(ring.tie_screw_length - ring.tie_bolt_length)
+
+
+@pytest.mark.parametrize("output", ["output pin carrier", "ring housing"])
+def test_the_input_end_has_a_flat_for_a_set_screw_where_one_can_reach(output):
+    """A set screw biting a round shaft walks round it under load.  The flat
+    runs from clear of the input plate to the end - outside everything the
+    shaft passes through - a tenth of the diameter deep.  Not on a ring drive,
+    whose driven end is inside the carrier's boss."""
+    from cycloidgen.export import solid
+    from cycloidgen.viz.mesh import build_mesh
+
+    spec = preset(21)
+    spec.output_member = output
+    shaft = solid.eccentric_shaft(spec).val()
+    r = spec.input_shaft_diameter / 2.0
+    flats = [f for f in shaft.Faces() if f.geomType() == "PLANE"
+             and abs(f.normalAt().x - 1.0) < 1e-9]
+    if spec.ground_frame_fitted:
+        assert spec.input_flat is None and not flats
+        return
+    z0, z1, depth = spec.input_flat
+    assert depth == pytest.approx(0.1 * spec.input_shaft_diameter)
+    assert z0 > spec.barrel_top + spec.plate_thickness      # clear of the plate
+    (face,) = flats
+    box = face.BoundingBox()
+    assert box.xmin == pytest.approx(r - depth)
+    assert box.zmin == pytest.approx(z0) and box.zmax == pytest.approx(z1)
+
+    mesh = build_mesh(spec)
+    part = next(p for p in mesh.parts if p.name == "eccentric_shaft")
+    v = mesh.vertices[part.vertices]
+    on_end = v[v[:, 2] > z0 + 1e-6]
+    assert on_end[:, 0].max() == pytest.approx(r - depth)

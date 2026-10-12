@@ -615,6 +615,17 @@ def _pilot_recess(spec: GearSpec, bore: float) -> float:
     return min(spec.motor_face.pilot_depth, spec.plate_thickness / 2.0)
 
 
+def _d_section(r: float, depth: float, segments: int) -> np.ndarray:
+    """A round section with a flat ``depth`` deep across its +X side.
+
+    The arc runs the long way round from one end of the chord to the other,
+    and the chord closes it.
+    """
+    half = math.acos((r - depth) / r)
+    a = np.linspace(half, 2.0 * math.pi - half, segments)
+    return np.column_stack([r * np.cos(a), r * np.sin(a)])
+
+
 def _bore_runs(seat_r: float, shoulders: Sequence[Shoulder], host: str,
                z0: float, z1: float) -> list[tuple[float, float, float]]:
     """The bore of ``host`` between ``z0`` and ``z1``, as runs of one radius.
@@ -742,10 +753,17 @@ def build_mesh(spec: GearSpec,
     if cam_r >= shaft_r + spec.eccentricity:
         spans = _subtract_spans(spans, [(z0, z1) for z0, z1, _ in cams])
 
+    # The flat on the input end is a shell of its own, as each cam is: a D
+    # where the set screw bears, on the end of the round shaft.
+    flat = spec.input_flat
     with b.part("eccentric_shaft", "Eccentric shaft", "shaft",
                 PART_COLOURS["shaft"], spin=-1.0):
         for z0, z1 in spans:
-            b.cylinder(0.0, 0.0, shaft_r, z0, z1, 28)
+            if flat is not None and z0 < flat[0] < z1:
+                b.cylinder(0.0, 0.0, shaft_r, z0, flat[0], 28)
+                b.prism(_d_section(shaft_r, flat[2], 28), (), flat[0], z1)
+            else:
+                b.cylinder(0.0, 0.0, shaft_r, z0, z1, 28)
         for z0, z1, phase in cams:
             b.cylinder(spec.eccentricity * math.cos(phase),
                        -spec.eccentricity * math.sin(phase), cam_r, z0, z1, 32)

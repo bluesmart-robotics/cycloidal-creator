@@ -124,7 +124,10 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
              f"{s.cam_diameter:g} mm at {s.eccentricity:g} mm offset",
         mass_each_g=m.shaft_mass_g, source="make",
         note="cams phased "
-             + ", ".join(f"{math.degrees(p):.0f}" for p in s.disc_phases) + " deg"))
+             + ", ".join(f"{math.degrees(p):.0f}" for p in s.disc_phases) + " deg"
+             + (f"; a {s.input_flat[2]:g} mm deep flat on the input end, "
+                f"{s.input_flat[1] - s.input_flat[0]:g} mm long, for a "
+                f"coupling's set screw" if s.input_flat else "")))
 
     # ---- what locates the shaft, and keeps the discs apart -------------------
     # Made rather than bought: a sleeve a millimetre and a half long to a given

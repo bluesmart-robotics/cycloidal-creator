@@ -1074,6 +1074,29 @@ class GearSpec(BaseModel):
         return self.barrel_height + 2.0 * self.plate_thickness
 
     @property
+    def input_flat(self) -> tuple[float, float, float] | None:
+        """The flat on the shaft's input end: ``(from z, to z, depth)``, or None.
+
+        What a coupling's set screw bears on, so it drives through a face
+        instead of biting a round shaft and walking.  A tenth of the diameter
+        deep, which is what a stepper's own D-cut is - half a millimetre on a
+        5 mm shaft - and enough to seat a screw point without thinning the
+        shaft where it carries torque.  From a millimetre clear of the input
+        plate to the end, which is the length a coupling grips.
+
+        None on a ring-output drive.  The motor is on the carrier's base there,
+        the shaft's driven end is inside the boss, and a set screw has no way
+        in; the end that does stand out, past the end cap, drives nothing.
+        """
+        if self.ground_frame_fitted:
+            return None
+        z0 = self.barrel_top + self.plate_thickness + 1.0
+        z1 = self.stack_height + self.shaft_overhang
+        if z1 - z0 < 2.0:
+            return None
+        return z0, z1, 0.1 * self.input_shaft_diameter
+
+    @property
     def tie_bolt_size(self) -> MetricSize | None:
         """The bolt the tie-bolt holes are drilled for, read off the hole.
 
