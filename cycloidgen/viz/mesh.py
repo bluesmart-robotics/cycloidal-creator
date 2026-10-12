@@ -44,6 +44,7 @@ from ..analysis.bearings import (
     seat_bores,
 )
 from ..core import profile as prof
+from ..core.fasteners import hexagon
 from ..core.spec import CARRIER_DROP, GearSpec
 
 __all__ = [
@@ -932,17 +933,44 @@ def build_mesh(spec: GearSpec,
     # they are in the picture and in the bill of materials and not in the
     # per-part export - a STEP file of a cap screw is a thing to order.
     if spec.housing_bolt_count:
-        shank = TIE_BOLT_NOMINAL * spec.housing_bolt_diameter
+        size = spec.tie_bolt_size
         z0 = spec.tie_bolt_bottom
-        z1 = z0 + spec.tie_bolt_length
-        with b.part("tie_bolts", "Tie bolts", "fasteners",
-                    PART_COLOURS["fasteners"]):
-            for a in (2.0 * np.pi * k / spec.housing_bolt_count
-                      for k in range(spec.housing_bolt_count)):
-                cx = spec.housing_bolt_radius * math.cos(a)
-                cy = spec.housing_bolt_radius * math.sin(a)
-                b.prism(_circle(cx, cy, shank / 2.0, _BOLT_SEGMENTS), (),
-                        z0, z1)
+        centres = [(spec.housing_bolt_radius * math.cos(a),
+                    spec.housing_bolt_radius * math.sin(a), a)
+                   for a in (2.0 * np.pi * k / spec.housing_bolt_count
+                             for k in range(spec.housing_bolt_count))]
+        if size is None:
+            shank = TIE_BOLT_NOMINAL * spec.housing_bolt_diameter
+            with b.part("tie_bolts", "Tie bolts", "fasteners",
+                        PART_COLOURS["fasteners"]):
+                for cx, cy, _ in centres:
+                    b.prism(_circle(cx, cy, shank / 2.0, _BOLT_SEGMENTS), (),
+                            z0, z0 + spec.tie_bolt_length)
+        else:
+            # Head on the output plate, so the screws come out downwards, head
+            # first, and the nuts the other way - as they are taken off.
+            length = spec.tie_screw_length or spec.tie_bolt_length
+            with b.part("tie_bolts", "Tie bolts", "fasteners",
+                        PART_COLOURS["fasteners"], explode=-_EXPLODE["fasteners"]):
+                for cx, cy, a in centres:
+                    head = _circle(cx, cy, size.head_d / 2.0, _BOLT_SEGMENTS)
+                    shank = _circle(cx, cy, size.d / 2.0, _BOLT_SEGMENTS)
+                    socket = np.array(hexagon(cx, cy, size.socket, a))
+                    floor = z0 - size.head_h + size.socket_depth
+                    # The socket is a blind hexagon in the end of the head: its
+                    # floor is the one face of the step that is exposed.
+                    b.prism(head, (socket,), z0 - size.head_h, floor, cap_top=False)
+                    b.cap(socket, (), floor, up=False)
+                    b.prism(head, (), floor, z0, cap_bottom=False, cap_top=False)
+                    b.ring(head, shank, z0, up=True)
+                    b.prism(shank, (), z0, z0 + length, cap_bottom=False)
+            face = spec.barrel_top + spec.plate_thickness
+            with b.part("tie_nuts", "Tie bolt nuts", "fasteners",
+                        PART_COLOURS["fasteners"]):
+                for cx, cy, a in centres:
+                    b.prism(np.array(hexagon(cx, cy, size.nut_s, a)),
+                            (_circle(cx, cy, size.d / 2.0, _BOLT_SEGMENTS),),
+                            face, face + size.nut_m)
 
     return b.build(spec)
 

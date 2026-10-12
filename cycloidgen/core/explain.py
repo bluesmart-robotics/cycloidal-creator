@@ -598,6 +598,18 @@ EXPLANATIONS: dict[str, Explanation] = {
         "pick a narrower bearing for the seat; or, where it is the register, a "
         "frame whose spigot is shallower.",
         keep="above", unit="mm"),
+    "TIE_NUTS_ON_OUTPUT_FACE": Explanation(
+        "Tie-bolt nuts standing on the face the load bolts to",
+        "nothing proud of the turning face  (ring-output drives)",
+        "The tie bolts are socket head screws from the output end plate, "
+        "clamped by nuts on the input one. With the ring housing as the output "
+        "the input end plate turns, and it is what the driven machine bolts "
+        "to - through output bolts on the tie bolts' own circle - so the nuts "
+        "and the screw ends past them stand between the plate and whatever is "
+        "bolted to it.",
+        "Space the driven part off the face on a ring that clears them, or tap "
+        "the input plate for the screws and do without the nuts.",
+        unit="mm"),
     "PV_LIMIT_CAM": Explanation(
         "Cam journal sliding duty past the wear limit",
         "p*v at the cam/bore contact  <  the PV limit for the pair",

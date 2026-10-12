@@ -120,8 +120,10 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
             msp.add_circle(c, spec.housing_bolt_diameter / 2.0,
                            dxfattribs={"layer": "BOLTS"})
             _cross(msp, c)
-        note += (f"  |  {spec.housing_bolt_count} x {spec.housing_bolt_diameter:g} "
-                 f"tie on BC {2 * spec.housing_bolt_radius:g}")
+        size = spec.tie_bolt_size
+        named = f" ({size.name})" if size else ""
+        note += (f"  |  {spec.housing_bolt_count} x {spec.housing_bolt_diameter:g}"
+                 f"{named} tie on BC {2 * spec.housing_bolt_radius:g}")
 
     # ``motor_face`` marks the input-side plate rather than promising a motor.
     # On a ring-output drive that face turns, so the motor has moved to the

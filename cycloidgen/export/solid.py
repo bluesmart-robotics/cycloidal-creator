@@ -30,6 +30,7 @@ from ..analysis.bearings import (
     seat_bores,
 )
 from ..core import profile as prof
+from ..core.fasteners import hexagon
 from ..core.spec import CARRIER_DROP, GearSpec
 from ..viz.mesh import PART_COLOURS, TIE_BOLT_NOMINAL
 from .manifest import disc_names
@@ -45,6 +46,7 @@ __all__ = [
     "ring_housing",
     "spacer_parts",
     "tie_bolts",
+    "tie_nuts",
     "write_part_steps",
     "write_step",
     "write_stls",
@@ -75,6 +77,7 @@ _PART_GROUP = {
     "input_end_plate": "end_plates",
     "output_end_plate": "end_plates",
     "tie_bolts": "fasteners",
+    "tie_nuts": "fasteners",
     "shaft_spacer_input": "shaft",
     "shaft_spacer_output": "shaft",
     "washers": "shaft",
@@ -616,6 +619,16 @@ def spacer_parts(spec: GearSpec,
     return out
 
 
+def _bolt_centres(spec: GearSpec) -> list[tuple[float, float, float]]:
+    """Where each tie bolt goes, and the angle it sits at round the axis."""
+    out = []
+    for k in range(spec.housing_bolt_count):
+        a = 2.0 * math.pi * k / spec.housing_bolt_count
+        out.append((spec.housing_bolt_radius * math.cos(a),
+                    spec.housing_bolt_radius * math.sin(a), a))
+    return out
+
+
 def tie_bolts(spec: GearSpec) -> cq.Workplane:
     """The bolts themselves, as one multi-solid part.
 
@@ -624,19 +637,62 @@ def tie_bolts(spec: GearSpec) -> cq.Workplane:
     a thing to make.  Drawn at the nominal size rather than at the clearance
     hole, because that is the bolt - the gap round it is the fit.
 
-    Shank only, and deliberately.  Where the head sits is a design decision this
-    app has not been given - proud, counterbored, or threaded into a blind hole
-    - and the one face it would land on is the input plate's outside, which is
-    where a motor bolts on.  A head standing proud there is an interference; a
-    counterbore is a change to a part this app dimensions for a shop to make.
-    Drawing a head we cannot place correctly is worse than drawing the shank we
-    can, and the bill of materials is what you order from.
+    Socket head cap screws, heads on the output end plate, with a nut on the
+    input one - which is where the head used to have nowhere to go: that face
+    is where a motor bolts on, and a counterbore will not fit the wall.  The
+    bolt circle runs down the middle of the housing wall, so on the default
+    6 mm wall an M4's 8 mm counterbore would break out through the rim; the
+    head stands on the face instead, and its 7 mm overhangs the rim by half a
+    millimetre.  The length is ISO 4762's next preferred one past the stack, the
+    nut and two threads, and the screw is drawn at that length.
+
+    A hole too small for any size in :mod:`~cycloidgen.core.fasteners` is drawn
+    as it was before there was a table: a shank at the hole, a little under.
     """
-    shank = TIE_BOLT_NOMINAL * spec.housing_bolt_diameter
-    return (cq.Workplane("XY").workplane(offset=spec.tie_bolt_bottom)
-            .polarArray(spec.housing_bolt_radius, 0, 360, spec.housing_bolt_count)
-            .circle(shank / 2.0)
-            .extrude(spec.tie_bolt_length))
+    size = spec.tie_bolt_size
+    z0 = spec.tie_bolt_bottom
+    if size is None:
+        shank = TIE_BOLT_NOMINAL * spec.housing_bolt_diameter
+        return (cq.Workplane("XY").workplane(offset=z0)
+                .polarArray(spec.housing_bolt_radius, 0, 360,
+                            spec.housing_bolt_count)
+                .circle(shank / 2.0)
+                .extrude(spec.tie_bolt_length))
+    length = spec.tie_screw_length or spec.tie_bolt_length
+    body: cq.Workplane | None = None
+    for cx, cy, a in _bolt_centres(spec):
+        bolt = (cq.Workplane("XY").workplane(offset=z0).center(cx, cy)
+                .circle(size.d / 2.0).extrude(length))
+        head = (cq.Workplane("XY").workplane(offset=z0 - size.head_h)
+                .center(cx, cy).circle(size.head_d / 2.0).extrude(size.head_h))
+        socket = (cq.Workplane("XY").workplane(offset=z0 - size.head_h)
+                  .polyline(hexagon(cx, cy, size.socket, a)).close()
+                  .extrude(size.socket_depth))
+        bolt = bolt.union(head).cut(socket)
+        body = bolt if body is None else body.union(bolt)
+    return body
+
+
+def tie_nuts(spec: GearSpec) -> cq.Workplane | None:
+    """The nuts on the input end plate, one per tie bolt, or ``None``.
+
+    ISO 4032, a flat towards the rim so the nut overhangs it no further than
+    the head does at the other end.  None when the bolt is not one the table
+    knows - there is then no nut to name either.
+    """
+    size = spec.tie_bolt_size
+    if size is None:
+        return None
+    face = spec.barrel_top + spec.plate_thickness
+    body: cq.Workplane | None = None
+    for cx, cy, a in _bolt_centres(spec):
+        nut = (cq.Workplane("XY").workplane(offset=face)
+               .polyline(hexagon(cx, cy, size.nut_s, a)).close()
+               .extrude(size.nut_m))
+        nut = nut.cut(cq.Workplane("XY").workplane(offset=face).center(cx, cy)
+                      .circle(size.d / 2.0).extrude(size.nut_m))
+        body = nut if body is None else body.union(nut)
+    return body
 
 
 def build_assembly(spec: GearSpec) -> cq.Assembly:
@@ -718,6 +774,9 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
 
     if spec.housing_bolt_count:
         assy.add(tie_bolts(spec), name="tie_bolts", color=_part_colour("tie_bolts"))
+        nuts = tie_nuts(spec)
+        if nuts is not None:
+            assy.add(nuts, name="tie_nuts", color=_part_colour("tie_nuts"))
     return assy
 
 

@@ -104,7 +104,7 @@ def test_mesh_volume_matches_the_exported_solid(ratio, discs):
     # they get no STL of their own - but they are in the picture and in the
     # STEP assembly, so they are held to the same agreement as everything else.
     solids = {**solid.parts(s), **solid.bearing_solids(s),
-              "tie_bolts": solid.tie_bolts(s)}
+              "tie_bolts": solid.tie_bolts(s), "tie_nuts": solid.tie_nuts(s)}
     for i, part in enumerate(mesh.parts):
         name = part.name
         if part.group == "discs" and s.discs_are_identical:
@@ -276,12 +276,15 @@ def test_the_envelope_is_the_length_the_geometry_occupies(ratio):
     plates = [_z_span(mesh, n) for n in ("input_end_plate", "output_end_plate")]
     assert max(p[1] for p in plates) - min(p[0] for p in plates) == pytest.approx(
         spec.envelope_length)
-    # nothing but the shaft is allowed to stand outside the plates
+    # nothing but the shaft ends is allowed to stand outside the plates - and
+    # the screw heads and nuts, which nobody counts in a gearbox's length any
+    # more than its shaft end
     outside = (z < min(p[0] for p in plates) - 1e-6) | (
         z > max(p[1] for p in plates) + 1e-6)
     parts_outside = {mesh.parts[i].name for i in range(len(mesh.parts))
                      if outside[mesh.parts[i].vertices].any()}
-    assert parts_outside <= {"eccentric_shaft", "output_flange"}, parts_outside
+    assert parts_outside <= {"eccentric_shaft", "output_flange",
+                             "tie_bolts", "tie_nuts"}, parts_outside
 
 
 SEALED_GROUPS = ("discs", "ring_pins", "shaft", "carrier", "bearings")

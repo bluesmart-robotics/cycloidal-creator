@@ -189,7 +189,24 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
               f"runs in {s.output_hole_diameter:.3f} mm holes")))
 
     # ---- fasteners ----------------------------------------------------------
-    if s.housing_bolt_count:
+    # Named by size and length when the hole is one the table knows - what a
+    # supplier is actually asked for - and by the hole when it is not.
+    bolt = s.tie_bolt_size
+    if s.housing_bolt_count and bolt is not None:
+        items.append(BomItem(
+            part="Tie bolt", quantity=s.housing_bolt_count, material=s.pin_material,
+            size=f"{bolt.name} x {s.tie_screw_length:g} socket head cap screw, "
+                 f"ISO 4762",
+            mass_each_g=0.0, source="buy",
+            note=f"head on the output end plate, through it, the barrel and the "
+                 f"input end plate, on a {2 * s.housing_bolt_radius:.1f} mm "
+                 f"circle; {s.tie_bolt_length:.0f} mm of grip"))
+        items.append(BomItem(
+            part="Tie bolt nut", quantity=s.housing_bolt_count,
+            material=s.pin_material, size=f"{bolt.name} hexagon nut, ISO 4032",
+            mass_each_g=0.0, source="buy",
+            note="on the input end plate's outside face"))
+    elif s.housing_bolt_count:
         items.append(BomItem(
             part="Tie bolt", quantity=s.housing_bolt_count, material=s.pin_material,
             size=f"{s.housing_bolt_diameter:g} mm clearance, about "

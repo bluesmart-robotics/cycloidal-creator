@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 # Re-exported here because every consumer already reaches for the spec, and a
 # name that moves house is a name that breaks a dozen imports for no gain.
 from .duty import DutyCycle
+from .fasteners import MetricSize, screw_length, size_for_hole
 from .motor import (
     MOTOR_FRAMES,
     NO_MOTOR,
@@ -1071,6 +1072,24 @@ class GearSpec(BaseModel):
         One property now, read by the bill of materials and by both renderers.
         """
         return self.barrel_height + 2.0 * self.plate_thickness
+
+    @property
+    def tie_bolt_size(self) -> MetricSize | None:
+        """The bolt the tie-bolt holes are drilled for, read off the hole.
+
+        ``None`` with no tie bolts, or a hole too small for any size in the
+        table - in which case the drive is drawn and ordered as it always was,
+        by the hole and a length.
+        """
+        if not self.housing_bolt_count:
+            return None
+        return size_for_hole(self.housing_bolt_diameter)
+
+    @property
+    def tie_screw_length(self) -> float | None:
+        """The preferred screw length that clamps the stack with a nut on it."""
+        size = self.tie_bolt_size
+        return screw_length(self.tie_bolt_length, size) if size else None
 
     @property
     def ring_pin_length(self) -> float:

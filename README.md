@@ -51,7 +51,7 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Sixty-four checks that explain themselves.** Each says what it tests, what
+- **Sixty-five checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -360,6 +360,14 @@ bolts share the tie bolts' circle, because that is the one radius on that plate
 with barrel wall behind it to thread into; they are held half a pitch away from
 them, and `OUTPUT_BOLT_CLASH` says so when the two counts do not interleave.
 
+The tie bolts themselves are socket head cap screws, named by the size their
+hole is the clearance for — a 4.5 mm hole is an M4 — at ISO 4762's next
+preferred length past the stack, a nut and two threads. Heads go on the output
+end plate and nuts on the input one: a counterbore will not fit the wall the
+bolt circle runs down, and the input plate's outside is where a motor goes. On
+a ring-output drive that face is the one the load bolts to instead, and
+`TIE_NUTS_ON_OUTPUT_FACE` says how far proud of it the nuts stand.
+
 > **Sign warning.** The equivalent `psi` formulation needs a *leading minus*:
 > `psi(t) = -atan2(sin(N·t), R/(E·Np) - cos(N·t))`. The positive-sign variant is
 > widespread online and is wrong - it deviates by millimetres and the disc
@@ -485,7 +493,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Sixty-four of them. Errors block export; warnings do not; several are readings
+Sixty-five of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -514,7 +522,8 @@ rather than tests.
 `BEARING_DOES_NOT_FIT` · `BEARINGS_OMITTED` · `SEAT_HAS_NO_SHOULDER`
 
 **Mounting** — `HOUSING_BOLT_CLASH` · `OUTPUT_BOLT_CLASH` ·
-`MOTOR_SHAFT_MISMATCH` · `MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD`
+`MOTOR_SHAFT_MISMATCH` · `MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD` ·
+`TIE_NUTS_ON_OUTPUT_FACE`
 
 **The motor** — `MOTOR_OPERATING_POINT` · `MOTOR_TORQUE_SHORT` ·
 `MOTOR_SUPPLY_VOLTAGE`

@@ -200,8 +200,12 @@ def test_the_bolt_length_is_the_distance_it_has_to_span(ratio):
             faces += [float(z.min()), float(z.max())]
     assert max(faces) - min(faces) == pytest.approx(spec.tie_bolt_length)
 
+    # The screw is ordered at a preferred length past that, and the grip it has
+    # to clamp is stated beside it.
     stated = next(i for i in bom_items(analyse(spec)) if i.part == "Tie bolt")
-    assert f"{spec.tie_bolt_length:.0f} mm under the head" in stated.size
+    assert f"{spec.tie_bolt_length:.0f} mm of grip" in stated.note
+    assert f" x {spec.tie_screw_length:g} " in stated.size
+    assert spec.tie_screw_length > spec.tie_bolt_length
 
 
 @pytest.mark.parametrize("ratio", [15, 21, 33])
@@ -214,11 +218,17 @@ def test_the_bolts_are_drawn_where_the_holes_are(ratio):
     assert "tie_bolts" not in parts(spec)
     assert "tie_bolts" in {c.name for c in build_assembly(spec).children}
 
+    # Socket head cap screws, heads on the output plate, at the preferred
+    # length that clamps the stack with a nut and two threads past it.
+    size = spec.tie_bolt_size
+    assert size is not None and size.name == "M4"      # a 4.5 mm hole
     bounds = tie_bolts(spec).val().BoundingBox()
-    assert bounds.zmin == pytest.approx(spec.tie_bolt_bottom)
-    assert bounds.zlen == pytest.approx(spec.tie_bolt_length)
-    # inside the clearance holes they run in, not filling them
-    assert bounds.xmax < spec.housing_bolt_radius + spec.housing_bolt_diameter / 2.0
+    assert bounds.zmin == pytest.approx(spec.tie_bolt_bottom - size.head_h)
+    assert bounds.zmax == pytest.approx(spec.tie_bolt_bottom + spec.tie_screw_length)
+    assert (spec.tie_screw_length
+            >= spec.tie_bolt_length + size.nut_m + 2.0 * size.pitch)
+    # the shank runs in the clearance hole, not filling it
+    assert size.d < spec.housing_bolt_diameter
 
 
 @pytest.mark.parametrize("ratio", [15, 21, 33])
@@ -511,3 +521,47 @@ def test_no_spacer_shares_space_with_another_part(output):
                 continue
             overlap = placed[name].intersect(shape).Volume()
             assert overlap < 1e-6, f"{name} goes {overlap:.4f} mm^3 into {other}"
+
+
+@pytest.mark.parametrize("output", ["output pin carrier", "ring housing"])
+def test_the_screws_and_nuts_clamp_the_stack_and_go_into_none_of_it(output):
+    """Heads on the output plate's outside, nuts on the input plate's, shanks
+    through the clearance holes - touching every plate, inside none of them."""
+    from cycloidgen.export import solid
+
+    spec = preset(21)
+    spec.output_member = output
+    size = spec.tie_bolt_size
+    assy = solid.build_assembly(spec)
+    placed = {c.name: c.obj.val().moved(c.loc) for c in assy.children}
+    nuts = placed["tie_nuts"].BoundingBox()
+    assert nuts.zmin == pytest.approx(spec.barrel_top + spec.plate_thickness)
+    assert nuts.zlen == pytest.approx(size.nut_m)
+    for fastener in ("tie_bolts", "tie_nuts"):
+        for other in ("housing", "input_end_plate", "output_end_plate"):
+            overlap = placed[fastener].intersect(placed[other]).Volume()
+            assert overlap < 1e-6, f"{fastener} goes {overlap:.3f} mm^3 into {other}"
+
+
+def test_the_bill_names_the_screw_and_the_nut():
+    from cycloidgen.export.bom import bom_items
+
+    spec = preset(21)
+    items = {i.part: i for i in bom_items(analyse(spec))}
+    assert items["Tie bolt"].size == "M4 x 45 socket head cap screw, ISO 4762"
+    assert items["Tie bolt nut"].size == "M4 hexagon nut, ISO 4032"
+    assert items["Tie bolt"].quantity == items["Tie bolt nut"].quantity == \
+        spec.housing_bolt_count
+
+
+def test_nuts_on_a_turning_output_face_are_reported():
+    """On a ring drive the input plate is what the load bolts to."""
+    def raised(spec):
+        return [f for f in analyse(spec).report.findings
+                if f.code == "TIE_NUTS_ON_OUTPUT_FACE"]
+
+    assert not raised(preset(21))
+    ring = preset(21)
+    ring.output_member = "ring housing"
+    (found,) = raised(ring)
+    assert found.value == pytest.approx(ring.tie_screw_length - ring.tie_bolt_length)

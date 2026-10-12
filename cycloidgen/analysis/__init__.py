@@ -719,6 +719,21 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                 f"in: {why}. A shoulder takes {MIN_SHOULDER:g} mm past the bearing.",
                 missing.room, MIN_SHOULDER)
 
+    # The tie bolts are clamped by nuts on the input end plate.  On a carrier
+    # drive that face is the motor's, outside its spigot; on a ring drive it is
+    # the turning face the driven machine bolts to, and the nuts and the screw
+    # ends past them are standing on it.
+    size = spec.tie_bolt_size
+    if spec.ground_frame_fitted and size is not None and spec.tie_screw_length:
+        proud = spec.tie_screw_length - spec.tie_bolt_length
+        rep.add(Severity.WARNING, "TIE_NUTS_ON_OUTPUT_FACE",
+                f"The input end plate turns and is what the driven machine bolts "
+                f"to, and the {spec.housing_bolt_count} tie-bolt nuts are on it: "
+                f"they and the screw ends past them stand {proud:.1f} mm proud on "
+                f"a {2 * spec.housing_bolt_radius:.1f} mm circle. Space the driven "
+                f"part clear of them, or tap the plate for the screws and lose "
+                f"the nuts.", proud, 0.0)
+
     return DesignAnalysis(spec=spec, report=rep, contact=contact, efficiency=eff,
                           stiffness=stiff, transmission_error=te, thermal=therm,
                           mass=mass, fatigue=fatigue, bearings=bearings,
