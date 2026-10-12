@@ -782,11 +782,18 @@ suggests it.
   keep immediately: the first run surfaced a `RuntimeWarning` from a negative
   log term in the contact-stiffness solver that had been silently producing NaNs
   on degenerate geometry.
+- **Advanced** — the parameter panel opens on the seventeen fields a design is
+  made with: ratio and pin geometry, disc, output pins, shaft, process,
+  materials, motor frame, speed and torque. The other forty-four — clearances
+  and tolerances, bearing designations, motor electrics, mounting bolts,
+  lubrication — are behind the **Advanced** switch beside the search box (also
+  View ▸ Advanced parameters, `Ctrl+Shift+A`). Hidden is not ignored: they keep
+  their values, the analysis uses them, and the checks still test them. A search
+  finds them with the switch off, and a check that points at one shows it.
 - Undo/redo, recent files, a parameter search box, and parameter groups that
-  fold behind their headings — the panel opens on the geometry, the disc and the
-  output, and a search or a selected check opens whichever group it needs. The
-  session reopens on the design, tab, crank angle, open groups and panel split
-  you left. The split is stored as
+  fold behind their headings — a search or a selected check opens whichever
+  group it needs. The session reopens on the design, tab, crank angle, open
+  groups, the Advanced switch and the panel split you left. The split is stored as
   a *proportion*: remembering pixels hands a narrower screen most of its width
   to the parameter panel. The analysis runs off the GUI thread with generation
   numbering, so a slow result can never overwrite a newer one.

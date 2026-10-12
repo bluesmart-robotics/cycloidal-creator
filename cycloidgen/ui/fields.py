@@ -41,6 +41,14 @@ class Field:
     choices: tuple[str, ...] = ()
     tip: str = ""
     zero_is_auto: bool = False
+    #: Shown only with the panel's Advanced switch on.  The question is not
+    #: whether a parameter matters - they all move the analysis, and a hidden
+    #: one keeps its value and is still checked - but whether a first design
+    #: is made with it.  Ratio, size, thickness, what it is made of and how,
+    #: what it carries and how fast: that is a drive.  Tolerances, bearing
+    #: designations, motor electrics and bolt patterns are what a preset or
+    #: the optimiser already set sensibly, and what an expert comes back for.
+    advanced: bool = False
 
     @property
     def is_length(self) -> bool:
@@ -70,9 +78,11 @@ GROUPS: list[tuple[str, list[Field]]] = [
     ("Disc", [
         Field("disc_thickness", "Thickness", "float", 0.5, 200, 0.5, decimals=2, suffix=" mm"),
         Field("disc_count", "Disc count", "int", 1, 3, 1),
-        Field("disc_gap", "Axial gap", "float", 0, 50, 0.25, decimals=2, suffix=" mm"),
+        Field("disc_gap", "Axial gap", "float", 0, 50, 0.25, decimals=2, suffix=" mm",
+              advanced=True),
         Field("center_bore_diameter", "Central bore", "float", 2, 300, 0.5, decimals=2,
-              suffix=" mm"),
+              suffix=" mm",
+              advanced=True),
     ]),
     ("Output mechanism", [
         Field("output_member", "Output from", "choice",
@@ -86,44 +96,56 @@ GROUPS: list[tuple[str, list[Field]]] = [
         Field("output_pin_diameter", "Pin diameter", "float", 1, 60, 0.5, decimals=2,
               suffix=" mm"),
         Field("output_bolt_circle_radius", "Bolt circle", "float", 3, 400, 0.5,
-              decimals=2, suffix=" mm"),
+              decimals=2, suffix=" mm",
+              advanced=True),
         Field("output_pins_are_rollers", "Pins carry rollers", "bool",
-              tip="Rolling output pins remove most of the second-biggest loss."),
+              tip="Rolling output pins remove most of the second-biggest loss.",
+              advanced=True),
     ]),
     ("Housing and shaft", [
-        Field("housing_wall", "Housing wall", "float", 1, 100, 0.5, decimals=2, suffix=" mm"),
+        Field("housing_wall", "Housing wall", "float", 1, 100, 0.5, decimals=2, suffix=" mm",
+              advanced=True),
         Field("input_shaft_diameter", "Input shaft", "float", 2, 200, 0.5, decimals=2,
               suffix=" mm"),
         Field("eccentric_cam_diameter", "Eccentric cam OD", "float", 0, 300, 0.5,
               decimals=2, suffix=" mm", zero_is_auto=True,
               tip="0 = automatic: the bore less a 4 mm bearing wall, or the "
-                  "whole bore when no cam bearing is fitted."),
+                  "whole bore when no cam bearing is fitted.",
+              advanced=True),
         Field("output_flange_thickness", "Output flange", "float", 1, 100, 0.5,
-              decimals=2, suffix=" mm"),
+              decimals=2, suffix=" mm",
+              advanced=True),
     ]),
     ("Manufacturing", [
         Field("process", "Process", "choice",
               choices=tuple(p.value for p in Process)),
         Field("offset_mode", "Clearance as", "choice",
               choices=tuple(m.value for m in OffsetMode),
-              tip="Equidistant grows the roller; pin circle shifts the ring."),
+              tip="Equidistant grows the roller; pin circle shifts the ring.",
+              advanced=True),
         Field("profile_clearance", "Profile clearance", "float", 0, 2, 0.01,
-              decimals=3, suffix=" mm"),
+              decimals=3, suffix=" mm",
+              advanced=True),
         Field("hole_clearance", "Hole clearance", "float", 0, 2, 0.01,
-              decimals=3, suffix=" mm"),
+              decimals=3, suffix=" mm",
+              advanced=True),
         Field("position_tolerance", "Pin position", "float", 0, 2, 0.01,
               decimals=3, suffix=" mm",
               tip="True-position zone diameter on the pin holes, ring and "
                   "carrier alike. Zero models a perfectly placed ring; enter "
-                  "what your shop holds to see what it costs."),
+                  "what your shop holds to see what it costs.",
+              advanced=True),
         Field("dxf_chord_tolerance", "Profile tolerance", "float", 0.0005, 0.5,
-              0.001, decimals=4, suffix=" mm"),
+              0.001, decimals=4, suffix=" mm",
+              advanced=True),
         Field("stl_linear_tolerance", "STL tolerance", "float", 0.005, 1.0, 0.01,
-              decimals=3, suffix=" mm"),
+              decimals=3, suffix=" mm",
+              advanced=True),
         Field("edge_chamfer", "Edge chamfer", "float", 0, 3, 0.1,
               decimals=2, suffix=" mm",
               tip="Outside edges and bearing-seat lead-ins on the solids. "
-                  "Never on the profile, the pins or their holes. 0 for none."),
+                  "Never on the profile, the pins or their holes. 0 for none.",
+              advanced=True),
     ]),
     ("Materials", [
         Field("disc_material", "Disc", "choice", choices=tuple(MATERIALS)),
@@ -132,45 +154,56 @@ GROUPS: list[tuple[str, list[Field]]] = [
               choices=tuple(MATERIALS),
               tip="Also the output flange. Sets the mass and the temperature "
                   "limit of the structure."),
-        Field("shaft_material", "Shaft", "choice", choices=tuple(MATERIALS)),
+        Field("shaft_material", "Shaft", "choice", choices=tuple(MATERIALS),
+              advanced=True),
         Field("friction_coefficient", "Friction", "float", 0.01, 0.9,
               0.01, decimals=3,
               tip="Dry sliding coefficient. Used as-is with no lubricant; with "
-                  "one it is what the film is compared against."),
+                  "one it is what the film is compared against.",
+              advanced=True),
         Field("lubricant", "Lubricant", "choice", choices=tuple(LUBRICANTS),
               tip="What is between the sliding surfaces. Sets the friction "
                   "coefficient from a film thickness rather than a guess - and "
-                  "on a rough surface, from its boundary additives."),
+                  "on a rough surface, from its boundary additives.",
+              advanced=True),
         Field("surface_roughness_um", "Surface Rq", "float", 0, 100.0, 0.1,
               decimals=2, suffix=" um", zero_is_auto=True,
               tip="0 = automatic: a typical RMS roughness for the process. This "
                   "is what film thickness is measured against, so it decides "
-                  "the lubrication regime more than the lubricant does."),
+                  "the lubrication regime more than the lubricant does.",
+              advanced=True),
         Field("ring_pins_integral", "Ring pins formed with housing", "bool",
               tip="The pins are the housing rather than dowels fitted into it: "
                   "nothing to buy, nothing to align, and the contact is "
-                  "sliding. Usual on a printed drive."),
+                  "sliding. Usual on a printed drive.",
+              advanced=True),
         Field("ring_pins_are_rollers", "Ring pins are rollers", "bool",
               tip="Needle rollers on the ring pins remove the largest loss. "
-                  "Not available on integral pins, which cannot turn."),
+                  "Not available on integral pins, which cannot turn.",
+              advanced=True),
     ]),
     ("Mounting", [
         Field("housing_bolt_count", "Tie bolts", "int", 0, 24, 1,
-              tip="Through both end plates into the barrel. 0 draws none."),
+              tip="Through both end plates into the barrel. 0 draws none.",
+              advanced=True),
         Field("housing_bolt_diameter", "Tie bolt", "float", 1, 20, 0.5,
-              decimals=2, suffix=" mm"),
+              decimals=2, suffix=" mm",
+              advanced=True),
         Field("output_boss_protrusion", "Boss stands out", "float", 0, 100, 1,
               decimals=2, suffix=" mm",
               tip="How far the output boss stands past the end plate. With the "
                   "carrier as the output that is grip length for a coupling. "
                   "With the ring housing as the output it is the standoff "
-                  "between the turning plate and the base under it."),
+                  "between the turning plate and the base under it.",
+              advanced=True),
         Field("output_bolt_count", "Output bolts", "int", 0, 24, 1,
               tip="Ring output only: what a driven machine bolts to on the "
                   "turning end plate. They share the tie bolts' circle and "
-                  "interleave with them, so equal counts is the safe answer."),
+                  "interleave with them, so equal counts is the safe answer.",
+              advanced=True),
         Field("output_bolt_diameter", "Output bolt", "float", 1, 20, 0.5,
-              decimals=2, suffix=" mm"),
+              decimals=2, suffix=" mm",
+              advanced=True),
     ]),
     # The face and the curve in one group, because they are one object.  They
     # used to be apart - the frame filed under mounting with the tie bolts,
@@ -186,68 +219,86 @@ GROUPS: list[tuple[str, list[Field]]] = [
                   "face and says nothing about the torque - that is below."),
         Field("motor_drives_the_shaft", "Turns the cam", "bool",
               tip="On, the motor's own shaft is the input shaft. Off, there is "
-                  "a separate shaft and a coupling between them."),
+                  "a separate shaft and a coupling between them.",
+              advanced=True),
         Field("motor_kind", "Torque curve", "choice",
               choices=tuple(k.value for k in MotorKind),
               tip="'none' asks nothing of the motor and is what the app always "
                   "did. Either curve turns on the torque, speed-ceiling and "
-                  "supply checks."),
+                  "supply checks.",
+              advanced=True),
         Field("motor_supply_V", "Bus voltage", "float", 1, 1000, 1,
               decimals=1, suffix=" V",
               tip="Both curves scale with it, and it sets the speed past which "
                   "the motor makes no torque at all. Usually the cheapest "
-                  "thing in the design to change."),
+                  "thing in the design to change.",
+              advanced=True),
         Field("motor_resistance_ohm", "Winding resistance", "float",
               0.001, 1000, 0.1, decimals=3, suffix=" ohm",
               tip="Per phase on a stepper, terminal to terminal on a DC motor. "
                   "It decides the stall current and whether the bus can reach "
-                  "the rated current standing still."),
+                  "the rated current standing still.",
+              advanced=True),
         Field("motor_rated_current_A", "Rated current", "float",
               0.01, 500, 0.1, decimals=2, suffix=" A",
               tip="The driver setting on a stepper, the continuous rating on a "
-                  "DC motor - the current it will take all day."),
+                  "DC motor - the current it will take all day.",
+              advanced=True),
         Field("motor_holding_torque_Nm", "Holding torque", "float",
               0.001, 1000, 0.05, decimals=3, suffix=" Nm",
               tip="Stepper only: both phases at rated current, standing still. "
-                  "The motor has less than this at every speed it runs at."),
+                  "The motor has less than this at every speed it runs at.",
+              advanced=True),
         Field("motor_inductance_mH", "Inductance", "float",
               0.001, 1000, 0.5, decimals=2, suffix=" mH",
               tip="Stepper only, per phase. With the bus voltage it sets how "
-                  "soon the current - and so the torque - starts falling."),
+                  "soon the current - and so the torque - starts falling.",
+              advanced=True),
         Field("motor_steps_per_rev", "Steps per turn", "int", 4, 10000, 100,
               tip="Stepper only. 200 is a 1.8 degree motor, 400 a 0.9 degree "
                   "one, which reaches the same electrical frequency at half "
-                  "the speed."),
+                  "the speed.",
+              advanced=True),
         Field("motor_kv_rpm_per_V", "Kv", "float", 0.1, 100000, 10,
               decimals=1, suffix=" rpm/V",
               tip="DC and brushless only: no-load speed per volt. It is also "
-                  "the torque constant - Kt in Nm/A is 9.5493 divided by it."),
+                  "the torque constant - Kt in Nm/A is 9.5493 divided by it.",
+              advanced=True),
     ]),
     ("Bearings", [
         Field("cam_bearing_fitted", "Cam bearing", "bool",
               tip="Off means the disc bore runs straight on the cam - a plain "
                   "journal at nearly full input speed, and the cam grows to "
-                  "fill the bore."),
+                  "fill the bore.",
+              advanced=True),
         Field("shaft_bearings_fitted", "Input shaft supports", "bool",
               tip="Off means the drive hangs on the driving motor's bearings, "
-                  "which then take the crank reaction."),
+                  "which then take the crank reaction.",
+              advanced=True),
         Field("output_bearing_fitted", "Main output bearing", "bool",
               tip="Off means the machine being driven locates the output "
-                  "flange."),
+                  "flange.",
+              advanced=True),
         Field("cam_bearing", "Cam bearing size", "choice", choices=_BEARINGS,
               tip="'auto' takes the smallest that fits the seat and lasts. Name "
                   "one and it is checked against the seat, not swapped for one "
-                  "that fits."),
-        Field("shaft_bearing", "Shaft bearing size", "choice", choices=_BEARINGS),
-        Field("output_bearing", "Output bearing size", "choice", choices=_BEARINGS),
+                  "that fits.",
+              advanced=True),
+        Field("shaft_bearing", "Shaft bearing size", "choice", choices=_BEARINGS,
+              advanced=True),
+        Field("output_bearing", "Output bearing size", "choice", choices=_BEARINGS,
+              advanced=True),
         Field("ring_pin_roller", "Ring pin roller", "choice", choices=_BEARINGS,
-              tip="Only used when the ring pins are rollers."),
+              tip="Only used when the ring pins are rollers.",
+              advanced=True),
         Field("output_pin_roller", "Output pin roller", "choice", choices=_BEARINGS,
-              tip="Only used when the output pins carry rollers."),
+              tip="Only used when the output pins carry rollers.",
+              advanced=True),
         Field("bearing_min_life_hours", "Minimum L10 life", "float", 10, 1e6, 1000,
               decimals=0, suffix=" h",
               tip="What a bearing has to reach before the study will take it, "
-                  "and what the short-life warning is measured against."),
+                  "and what the short-life warning is measured against.",
+              advanced=True),
     ]),
     ("Duty", [
         Field("input_rpm", "Input speed", "float", 1, 30000, 50, decimals=1,
@@ -257,7 +308,8 @@ GROUPS: list[tuple[str, list[Field]]] = [
         Field("ambient_temp_C", "Ambient", "float", -50, 200, 5,
               decimals=1, suffix=" C",
               tip="Sets the baseline the predicted running temperature is "
-                  "added to."),
+                  "added to.",
+              advanced=True),
     ]),
 ]
 

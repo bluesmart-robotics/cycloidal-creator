@@ -109,7 +109,11 @@ _CRANK_STEP_DEG = 3.0
 _PLAYBACK_RPM_AT_1X = _CRANK_STEP_DEG / _FRAME_MS * 1000.0 / 360.0 * 60.0
 
 #: Parameter sections open on a first run - see `MainWindow._section_open`.
-_OPEN_BY_DEFAULT = 3
+#: Every one with something in it a first design is made with.  Derived from
+#: the fields rather than listed, so a field moved out of Advanced cannot land
+#: behind a closed heading on the one screen meant to show it.
+_OPEN_BY_DEFAULT = frozenset(title for title, fields in GROUPS
+                             if any(not f.advanced for f in fields))
 
 
 def _section_key(title: str) -> str:
@@ -376,6 +380,11 @@ class MainWindow(QMainWindow):
         self._workers: list[AnalysisWorker] = []
         self._history = SpecHistory(self.spec)
         self._highlighted: list[QWidget] = []
+        # Fields shown whatever the Advanced switch says, because a selected
+        # check is pointing at them - see `_finding_selected`.
+        self._revealed: set[str] = set()
+        self._advanced = bool(self._settings.value("advanced_parameters", False,
+                                                   type=bool))
         # Which parameter the explanation panel is currently speaking about, or
         # None when it is the selected check's turn.
         self._focused_field: str | None = None
@@ -713,10 +722,26 @@ class MainWindow(QMainWindow):
         top_column.addLayout(row)
 
         self._filter = QLineEdit()
-        self._filter.setPlaceholderText("Search parameters...")
+        # "All", because it does search all of them: a search is somebody
+        # asking for a parameter by name, and answering "not in this mode"
+        # would be the switch getting in the way of the one person who knew
+        # what they wanted.
+        self._filter.setPlaceholderText("Search all parameters...")
         self._filter.setClearButtonEnabled(True)
         self._filter.textChanged.connect(self._apply_filter)
-        top_column.addWidget(self._filter)
+        search_row = QHBoxLayout()
+        search_row.setSpacing(6)
+        search_row.addWidget(self._filter, 1)
+        self._advanced_box = branding.chip(QCheckBox("Advanced"))
+        self._advanced_box.setChecked(self._advanced)
+        self._advanced_box.setToolTip(
+            "Show every parameter: clearances and tolerances, bearings, motor "
+            "electrics, mounting bolts, lubrication.\n\nOff, the panel keeps to "
+            "the ones a design is made with. The rest keep their values and "
+            "are still checked, and a check that points at one shows it.")
+        self._advanced_box.toggled.connect(self._set_advanced)
+        search_row.addWidget(self._advanced_box)
+        top_column.addLayout(search_row)
 
         inner = QWidget()
         inner.setObjectName("ParamPanel")
@@ -728,7 +753,7 @@ class MainWindow(QMainWindow):
         for index, (title, fields) in enumerate(GROUPS):
             box = Section(title, first=index == 0)
             box.set_theme(self.mode)
-            box.set_expanded(self._section_open(title, index))
+            box.set_expanded(self._section_open(title))
             box.toggled.connect(
                 lambda on, t=title: self._settings.setValue(_section_key(t), on))
             self._sections[title] = box
@@ -764,10 +789,12 @@ class MainWindow(QMainWindow):
                                "the selected manufacturing process.")
                 btn.clicked.connect(self._apply_process_defaults)
                 form.addRow(btn)
+                self._process_link = btn
             layout.addWidget(box)
             self._groups.append((box, [f.name for f in fields]))
 
         self._align_label_column()
+        self._refresh_fields()
 
         # One connection rather than an event filter per widget: the panel wants
         # to know which parameter the user is *looking at*, and focus is that
@@ -822,16 +849,17 @@ class MainWindow(QMainWindow):
         self._explain_split.setSizes([680, 220])
         return self._explain_split
 
-    def _section_open(self, title: str, index: int) -> bool:
+    def _section_open(self, title: str) -> bool:
         """Whether a section starts open: as it was left, or as a first run has it.
 
-        A first run opens the first three - the geometry, the disc and what
-        takes the output off it - which are the numbers that make the drive the
-        drive.  The rest are set once per design and wait behind their headings.
+        A first run opens every section with a parameter outside Advanced, so
+        the short panel is all in view; the sections that are nothing but
+        detail - the mounting bolts, the bearings - start closed, and stay
+        closed when the switch first shows them.
         """
         stored = self._settings.value(_section_key(title))
         if stored is None:
-            return index < _OPEN_BY_DEFAULT
+            return title in _OPEN_BY_DEFAULT
         if isinstance(stored, str):
             return stored.lower() == "true"
         return bool(stored)
@@ -1389,6 +1417,14 @@ class MainWindow(QMainWindow):
             appearance.addAction(action)
             self._appearance_actions[key] = action
 
+        self._advanced_action = QAction("Ad&vanced parameters", self)
+        self._advanced_action.setCheckable(True)
+        self._advanced_action.setChecked(self._advanced)
+        self._advanced_action.setShortcut("Ctrl+Shift+A")
+        self._advanced_action.toggled.connect(self._set_advanced)
+        v.addAction(self._advanced_action)
+        v.addSeparator()
+
         units = v.addMenu("&Units")
         self._unit_actions: dict[str, QAction] = {}
         for key, label in (("mm", "&Millimetres"), ("in", "&Inches (decimal)")):
@@ -1821,27 +1857,53 @@ class MainWindow(QMainWindow):
         self._redo_action.setEnabled(self._history.can_redo)
 
     # ------------------------------------------------------------- filtering
-    def _apply_filter(self, text: str) -> None:
-        """Show only the fields that match, with their sections opened.
+    def _apply_filter(self, _text: str) -> None:
+        self._refresh_fields()
 
-        Opened for as long as the search lasts and no longer: a match behind a
-        closed heading is a search that found nothing as far as anyone can
-        see, and clearing the search puts every section back as it was left.
+    def _refresh_fields(self) -> None:
+        """Decide which parameters the panel shows, and which sections are open.
+
+        A search shows what matches, Advanced or not, and opens every section
+        it finds something in - for as long as the search lasts and no longer:
+        a match behind a closed heading is a search that found nothing as far
+        as anyone can see, and clearing it puts every section back as it was
+        left.  Without a search the switch decides, except for the fields a
+        selected check is pointing at: a highlight on a hidden field points at
+        nothing, so those are shown in either mode.
         """
-        needle = text.strip().lower()
+        needle = self._filter.text().strip().lower()
         by_name = {f.name: f for _, fs in GROUPS for f in fs}
-        for index, (box, names) in enumerate(self._groups):
+        for box, names in self._groups:
             visible = 0
             for name in names:
                 f = by_name[name]
-                match = (not needle or needle in f.label.lower()
-                         or needle in name.lower() or needle in f.tip.lower())
+                if needle:
+                    show = (needle in f.label.lower() or needle in name.lower()
+                            or needle in f.tip.lower())
+                else:
+                    show = (self._advanced or not f.advanced
+                            or name in self._revealed
+                            or name == self._focused_field)
                 label, widget = self._rows[name]
-                label.setVisible(match)
-                widget.setVisible(match)
-                visible += bool(match)
+                label.setVisible(show)
+                widget.setVisible(show)
+                visible += bool(show)
+                if name == "process":
+                    self._process_link.setVisible(show)
             box.setVisible(visible > 0)
-            box.set_expanded(bool(needle) or self._section_open(box.title, index))
+            box.set_expanded(bool(needle) or self._section_open(box.title))
+
+    def _set_advanced(self, on: bool) -> None:
+        """The switch, from the panel or the View menu - they stay one control."""
+        self._advanced = bool(on)
+        self._revealed.clear()
+        self._settings.setValue("advanced_parameters", self._advanced)
+        for control in (self._advanced_box, self._advanced_action):
+            if control.isChecked() != self._advanced:
+                blocked = control.blockSignals(True)
+                control.setChecked(self._advanced)
+                control.blockSignals(blocked)
+        self._refresh_fields()
 
     # ------------------------------------------------------------- computing
     def _recompute(self) -> None:
@@ -2085,8 +2147,15 @@ class MainWindow(QMainWindow):
         # And in the 3D view, the parts a clash is about.
         self._view3d.point_at(self._selected_code)
         if current is None:
+            # The reveal is kept.  The list is rebuilt on every analysis, and
+            # a fix that clears the check clears the selection with it - which
+            # would hide the advanced field being typed into, mid-edit.  It
+            # goes when another check is chosen or the switch is moved.
             return
         code = self._selected_code
+        self._revealed = {n for n in CODE_FIELDS.get(code, ()) if n in self._rows}
+        if not self._advanced:
+            self._refresh_fields()
         first = None
         for name in CODE_FIELDS.get(code, ()):
             row = self._rows.get(name)

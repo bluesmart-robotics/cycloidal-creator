@@ -1420,14 +1420,15 @@ def _fold_all(w) -> None:
 
 def _unfold_defaults(w) -> None:
     from cycloidgen.ui.main_window import _OPEN_BY_DEFAULT
-    for index, section in enumerate(w._sections.values()):
-        if section.is_expanded() != (index < _OPEN_BY_DEFAULT):
+    for title, section in w._sections.items():
+        if section.is_expanded() != (title in _OPEN_BY_DEFAULT):
             section.header.click()
 
 
 def test_the_panel_opens_on_the_drive_and_folds_the_rest(app):
-    """Ten groups and sixty fields at once is a wall.  A first run opens the
-    three that make the drive the drive, and the rest wait behind headings."""
+    """Ten groups and sixty fields at once is a wall.  A first run opens every
+    section the short panel shows something in, and the ones that are nothing
+    but detail wait behind their headings."""
     from cycloidgen.ui.fields import GROUPS
     from cycloidgen.ui.main_window import _OPEN_BY_DEFAULT, _section_key
 
@@ -1436,8 +1437,10 @@ def test_the_panel_opens_on_the_drive_and_folds_the_rest(app):
         settings.remove(_section_key(title))
     settings.sync()
     w = _window(app)
-    opened = [t for t, s in w._sections.items() if s.is_expanded()]
-    assert opened == [t for t, _fields in GROUPS[:_OPEN_BY_DEFAULT]]
+    opened = {t for t, s in w._sections.items() if s.is_expanded()}
+    assert opened == set(_OPEN_BY_DEFAULT)
+    assert "Cycloid geometry" in opened and "Duty" in opened
+    assert "Mounting" not in opened and "Bearings" not in opened
     assert [s.title for s, _names in w._groups] == [t for t, _fields in GROUPS]
     w.close()
 
@@ -1535,4 +1538,106 @@ def test_the_blocked_pill_names_what_is_blocking(app):
             assert finding.code in w._header_flag.toolTip()
         assert not w._export_all_action.isEnabled()
     finally:
+        w.close()
+
+
+# ------------------------------------------------------------ the advanced switch
+
+def _shown(w, name: str) -> bool:
+    """Whether the panel is offering the field - folded away or not, which is
+    the sections' business and tested with them."""
+    return not w._rows[name][1].isHidden()
+
+
+def test_the_panel_starts_with_the_parameters_a_design_is_made_with(app):
+    """Sixty-one fields is the whole model; most designs are made with a
+    sixth of them.  The rest wait behind the switch, whole sections included."""
+    from cycloidgen.ui.fields import GROUPS
+
+    _settings().remove("advanced_parameters")
+    w = _window(app)
+    try:
+        assert not w._advanced_box.isChecked()
+        assert not w._advanced_action.isChecked()
+        for _title, fields in GROUPS:
+            for f in fields:
+                assert _shown(w, f.name) is not f.advanced, f.name
+        assert not w._sections["Mounting"].isVisibleTo(w._param_scroll)
+        assert not w._sections["Bearings"].isVisibleTo(w._param_scroll)
+        assert w._sections["Cycloid geometry"].isVisibleTo(w._param_scroll)
+        # the link resets clearances the panel is not showing, and that is
+        # the point of it: they follow the process, which is showing
+        assert not w._process_link.isHidden()
+    finally:
+        w.close()
+
+
+def test_the_switch_shows_everything_and_is_remembered(app):
+    from cycloidgen.ui.fields import GROUPS
+
+    w = _window(app)
+    try:
+        before = w.spec.model_copy(deep=True)
+        w._advanced_box.setChecked(True)
+        assert w._advanced_action.isChecked(), "the menu and the switch disagree"
+        for _title, fields in GROUPS:
+            for f in fields:
+                assert _shown(w, f.name), f.name
+        assert w.spec == before, "showing a field is not editing it"
+    finally:
+        w.close()
+
+    again = _window(app)
+    try:
+        assert again._advanced_box.isChecked()
+        again._advanced_action.setChecked(False)
+        assert not again._advanced_box.isChecked()
+        assert not _shown(again, "housing_bolt_count")
+    finally:
+        again.close()
+
+
+def test_a_search_finds_an_advanced_parameter_with_the_switch_off(app):
+    """Somebody typing a parameter's name knows what they want."""
+    w = _window(app)
+    try:
+        w._set_advanced(False)
+        assert not _shown(w, "bearing_min_life_hours")
+        w._filter.setText("L10")
+        assert _shown(w, "bearing_min_life_hours")
+        assert w._sections["Bearings"].isVisibleTo(w._param_scroll)
+        w._filter.setText("")
+        assert not _shown(w, "bearing_min_life_hours")
+    finally:
+        _unfold_defaults(w)
+        w.close()
+
+
+def test_a_check_shows_the_advanced_field_it_points_at(app):
+    """A highlight on a hidden field points at nothing.  The field is shown
+    for as long as its check is the one selected - and not taken away when
+    the fix clears the check, which is the moment somebody is typing in it."""
+    from cycloidgen.ui.fields import CODE_FIELDS, GROUPS
+
+    advanced = {f.name for _t, fs in GROUPS for f in fs if f.advanced}
+    w = _window(app)
+    try:
+        w._set_advanced(False)
+        for i in range(w.findings.topLevelItemCount()):
+            item = w.findings.topLevelItem(i)
+            names = [n for n in CODE_FIELDS.get(item.data(0, _USER_ROLE), ())
+                     if n in advanced]
+            if names and not item.isHidden():
+                break
+        else:
+            pytest.skip("this design raised no check about an advanced field")
+        assert not _shown(w, names[0])
+        w.findings.setCurrentItem(item)
+        assert _shown(w, names[0])
+        w.findings.setCurrentItem(None)
+        assert _shown(w, names[0]), "cleared with the selection, mid-edit"
+        w._set_advanced(False)
+        assert not _shown(w, names[0])
+    finally:
+        _unfold_defaults(w)
         w.close()
