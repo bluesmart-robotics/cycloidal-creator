@@ -35,6 +35,8 @@ from .view3d import (
     FLAGGED_TINT,
     SELECTED_TINT,
     STANDARD_VIEWS,
+    XRAY_GROUPS,
+    XRAY_OPACITY,
     tinted,
 )
 
@@ -192,6 +194,9 @@ class VtkAssemblyView(QWidget):
 
     #: A part was clicked: its name, or ``None`` for empty space.
     part_picked = Signal(object)
+    #: The measurement changed: ``(a, b)`` in world millimetres, ``b`` None
+    #: after the first click, or ``None`` when it was cleared.
+    measured = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -216,6 +221,13 @@ class VtkAssemblyView(QWidget):
         self._selected: str | None = None
         self._flagged: frozenset[str] = frozenset()
         self._press: tuple[int, int] | None = None
+        self._xray = False
+        self._measuring = False
+        self._measure_points: list[np.ndarray] = []
+        self._measure_actors: list = []
+        #: How a length is written on the model; the tab sets it to the unit
+        #: the rest of the window reads in.
+        self.length_text = lambda mm: f"{mm:.2f} mm"
 
         self._widget = _render_widget(v, self)
         layout = QVBoxLayout(self)
@@ -237,6 +249,15 @@ class VtkAssemblyView(QWidget):
         if not qt_context_wanted():
             window.SetMultiSamples(8)
             self._renderer.UseFXAAOn()
+
+        # Depth peeling, for X-ray: without it VTK sorts translucent geometry a
+        # whole actor at a time, and a see-through housing comes out in front
+        # of the discs on one side and behind them on the other.  It costs
+        # nothing while every actor is opaque.
+        window.SetAlphaBitPlanes(1)
+        self._renderer.SetUseDepthPeeling(True)
+        self._renderer.SetMaximumNumberOfPeels(8)
+        self._renderer.SetOcclusionRatio(0.05)
 
         # A three-point kit rather than the single head-on light VTK starts
         # with: a flat frontal light on a machined part removes exactly the
@@ -314,6 +335,7 @@ class VtkAssemblyView(QWidget):
         changed = mesh is not self._mesh
         self._spec, self._mesh = spec, mesh
         if changed:
+            self._clear_measure()
             self._build_actors()
             self.set_crank(self._crank)
         if first:
@@ -414,6 +436,20 @@ class VtkAssemblyView(QWidget):
         self._apply_edges()
         self._apply_section()
         self._apply_highlight()
+        self._apply_xray()
+
+    def set_xray(self, on: bool) -> None:
+        """See through the housing and its plates."""
+        self._xray = bool(on)
+        self._apply_xray()
+        self._render()
+
+    def _apply_xray(self) -> None:
+        """Translucent, and not pickable: a click goes through to what is behind."""
+        for record in self._actors.values():
+            clear = self._xray and record["part"].group in XRAY_GROUPS
+            record["actor"].GetProperty().SetOpacity(XRAY_OPACITY if clear else 1.0)
+            record["actor"].SetPickable(not clear)
 
     # -------------------------------------------------------------- selection
     def set_selected(self, name: str | None) -> None:
@@ -472,11 +508,119 @@ class VtkAssemblyView(QWidget):
         if press is None or (abs(at[0] - press[0]) > CLICK_SLOP_PX
                              or abs(at[1] - press[1]) > CLICK_SLOP_PX):
             return
-        name, _ = self.pick(*at)
+        name, point = self.pick(*at)
+        if self._measuring:
+            if point is not None:
+                self._measure_at(point)
+            return
         self.part_picked.emit(name)
+
+    # ------------------------------------------------------------ measurement
+    def set_measuring(self, on: bool) -> None:
+        """Clicks place measurement points instead of picking parts."""
+        self._measuring = bool(on)
+        self._clear_measure()
+
+    def _clear_measure(self) -> None:
+        had = bool(self._measure_points)
+        for actor in self._measure_actors:
+            self._renderer.RemoveActor(actor)
+        self._measure_actors.clear()
+        self._measure_points.clear()
+        if had:
+            self.measured.emit(None)
+        self._render()
+
+    def _measure_at(self, point) -> None:
+        """A point on the surface the click landed on; two make a measurement.
+
+        A third click starts the next one.  The points are where the parts were
+        when they were clicked, so anything that moves the parts - the crank,
+        the explode slider, a new design - clears them rather than leave a line
+        measured between two places nothing is any more.
+        """
+        if len(self._measure_points) >= 2:
+            self._clear_measure()
+        p = np.asarray(point, dtype=float)
+        self._measure_points.append(p)
+        added = [self._measure_marker(p)]
+        if len(self._measure_points) == 2:
+            added += self._measure_line(*self._measure_points)
+        for actor in added:
+            self._renderer.AddActor(actor)
+        self._measure_actors.extend(added)
+        self._render()
+        a = tuple(self._measure_points[0])
+        b = (tuple(self._measure_points[1]) if len(self._measure_points) > 1
+             else None)
+        self.measured.emit((a, b))
+
+    def _measure_size(self) -> float:
+        if self._mesh is None:
+            return 1.0
+        lo, hi = self._mesh.bounds(self._explode)
+        return float(np.linalg.norm(hi - lo))
+
+    def _measure_colour(self) -> list[float]:
+        accent = branding.palette(self._mode).accent
+        return [int(accent[i:i + 2], 16) / 255.0 for i in (1, 3, 5)]
+
+    def _measure_marker(self, p: np.ndarray):
+        from vtkmodules.vtkFiltersSources import vtkSphereSource
+
+        sphere = vtkSphereSource()
+        sphere.SetCenter(*p)
+        sphere.SetRadius(0.006 * self._measure_size())
+        sphere.SetThetaResolution(18)
+        sphere.SetPhiResolution(12)
+        mapper = self._vtk["vtkPolyDataMapper"]()
+        mapper.SetInputConnection(sphere.GetOutputPort())
+        actor = self._vtk["vtkActor"]()
+        actor.SetMapper(mapper)
+        actor.GetProperty().SetColor(*self._measure_colour())
+        actor.PickableOff()
+        return actor
+
+    def _measure_line(self, a: np.ndarray, b: np.ndarray) -> list:
+        """The line between two points, and its length written beside it."""
+        import vtkmodules.vtkRenderingFreeType
+        from vtkmodules.vtkFiltersSources import vtkLineSource
+        from vtkmodules.vtkRenderingCore import vtkBillboardTextActor3D
+
+        # Imported for its side effect: it is what gives VTK a text renderer,
+        # without which the label is silently blank.
+        assert vtkmodules.vtkRenderingFreeType
+        line = vtkLineSource()
+        line.SetPoint1(*a)
+        line.SetPoint2(*b)
+        mapper = self._vtk["vtkPolyDataMapper"]()
+        mapper.SetInputConnection(line.GetOutputPort())
+        actor = self._vtk["vtkActor"]()
+        actor.SetMapper(mapper)
+        prop = actor.GetProperty()
+        prop.SetColor(*self._measure_colour())
+        prop.SetLineWidth(2.5)
+        prop.SetLighting(False)
+        prop.SetRenderLinesAsTubes(True)
+        actor.PickableOff()
+
+        label = vtkBillboardTextActor3D()
+        label.SetInput(self.length_text(float(np.linalg.norm(b - a))))
+        label.SetPosition(*((a + b) / 2.0))
+        text = label.GetTextProperty()
+        text.SetFontSize(16)
+        text.SetBold(True)
+        text.SetColor(*self._measure_colour())
+        text.SetBackgroundColor(1.0, 1.0, 1.0)
+        text.SetBackgroundOpacity(0.75)
+        text.SetJustificationToCentered()
+        label.PickableOff()
+        return [actor, label]
 
     def set_crank(self, degrees: float) -> None:
         """Re-pose every part.  No geometry moves; the transforms do."""
+        if self._measure_points and float(degrees) != self._crank:
+            self._clear_measure()
         self._crank = float(degrees)
         mesh = self._mesh
         if mesh is None:
@@ -509,6 +653,8 @@ class VtkAssemblyView(QWidget):
         self._render()
 
     def set_explode(self, fraction: float) -> None:
+        if self._measure_points and float(fraction) != self._explode:
+            self._clear_measure()
         self._explode = float(fraction)
         self.set_crank(self._crank)
         self.fit()

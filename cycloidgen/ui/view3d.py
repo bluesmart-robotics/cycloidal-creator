@@ -177,6 +177,12 @@ CLICK_SLOP_PX = 4
 SELECTED_TINT = 0.45
 FLAGGED_TINT = 0.6
 
+#: The groups X-ray makes see-through: what closes the drive, not what works
+#: inside it.  And how much of them is left - enough to keep the outline and
+#: the bolt circle, little enough to read the stack through.
+XRAY_GROUPS = frozenset({"housing", "end_plates"})
+XRAY_OPACITY = 0.22
+
 
 def tinted(rgb, hex_colour: str, amount: float) -> tuple[int, int, int]:
     """``rgb`` (0-255) moved ``amount`` of the way towards ``hex_colour``."""
@@ -219,6 +225,7 @@ class AssemblyView(QWidget):
         self._press: tuple[float, float] | None = None
         self._selected: str | None = None
         self._flagged: frozenset[str] = frozenset()
+        self._xray = False
         self._last_draw = None
 
     # ------------------------------------------------------------------ state
@@ -305,6 +312,14 @@ class AssemblyView(QWidget):
         self._flagged = frozenset(names)
         self.update()
 
+    def set_xray(self, on: bool) -> None:
+        """See through the housing and its plates."""
+        self._xray = bool(on)
+        self.update()
+
+    def _see_through(self, part) -> bool:
+        return self._xray and part.group in XRAY_GROUPS
+
     def pick(self, x: float, y: float) -> str | None:
         """The part under the pixel ``(x, y)``, or ``None``.
 
@@ -323,8 +338,10 @@ class AssemblyView(QWidget):
             for loop in draw.loops[i]:
                 path.addPolygon(_polygon(loop))
                 path.closeSubpath()
-            if path.contains(point):
-                return mesh.parts[int(draw.parts[i])].name
+            part = mesh.parts[int(draw.parts[i])]
+            # A part you are seeing through is not what you clicked on.
+            if path.contains(point) and not self._see_through(part):
+                return part.name
         return None
 
     def set_standard_view(self, name: str) -> None:
@@ -369,6 +386,7 @@ class AssemblyView(QWidget):
                       width, height, explode=self._explode, hidden=self._hidden)
         self._last_draw = draw
         names = [part.name for part in self._mesh.parts]
+        clear = [self._see_through(part) for part in self._mesh.parts]
 
         # One pen and one brush per face.  The pen matters: filling a polygon
         # without outlining it leaves an antialiased hairline of background
@@ -382,6 +400,16 @@ class AssemblyView(QWidget):
             elif name in self._flagged:
                 rgb = tinted(rgb, p.error, FLAGGED_TINT)
             fill = QColor(int(rgb[0]), int(rgb[1]), int(rgb[2]))
+            if clear[int(index)]:
+                # Back to front already, so a translucent face simply goes
+                # over whatever is behind it.  No outline: two translucent
+                # neighbours would each draw the seam between them, and it
+                # would come out twice as dark as either face.
+                fill.setAlphaF(XRAY_OPACITY)
+                painter.setBrush(fill)
+                painter.setPen(Qt.NoPen)
+                self._draw_face(painter, loops)
+                continue
             painter.setBrush(fill)
             # The same rule the hardware path uses - `EDGE_SHADE` is shared
             # so the two renderers cannot drift about what an edge looks
@@ -389,17 +417,22 @@ class AssemblyView(QWidget):
             # theme's ink and the other in the part's.
             painter.setPen(QColor(*[int(c * EDGE_SHADE) for c in rgb])
                            if self._edges else fill)
-            if len(loops) == 1:
-                painter.drawPolygon(_polygon(loops[0]))
-                continue
-            path = QPainterPath()
-            path.setFillRule(Qt.OddEvenFill)
-            for loop in loops:
-                path.addPolygon(_polygon(loop))
-                path.closeSubpath()
-            painter.drawPath(path)
+            self._draw_face(painter, loops)
 
         self._paint_overlay(painter, p)
+
+    @staticmethod
+    def _draw_face(painter: QPainter, loops) -> None:
+        """One face, with its holes, in the current pen and brush."""
+        if len(loops) == 1:
+            painter.drawPolygon(_polygon(loops[0]))
+            return
+        path = QPainterPath()
+        path.setFillRule(Qt.OddEvenFill)
+        for loop in loops:
+            path.addPolygon(_polygon(loop))
+            path.closeSubpath()
+        painter.drawPath(path)
 
     def _paint_overlay(self, painter: QPainter, p) -> None:
         """Readouts and an axis triad, drawn over the model."""
@@ -561,6 +594,31 @@ class Assembly3DTab(QWidget):
                                "shape, noisy on a fine profile.")
         self._edges.toggled.connect(self.view.set_edges)
         view_row.addWidget(self._edges)
+        self._xray = QCheckBox("X-ray")
+        self._xray.setToolTip("See through the housing and its end plates. A "
+                              "click goes through them to the part behind.")
+        self._xray.toggled.connect(self.view.set_xray)
+        view_row.addWidget(self._xray)
+        self._clash_box = QCheckBox("Clashes")
+        self._clash_box.setToolTip("Tint red every part a clash check is about: "
+                                   "a profile into its pins, a bolt into a "
+                                   "pocket, a spigot onto a bearing.")
+        self._clash_box.setEnabled(False)
+        self._clash_box.toggled.connect(lambda _on: self._apply_flags())
+        view_row.addWidget(self._clash_box)
+        # Measuring needs the point a click lands on in the model, which the
+        # hardware view's picker gives and the software painter's draw list
+        # does not - the same line the section plane is on, for a kindred
+        # reason.
+        self._measure = QPushButton("MEASURE")
+        self._measure.setCheckable(True)
+        self._measure.setMaximumWidth(96)
+        self._measure.setToolTip("Click two points on the model for the distance "
+                                 "between them. A third click starts again.")
+        self._measure.toggled.connect(self._toggle_measuring)
+        if hasattr(self.view, "set_measuring"):
+            self.view.measured.connect(self._measured)
+            view_row.addWidget(self._measure)
         layout.addLayout(view_row)
 
         # Visibility, and nothing else.  What this row is for is now answerable
@@ -610,6 +668,12 @@ class Assembly3DTab(QWidget):
         self._bom: dict = {}
         self._labels: dict[str, str] = {}
         self._selected: str | None = None
+        self._unit = None
+        self._measurement = None
+        self._analysis = None
+        self._mode = "light"
+        self._clashes: dict[str, list] = {}
+        self._pointed: frozenset[str] = frozenset()
         self.view.part_picked.connect(self._picked)
         self._describe()
 
@@ -628,9 +692,53 @@ class Assembly3DTab(QWidget):
     def set_analysis(self, analysis) -> None:
         """What each part is, off the bill of materials for this analysis."""
         from ..export.bom import bom_items
+        from ..viz.clashes import clash_parts
 
+        self._analysis = analysis
         self._bom = {name: item for item in bom_items(analysis)
                      for name in item.assembly}
+        self._clashes = clash_parts(analysis)
+        count = len({f.message for found in self._clashes.values() for f in found})
+        self._clash_box.setText(f"Clashes ({count})" if count else "Clashes")
+        self._clash_box.setEnabled(bool(count))
+        self._apply_flags()
+        self._describe()
+
+    def point_at(self, code: str | None) -> None:
+        """Tint the parts the check ``code`` is about - the one picked in the
+        checks list - on top of whatever the Clashes box is showing."""
+        from ..viz.clashes import finding_parts
+
+        parts: set[str] = set()
+        if code is not None and self._analysis is not None:
+            for finding in self._analysis.report.findings:
+                if finding.code == code:
+                    parts.update(finding_parts(self._analysis, finding))
+        self._pointed = frozenset(parts)
+        self._apply_flags()
+
+    def _apply_flags(self) -> None:
+        shown = set(self._clashes) if self._clash_box.isChecked() else set()
+        self.view.set_flagged(shown | self._pointed)
+
+    def set_unit(self, unit) -> None:
+        """Write lengths read off the model in ``unit``, as the window does."""
+        self._unit = unit
+        if hasattr(self.view, "length_text"):
+            self.view.length_text = self._length
+        self._describe()
+
+    def _length(self, mm: float) -> str:
+        return self._unit.text(mm, 2) if self._unit is not None else f"{mm:.2f} mm"
+
+    def _toggle_measuring(self, on: bool) -> None:
+        self._measurement = None
+        if hasattr(self.view, "set_measuring"):
+            self.view.set_measuring(on)
+        self._describe()
+
+    def _measured(self, points) -> None:
+        self._measurement = points
         self._describe()
 
     def _picked(self, name: str | None) -> None:
@@ -644,6 +752,9 @@ class Assembly3DTab(QWidget):
         In the bill's own words and units, because that is what it is - the
         same line the CSV carries, for the part under the pointer.
         """
+        if self._measure.isChecked():
+            self._info.setText(self._measure_text())
+            return
         name = self._selected
         if name is None:
             self._info.setText("Click a part to see what it is, what it is made "
@@ -652,7 +763,7 @@ class Assembly3DTab(QWidget):
         label = html.escape(self._labels.get(name, name))
         item = self._bom.get(name)
         if item is None:
-            self._info.setText(f"<b>{label}</b>")
+            self._info.setText(f"<b>{label}</b>" + self._clash_text(name))
             return
         mass = (f", {item.mass_each_g:.1f} g each" if item.mass_each_g else "")
         # The bill's name only where it says something the label does not -
@@ -665,7 +776,17 @@ class Assembly3DTab(QWidget):
                 f"{'made' if item.source == 'make' else 'bought'}")
         if item.note:
             line += f"<br>{html.escape(item.note)}"
-        self._info.setText(line)
+        self._info.setText(line + self._clash_text(name))
+
+    def _clash_text(self, name: str) -> str:
+        """What the clash checks say about this part, in the error colour."""
+        found = self._clashes.get(name)
+        if not found:
+            return ""
+        colour = branding.palette(self._mode).error
+        lines = "<br>".join(f"{html.escape(f.code)}: {html.escape(f.message)}"
+                            for f in found)
+        return f"<br><span style='color:{colour}'>{lines}</span>"
 
     def _rebuild_bearing_menu(self) -> None:
         """One entry per bearing this design actually has.
@@ -693,11 +814,29 @@ class Assembly3DTab(QWidget):
         self._hidden_parts.discard(name) if visible else self._hidden_parts.add(name)
         self.view.set_group_visible(name, visible)
 
+    def _measure_text(self) -> str:
+        """The strip while measuring: what to click next, or what was measured."""
+        points = self._measurement
+        if points is None:
+            return "Measuring: click a point on the model, then a second one."
+        a, b = points
+        if b is None:
+            return "Measuring: click a second point."
+        d = [bv - av for av, bv in zip(a, b, strict=True)]
+        total = sum(c * c for c in d) ** 0.5
+        parts = " &nbsp;".join(f"&Delta;{axis} {self._length(abs(c))}"
+                               for axis, c in zip("xyz", d, strict=True))
+        return (f"<b>{self._length(total)}</b> between the two points &nbsp;"
+                f"&middot;&nbsp; {parts} &nbsp;&middot;&nbsp; a third click starts "
+                f"again")
+
     def set_crank(self, degrees: float) -> None:
         self.view.set_crank(degrees)
 
     def refresh_theme(self, mode: str) -> None:
+        self._mode = mode
         self.view.set_theme(mode)
+        self._describe()
 
     def render_options(self) -> dict:
         """What an exported animation needs to look like this tab does.
@@ -728,6 +867,7 @@ class Assembly3DTab(QWidget):
         settings.setValue("view3d_elevation", camera.elevation)
         settings.setValue("view3d_explode", self._explode.value())
         settings.setValue("view3d_edges", self._edges.isChecked())
+        settings.setValue("view3d_xray", self._xray.isChecked())
         settings.setValue("view3d_section", self._section.value())
         settings.setValue("view3d_hidden", self._hidden())
 
@@ -751,6 +891,7 @@ class Assembly3DTab(QWidget):
         with suppress(TypeError, ValueError):
             self._section.setValue(int(settings.value("view3d_section", 0)))
         self._edges.setChecked(bool(settings.value("view3d_edges", False, type=bool)))
+        self._xray.setChecked(bool(settings.value("view3d_xray", False, type=bool)))
 
         # `contains` rather than a falsy check: a stored *empty* list means the
         # last session had everything on, and treating that as "no preference"

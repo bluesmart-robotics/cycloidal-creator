@@ -802,6 +802,7 @@ class MainWindow(QMainWindow):
         self._drawing_tab = self.tabs.addTab(page, "DRAWING")
 
         self._view3d = Assembly3DTab()
+        self._view3d.set_unit(self._unit)
         # The viewer paints its own background rather than taking one from the
         # stylesheet, and it starts on light.  Nothing told it otherwise until
         # the appearance was *changed*, so opening in dark mode gave a white
@@ -1443,6 +1444,7 @@ class MainWindow(QMainWindow):
         self._unit = unit(key)
         self._settings.setValue("units", key)
         plots.set_units(key)
+        self._view3d.set_unit(self._unit)
         # Guarded, and this is the whole reason the guard exists.  Narrowing a
         # spin box's range makes Qt clamp whatever is in it, and a clamp emits
         # `valueChanged` like any other edit - so switching to inches would take
@@ -1945,6 +1947,8 @@ class MainWindow(QMainWindow):
         self._highlighted.clear()
         self._selected_code = None if current is None else current.data(0, Qt.UserRole)
         self._show_explanation()
+        # And in the 3D view, the parts a clash is about.
+        self._view3d.point_at(self._selected_code)
         if current is None:
             return
         code = self._selected_code

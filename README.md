@@ -581,6 +581,26 @@ suggests it.
   support and not interchangeable with the other. A drag still orbits; only a
   click that does not move picks.
 
+  **X-ray** turns the housing and its end plates translucent, so the stack, the
+  pins and the bolts read through them without taking anything away, and a
+  click goes through them to the part behind.
+
+  **Measure** puts the clicks on the model instead: two points on any surface,
+  the line between them with its length written beside it, and the distance
+  and its three components under the viewport, in the units the rest of the
+  window reads in. A third click starts again, and anything that moves the
+  parts clears it rather than leave a line between two places nothing is any
+  more. Like the section plane it needs the hardware view, which knows where in
+  the model a click landed.
+
+  **Clashes** tints red every part a clash check is about — a profile into its
+  pins, a hole into a bore, a bolt into a pocket, a motor's spigot onto a
+  bearing — and picking one of them adds what the check says to the strip.
+  Selecting a check in the list does the same for that check alone. It reads
+  the checks rather than testing the meshes against each other, because every
+  bearing in its seat and every pin in its pocket touches by design, and
+  telling a fit from a clash is what the checks are for.
+
   The bearings are in there too, at the size the sizing study picked rather than
   the size of the space they go in — a ring on the cam inside each disc bore,
   sleeves over the ring and output pins where a roller was selected, and the two
