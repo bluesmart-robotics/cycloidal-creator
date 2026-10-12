@@ -43,6 +43,9 @@ __all__ = [
     "TAGLINE",
     "Palette",
     "asset",
+    "caption",
+    "chevron_icon",
+    "chip",
     "contrast_ratio",
     "logo_pixmap",
     "mono_font",
@@ -270,6 +273,59 @@ def logo_pixmap(kind: str = "wordmark", mode: str = "light",
     return pixmap.scaledToHeight(height, Qt.SmoothTransformation)
 
 
+def chip(box):
+    """Have a toolbar checkbox drawn as a chip - see ``QCheckBox[chip]`` in
+    :func:`stylesheet` for why toolbars and forms toggle differently."""
+    from PySide6.QtCore import Qt
+
+    box.setProperty("chip", "true")
+    box.setCursor(Qt.PointingHandCursor)
+    return box
+
+
+def caption(text: str):
+    """The dim word in front of a row of controls: *Crank*, *Explode*, *Show*."""
+    from PySide6.QtWidgets import QLabel
+
+    label = QLabel(text)
+    label.setProperty("role", "caption")
+    return label
+
+
+def chevron_icon(open_: bool, colour: str, size: int = 12) -> QIcon:
+    """A disclosure chevron: pointing down when ``open_``, right when not.
+
+    Drawn rather than shipped.  It is two strokes, it has to come in whatever
+    ink the theme says, and a section header is the only thing that needs the
+    sideways one - a pair of PNGs per theme for that is more to keep in step
+    than the six lines it takes to draw.
+    """
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QColor, QPainter, QPen
+
+    ratio = 2.0
+    pixmap = QPixmap(round(size * ratio), round(size * ratio))
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.scale(ratio, ratio)
+    pen = QPen(QColor(colour), 1.6)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    painter.setPen(pen)
+    s = float(size)
+    if open_:
+        points = (QPointF(0.25 * s, 0.38 * s), QPointF(0.5 * s, 0.63 * s),
+                  QPointF(0.75 * s, 0.38 * s))
+    else:
+        points = (QPointF(0.38 * s, 0.25 * s), QPointF(0.63 * s, 0.5 * s),
+                  QPointF(0.38 * s, 0.75 * s))
+    painter.drawPolyline(points)
+    painter.end()
+    pixmap.setDevicePixelRatio(ratio)
+    return QIcon(pixmap)
+
+
 # -------------------------------------------------------------- stylesheet --
 
 #: Corners are eased, not square.  The first version of this chrome was
@@ -362,24 +418,70 @@ def stylesheet(mode: str = "light") -> str:
     }}
     #StatValue {{ color: {p.ink}; font-size: 13px; font-weight: 600; }}
     #StatValue[state="warning"] {{ color: {p.warning}; }}
-    /* One hairline between columns.  Eight captions in a row, each wider than
-       the number under it, read as one run of words - the eye has nothing to
-       tell it where LOST MOTION stops and TEMPERATURE starts.  Styled here
-       rather than set on the widget so it follows the theme with everything
-       else. */
-    #StatRule {{ background: {p.line}; }}
-    /* The strip under the export buttons that says what this output is not.
-       Amber ink on a hairline of the same colour, no fill: it has to be read
-       on the hundredth session as well as the first, and a filled banner is
-       decoration by the second.  It is also the one warning here that is not
-       about a number crossing a limit, which is why it does not look like
-       one. */
+    /* Each reading on a tile of its own.  Eight captions in a row, each wider
+       than the number under it, read as one run of words - the eye has nothing
+       to tell it where LOST MOTION stops and TEMPERATURE starts.  A rule
+       between them did that job by drawing eight more lines in the busiest
+       strip of the window; a tile one shade into the page does it with no
+       lines at all. */
+    #StatTile {{ background: {p.surface}; border-radius: {RADIUS}; }}
+    #StatStrip {{ background: transparent; }}
+    /* What this output is not, at the foot of the window.  Amber ink and no
+       box: it has to be read on the hundredth session as well as the first, a
+       filled banner is decoration by the second, and a bordered one in the
+       middle of the work was one more box among too many.  It is also the one
+       warning here that is not about a number crossing a limit, which is why
+       it does not look like one. */
     #NoticeStrip {{
-        color: {p.warning}; font-size: 10px;
-        border: 1px solid {p.warning}; border-radius: 3px;
-        padding: 5px 8px;
+        color: {p.warning}; font-size: 11px;
+        padding: 0 10px;
     }}
-    #BrandFlag {{ color: {p.error}; font-size: 11px; font-weight: 700; }}
+    /* Export blocked: a pill beside the button it is blocking.  Hidden, not
+       emptied, when there is nothing to say - an empty pill is a red ring. */
+    #BrandFlag {{
+        color: {p.error}; font-size: 11px; font-weight: 700;
+        border: {HAIRLINE} solid {p.error}; border-radius: 11px;
+        padding: 3px 10px;
+    }}
+
+    /* A panel's own heading - "Checks" over the list.  Ink, not accent: it
+       names the panel, it is not something to press. */
+    #PanelTitle {{ color: {p.ink}; font-size: 12px; font-weight: 700; }}
+    /* The word in front of a row of controls - Crank, Explode, Show.  Dim,
+       because it is read once and the controls are read every time. */
+    QLabel[role="caption"] {{ color: {p.ink_dim}; }}
+
+    /* The parameter panel: one column of sections on the raised surface, each
+       opened by its heading.  No card per section - ten bordered boxes inside
+       a scrolling box inside a splitter was most of what made the panel look
+       busy, and a heading with a hairline over it groups just as well. */
+    #ParamPanel, #SectionBody {{ background: {p.raised}; }}
+    #ParamScroll {{ background: {p.raised};
+                    border: {HAIRLINE} solid {p.line};
+                    border-radius: {RADIUS}; }}
+    QPushButton#SectionHeader {{
+        background: transparent;
+        border: none;
+        border-top: {HAIRLINE} solid {p.line};
+        border-radius: 0;
+        text-align: left;
+        padding: 9px 6px;
+        color: {p.ink};
+        font-size: 12px;
+        font-weight: 700;
+    }}
+    QPushButton#SectionHeader:hover {{ background: {hover}; }}
+    QPushButton#SectionHeader:pressed {{ background: {p.accent_wash}; }}
+    QPushButton#SectionHeader[first="true"] {{ border-top: none; }}
+    /* An action that belongs to one section - process defaults, under the
+       process.  A link in the accent rather than a button, so it reads as part
+       of the section and not as a second toolbar. */
+    QPushButton[role="link"] {{
+        background: transparent; border: none; padding: 2px 0;
+        color: {p.accent}; font-weight: 600; text-align: left;
+    }}
+    QPushButton[role="link"]:hover {{ text-decoration: underline;
+                                      background: transparent; }}
 
     /* Grouping: a card with its heading in the margin above it, rather than a
        filled badge sitting on the border.  The heading is a label, and a label
@@ -407,7 +509,7 @@ def stylesheet(mode: str = "light") -> str:
         background: {p.surface};
         border: {HAIRLINE} solid {p.line};
         border-radius: {RADIUS};
-        padding: 5px 8px;
+        padding: 4px 8px;
         selection-background-color: {p.accent_fill};
         selection-color: {p.accent_text};
     }}
@@ -417,7 +519,7 @@ def stylesheet(mode: str = "light") -> str:
     QLineEdit:focus, QAbstractSpinBox:focus, QComboBox:focus,
     QPlainTextEdit:focus {{
         border: {FOCUS} solid {p.accent};
-        padding: 4px 7px;                    /* keeps the text from shifting */
+        padding: 3px 7px;                    /* keeps the text from shifting */
     }}
     QLineEdit:disabled, QAbstractSpinBox:disabled, QComboBox:disabled {{
         color: {p.ink_dim}; background: {p.raised}; border-color: {p.line};
@@ -469,7 +571,7 @@ def stylesheet(mode: str = "light") -> str:
         background: {p.raised};
         border: {HAIRLINE} solid {p.line};
         border-radius: {RADIUS};
-        padding: 6px 14px;
+        padding: 5px 12px;
         color: {p.ink};
         font-weight: 600;
     }}
@@ -498,6 +600,30 @@ def stylesheet(mode: str = "light") -> str:
     QPushButton[primary="true"]:disabled {{
         background: {p.line}; color: {p.ink_dim}; border-color: {p.line};
     }}
+    /* The arrow is in the label, in the label's own white; the stock
+       indicator is drawn in the theme's chevron ink, which is grey on blue. */
+    QPushButton::menu-indicator {{ image: none; width: 0; }}
+    /* An important action that is not *the* action - designing for
+       requirements, beside a window whose primary action is the export.
+       Outlined in the accent: findable, and not a second slab of blue. */
+    QPushButton[accent="true"] {{ color: {p.accent}; border-color: {p.accent}; }}
+    QPushButton[accent="true"]:hover {{ background: {p.accent_wash};
+                                        color: {p.ink}; }}
+
+    /* A row of buttons that are one choice - Iso, Front, Top, Side.  Joined,
+       so they read as one control with four positions rather than four
+       unrelated buttons that happen to be adjacent. */
+    QPushButton[segment="first"], QPushButton[segment="middle"],
+    QPushButton[segment="last"] {{ padding: 4px 10px; border-radius: 0; }}
+    QPushButton[segment="first"] {{
+        border-top-left-radius: {RADIUS}; border-bottom-left-radius: {RADIUS};
+    }}
+    QPushButton[segment="middle"], QPushButton[segment="last"] {{
+        border-left-color: transparent;
+    }}
+    QPushButton[segment="last"] {{
+        border-top-right-radius: {RADIUS}; border-bottom-right-radius: {RADIUS};
+    }}
 
     /* Tabs: an underline marks the selected one.  A filled block does the same
        job and takes the brand colour into the middle of the window to do it. */
@@ -513,7 +639,7 @@ def stylesheet(mode: str = "light") -> str:
         color: {p.ink_dim};
         border: none;
         border-bottom: {FOCUS} solid transparent;
-        padding: 8px 14px;
+        padding: 7px 12px;
         margin: 0 1px 2px 1px;
         font-weight: 600;
     }}
@@ -658,4 +784,49 @@ def stylesheet(mode: str = "light") -> str:
     QCheckBox::indicator:hover {{ border-color: {p.accent}; }}
     QCheckBox::indicator:disabled {{ background: {p.raised};
                                      border-color: {p.line}; }}
+
+    /* A toggle in a toolbar - an overlay, a part group, a severity - drawn as
+       a chip rather than a box.  A strip of eight ticked squares in the brand
+       blue is eight filled blocks of the loudest colour in the window, and in
+       a row they stop reading as eight choices and start reading as a
+       pattern.  On is a wash and an accent edge, off is a hairline and dim
+       ink: the state is still the first thing you see, it just is not
+       shouting it.  Still a QCheckBox underneath, so everything that reads or
+       sets the state is unchanged.  Forms keep the plain box. */
+    QCheckBox[chip="true"] {{
+        spacing: 0;
+        padding: 3px 10px;
+        border: {HAIRLINE} solid {p.line};
+        border-radius: 11px;
+        color: {p.ink_dim};
+        background: transparent;
+    }}
+    QCheckBox[chip="true"]::indicator,
+    QCheckBox[chip="true"]::indicator:checked,
+    QCheckBox[chip="true"]::indicator:hover,
+    QCheckBox[chip="true"]::indicator:disabled {{
+        width: 0; height: 0; border: none; background: transparent;
+        image: none;
+    }}
+    QCheckBox[chip="true"]:hover {{ color: {p.ink}; border-color: {p.ink_dim}; }}
+    /* The edge half way to the accent: a full-strength ring round every
+       part group that is on was the checkbox problem again, one size up. */
+    QCheckBox[chip="true"]:checked {{
+        background: {p.accent_wash};
+        border-color: {mix(p.accent_wash, p.accent, 0.55)};
+        color: {p.ink};
+    }}
+    QCheckBox[chip="true"]:disabled {{
+        color: {mix(p.ink_dim, p.surface, 0.45)};
+        border-color: {p.line};
+        background: transparent;
+    }}
+    /* A menu that sits in a row of chips - which bearings to show. */
+    QToolButton[chip="true"] {{
+        border: {HAIRLINE} solid {p.line}; border-radius: 11px;
+        padding: 3px 10px; color: {p.ink_dim};
+    }}
+    QToolButton[chip="true"]:hover {{ color: {p.ink}; border-color: {p.ink_dim};
+                                      background: transparent; }}
+    QToolButton[chip="true"]::menu-indicator {{ image: none; width: 0; }}
     """

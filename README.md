@@ -750,7 +750,12 @@ suggests it.
   Structure is drawn rather than implied by shadow, and the brand blue is spent
   only where it means *this one* — the primary action, the focused field, the
   selected row and tab, a ticked box. It used to be on every group heading, tab
-  and rule as well, and at that point it stops being emphasis.
+  and rule as well, and at that point it stops being emphasis. Toggles in a
+  toolbar — the overlays, the part groups, the severity filter — are chips
+  rather than ticked boxes for the same reason: eight filled squares of the
+  brand blue in a row stop reading as eight choices. There is one primary
+  action, **Export**, in the corner of the header beside the readings that
+  decide whether it is worth pressing.
 - **Checks filter** — severity toggles carrying their own counts, because a
   design routinely produces a dozen findings of which ten are notes and the two
   that block an export sit somewhere in the middle.
@@ -777,8 +782,11 @@ suggests it.
   keep immediately: the first run surfaced a `RuntimeWarning` from a negative
   log term in the contact-stiffness solver that had been silently producing NaNs
   on degenerate geometry.
-- Undo/redo, recent files, a parameter filter box, and the session reopens on
-  the design, tab, crank angle and panel split you left. The split is stored as
+- Undo/redo, recent files, a parameter search box, and parameter groups that
+  fold behind their headings — the panel opens on the geometry, the disc and the
+  output, and a search or a selected check opens whichever group it needs. The
+  session reopens on the design, tab, crank angle, open groups and panel split
+  you left. The split is stored as
   a *proportion*: remembering pixels hands a narrower screen most of its width
   to the parameter panel. The analysis runs off the GUI thread with generation
   numbering, so a slow result can never overwrite a newer one.

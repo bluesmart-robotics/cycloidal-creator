@@ -72,7 +72,7 @@ class OutputsTab(QWidget):
         layout.addLayout(self._build_group_row())
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["FILE", "FORMAT", "SIZE", "WHAT IT IS"])
+        self.tree.setHeaderLabels(["File", "Format", "Size", "What it is"])
         for column, width in ((0, 250), (1, 76), (2, 82)):
             self.tree.setColumnWidth(column, width)
         self.tree.headerItem().setTextAlignment(2, Qt.AlignRight)
@@ -88,11 +88,11 @@ class OutputsTab(QWidget):
         layout.addWidget(self.tree, 1)
 
         row = QHBoxLayout()
-        self._export_btn = QPushButton("EXPORT SELECTED")
+        self._export_btn = QPushButton("Export selected")
         self._export_btn.setProperty("primary", "true")
         self._export_btn.clicked.connect(self._export)
         row.addWidget(self._export_btn)
-        self._open_btn = QPushButton("OPEN FOLDER")
+        self._open_btn = QPushButton("Open folder")
         self._open_btn.setEnabled(False)
         self._open_btn.clicked.connect(self._open_folder)
         row.addWidget(self._open_btn)
@@ -104,12 +104,12 @@ class OutputsTab(QWidget):
     # ------------------------------------------------------------------ build
     def _build_destination_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
-        row.addWidget(QLabel("WRITES TO"))
+        row.addWidget(branding.caption("Writes to"))
         self._path_label = QLabel()
         self._path_label.setFont(self._mono)
         self._path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         row.addWidget(self._path_label, 1)
-        choose = QPushButton("CHOOSE FOLDER...")
+        choose = QPushButton("Choose folder...")
         choose.clicked.connect(self._choose_folder)
         row.addWidget(choose)
         return row
@@ -122,7 +122,7 @@ class OutputsTab(QWidget):
         cost next to the choice is what makes the choice an informed one.
         """
         row = QHBoxLayout()
-        row.addWidget(QLabel("INCLUDE"))
+        row.addWidget(branding.caption("Include"))
         self._group_boxes: dict[str, QCheckBox] = {}
         for group in GROUPS:
             box = QCheckBox(group.title)

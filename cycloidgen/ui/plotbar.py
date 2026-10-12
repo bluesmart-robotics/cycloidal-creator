@@ -27,7 +27,7 @@ from typing import ClassVar
 
 import matplotlib
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 from . import branding
@@ -58,6 +58,9 @@ class PlotToolbar(NavigationToolbar2QT):
         # actions, because only `toolitems` knows the file name.
         self._icon_files = {text: f"{image}.png"
                             for text, _tip, image, _callback in self.toolitems}
+        # Smaller than the stock 24 px.  At full size four solid black glyphs
+        # were the heaviest marks on the tab - heavier than the drawing.
+        self.setIconSize(QSize(18, 18))
         if self.coordinates:
             self.locLabel.setObjectName("PlotCoords")
             self.locLabel.setFont(branding.mono_font(8))

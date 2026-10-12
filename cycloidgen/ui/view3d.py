@@ -547,16 +547,26 @@ class Assembly3DTab(QWidget):
         self.view = build_view()
 
         view_row = QHBoxLayout()
-        view_row.addWidget(QLabel("VIEW"))
-        for key, text in (("iso", "ISO"), ("front", "FRONT"),
-                          ("top", "TOP"), ("side", "SIDE")):
+        view_row.setSpacing(6)
+        # One joined control: four positions of the same camera, not four
+        # unrelated buttons that happen to sit side by side.
+        views = QHBoxLayout()
+        views.setSpacing(0)
+        names = (("iso", "Iso"), ("front", "Front"), ("top", "Top"),
+                 ("side", "Side"))
+        for index, (key, text) in enumerate(names):
             button = QPushButton(text)
-            button.setMaximumWidth(74)
+            button.setProperty("segment", "first" if index == 0 else
+                               "last" if index == len(names) - 1 else "middle")
+            button.setToolTip(f"Look at the drive from the {key}"
+                              if key != "iso" else "The isometric view")
             button.clicked.connect(lambda _c=False, k=key:
                                    self.view.set_standard_view(k))
-            view_row.addWidget(button)
-        fit = QPushButton("FIT")
-        fit.setMaximumWidth(74)
+            views.addWidget(button)
+        view_row.addLayout(views)
+        fit = QPushButton("Fit")
+        fit.setToolTip("Frame the whole assembly. Double-clicking the view "
+                       "does the same.")
         fit.clicked.connect(self.view.fit)
         view_row.addWidget(fit)
 
@@ -565,8 +575,8 @@ class Assembly3DTab(QWidget):
         # explode alone at the top and section squeezed onto the end of the
         # checkboxes at 150 px, where the row had already run out of width and
         # wrapped.  Same row, same stretch, so they read as the pair they are.
-        view_row.addSpacing(12)
-        view_row.addWidget(QLabel("EXPLODE"))
+        view_row.addSpacing(10)
+        view_row.addWidget(branding.caption("Explode"))
         self._explode = QSlider(Qt.Horizontal)
         self._explode.setRange(0, 100)
         self._explode.setToolTip("Slide the parts apart along the axis, in "
@@ -582,24 +592,24 @@ class Assembly3DTab(QWidget):
         # Only the hardware view can cut: a clipping plane is a per-fragment
         # test, and the software painter works on whole faces.
         if hasattr(self.view, "set_section"):
-            view_row.addSpacing(12)
-            view_row.addWidget(QLabel("SECTION"))
+            view_row.addSpacing(10)
+            view_row.addWidget(branding.caption("Section"))
             self._section.valueChanged.connect(
                 lambda v: self.view.set_section(v / 100.0))
             view_row.addWidget(self._section, 1)
 
-        view_row.addSpacing(12)
-        self._edges = QCheckBox("Edges")
+        view_row.addSpacing(10)
+        self._edges = branding.chip(QCheckBox("Edges"))
         self._edges.setToolTip("Outline every facet. Useful for reading the "
                                "shape, noisy on a fine profile.")
         self._edges.toggled.connect(self.view.set_edges)
         view_row.addWidget(self._edges)
-        self._xray = QCheckBox("X-ray")
+        self._xray = branding.chip(QCheckBox("X-ray"))
         self._xray.setToolTip("See through the housing and its end plates. A "
                               "click goes through them to the part behind.")
         self._xray.toggled.connect(self.view.set_xray)
         view_row.addWidget(self._xray)
-        self._clash_box = QCheckBox("Clashes")
+        self._clash_box = branding.chip(QCheckBox("Clashes"))
         self._clash_box.setToolTip("Tint red every part a clash check is about: "
                                    "a profile into its pins, a bolt into a "
                                    "pocket, a spigot onto a bearing.")
@@ -610,9 +620,8 @@ class Assembly3DTab(QWidget):
         # hardware view's picker gives and the software painter's draw list
         # does not - the same line the section plane is on, for a kindred
         # reason.
-        self._measure = QPushButton("MEASURE")
+        self._measure = QPushButton("Measure")
         self._measure.setCheckable(True)
-        self._measure.setMaximumWidth(96)
         self._measure.setToolTip("Click two points on the model for the distance "
                                  "between them. A third click starts again.")
         self._measure.toggled.connect(self._toggle_measuring)
@@ -624,26 +633,25 @@ class Assembly3DTab(QWidget):
         # Visibility, and nothing else.  What this row is for is now answerable
         # from the row itself.
         show_row = FlowLayout()
-        show_row.addWidget(QLabel("SHOW"))
+        show_row.addWidget(branding.caption("Show"))
         # The bearings are the one group where all-or-nothing is not enough.  The
         # cam bearing is down a bore and the shaft supports are out in the open,
         # so seeing one of them usually means putting the others away - and which
         # ones a design even has changes with the design, which is why this is a
         # menu rebuilt per spec rather than a row of boxes built once.
         self._hidden_parts: set[str] = set()
-        self._bearing_menu = QToolButton()
-        self._bearing_menu.setText("...")
+        self._bearing_menu = branding.chip(QToolButton())
+        # Says what it opens.  An ellipsis and a menu arrow beside a row of
+        # toggles read as stray punctuation, whatever their size.
+        self._bearing_menu.setText("Each bearing ▾")
         self._bearing_menu.setPopupMode(QToolButton.InstantPopup)
-        # Wide enough to read as a button.  At its natural size an ellipsis and
-        # a menu arrow next to a row of checkboxes look like stray punctuation.
-        self._bearing_menu.setMinimumWidth(30)
         self._bearing_menu.setToolTip("Show or hide bearings one at a time.")
         self._bearing_menu.setMenu(QMenu(self._bearing_menu))
         self._bearing_menu.setEnabled(False)
 
         self._groups: dict[str, QCheckBox] = {}
         for group, label in PART_GROUPS:
-            box = QCheckBox(label)
+            box = branding.chip(QCheckBox(label))
             box.setChecked(group not in _HIDDEN_BY_DEFAULT)
             box.toggled.connect(
                 lambda on, g=group: self.view.set_group_visible(g, on))

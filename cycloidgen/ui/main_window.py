@@ -22,12 +22,12 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressDialog,
     QPushButton,
@@ -84,6 +84,7 @@ from .logpanel import install as install_logging
 from .optimise_dialog import OptimiseDialog
 from .outputs import OutputsTab
 from .plotbar import PlotToolbar
+from .sections import Section
 from .settings import app_settings
 from .tables import WrappingColumn
 from .tradestudy import TradeStudyTab
@@ -106,6 +107,15 @@ _CRANK_STEP_DEG = 3.0
 #: tooltip claimed "input revolutions per second", which is 60 - the control
 #: had no honest answer to "1x of what?" for as long as it has existed.
 _PLAYBACK_RPM_AT_1X = _CRANK_STEP_DEG / _FRAME_MS * 1000.0 / 360.0 * 60.0
+
+#: Parameter sections open on a first run - see `MainWindow._section_open`.
+_OPEN_BY_DEFAULT = 3
+
+
+def _section_key(title: str) -> str:
+    """Where a parameter section's open state is kept, by its title."""
+    return "section_open/" + title.lower().replace(" ", "_")
+
 
 #: The checks list never gets smaller than this.  Four rows and the filter
 #: strip: enough to see that findings exist and what the worst one is.
@@ -161,6 +171,14 @@ _HEADER_STATS: tuple[tuple[str, str, str], ...] = (
      "Steady-state running temperature at the housing. Amber past the limit "
      "the materials in this design allow."),
 )
+
+
+#: What the checks list calls each severity - the singular of what the filter
+#: chips above it call them, so the column and the chip that hides it are
+#: plainly the same thing.  "INFO" in capitals was the logger's word, and a row
+#: shouting its own unimportance was the loudest thing in the list.
+_SEVERITY_WORD = {Severity.ERROR: "Error", Severity.WARNING: "Warning",
+                  Severity.INFO: "Note"}
 
 
 def _severity_colours(mode: str) -> dict[Severity, QColor]:
@@ -341,7 +359,7 @@ class MainWindow(QMainWindow):
         self._pinned_analysis: DesignAnalysis | None = None
         self._widgets: dict[str, QWidget] = {}
         self._rows: dict[str, tuple[QWidget, QWidget]] = {}
-        self._groups: list[tuple[QGroupBox, list[str]]] = []
+        self._groups: list[tuple[Section, list[str]]] = []
         self._updating = False
         self._crank = 0.0
         # The animation advances a float and rounds onto the integer slider, so
@@ -417,6 +435,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(shell)
 
         self.setStatusBar(QStatusBar())
+        self.statusBar().addPermanentWidget(self._build_notice_strip())
         self._build_status_link()
         self._build_menu()
         self._restore_workspace()
@@ -443,8 +462,12 @@ class MainWindow(QMainWindow):
         stored = settings.value("tab")
         wanted = -1
         if isinstance(stored, str) and not stored.lstrip("-").isdigit():
+            # Without regard to case: the tabs were named in capitals until
+            # they were not, and a session left on "DATASHEET" is still a
+            # session left on the datasheet.
             wanted = next((i for i in range(self.tabs.count())
-                           if _tab_key(self.tabs.tabText(i)) == stored), -1)
+                           if _tab_key(self.tabs.tabText(i)).casefold()
+                           == _tab_key(stored).casefold()), -1)
         else:
             try:
                 index = int(stored)
@@ -560,21 +583,56 @@ class MainWindow(QMainWindow):
             f"background: {branding.palette(self.mode).line};")
         row.addWidget(self._header_rule)
 
-        product = QLabel("CYCLOIDGEN")
+        # The product's own name, as it is spelt everywhere else - the window
+        # title, the About box, the command line.  The tagline that used to sit
+        # beside it said what the title bar already says, in capitals, in the
+        # one strip of the window where width is short.
+        product = QLabel("cycloidgen")
         product.setObjectName("BrandProduct")
         row.addWidget(product)
-
-        tagline = QLabel("PARAMETRIC CYCLOIDAL DRIVE DESIGN")
-        tagline.setObjectName("BrandTagline")
-        row.addWidget(tagline)
         row.addStretch(1)
 
         row.addWidget(self._build_header_stats())
 
         self._header_flag = QLabel()
         self._header_flag.setObjectName("BrandFlag")
-        row.addWidget(self._header_flag)
+        self._header_flag.setVisible(False)
+        row.addWidget(self._header_flag, 0, Qt.AlignVCenter)
+        row.addWidget(self._build_export_button(), 0, Qt.AlignVCenter)
         return header
+
+    def _build_export_button(self) -> QPushButton:
+        """The window's one primary action, in the corner the eye ends on.
+
+        It used to be a row of three buttons and a bordered disclaimer under
+        the checks list, on every tab - a band of chrome between the work and
+        the status bar that was the same on the datasheet as on the drawing.
+        One button with the two quick routes in its menu, beside the readings
+        that decide whether it is worth pressing, and the "Export blocked" pill
+        right next to it when it is not.  The Outputs tab is still the
+        considered route, and the menu goes there too.
+        """
+        button = QPushButton("Export  ▾")
+        button.setProperty("primary", "true")
+        button.setToolTip("Write the drawings, solids, report and animation "
+                          "for this design.")
+        menu = QMenu(button)
+        self._export_all_action = menu.addAction(
+            "Export all files...", lambda: self._export(True))
+        self._export_2d_action = menu.addAction(
+            "Export without solids...", lambda: self._export(False))
+        self._export_2d_action.setToolTip(
+            "Everything except the solids - STEP, STL and 3MF: drawings, the "
+            "report and the animation. Skips the CAD kernel, which is most of "
+            "the wait.")
+        menu.setToolTipsVisible(True)
+        menu.addAction("Export animation...", self._export_animation)
+        menu.addSeparator()
+        menu.addAction("Choose what to export...",
+                       lambda: self.tabs.setCurrentIndex(self._outputs_tab))
+        button.setMenu(menu)
+        self._export_btn = button
+        return button
 
     def _build_header_stats(self) -> QWidget:
         """The drive at a glance, each number under the name of what it is.
@@ -585,23 +643,21 @@ class MainWindow(QMainWindow):
         is an arcminute mark that reads as a stray apostrophe.
         """
         strip = QWidget()
+        # Transparent, or the generic widget rule paints the whole strip in
+        # the tiles' own colour and eight tiles become one band.
+        strip.setObjectName("StatStrip")
         row = QHBoxLayout(strip)
         row.setContentsMargins(0, 0, 0, 0)
-        # Tighter than the 18 px it was, because each column now has a rule of
-        # its own to separate it and does not have to be held apart by air.
-        row.setSpacing(0)
+        row.setSpacing(5)
 
         self._stats: dict[str, QLabel] = {}
-        for index, (key, caption, tip) in enumerate(_HEADER_STATS):
-            if index:
-                rule = QFrame()
-                rule.setObjectName("StatRule")
-                rule.setFixedWidth(1)
-                row.addWidget(rule)
-
-            cell = QWidget()
+        for key, caption, tip in _HEADER_STATS:
+            # A QFrame, not a bare QWidget: a plain widget does not paint the
+            # background a stylesheet gives it, and the tile is the background.
+            cell = QFrame()
+            cell.setObjectName("StatTile")
             column = QVBoxLayout(cell)
-            column.setContentsMargins(11, 0, 11, 0)
+            column.setContentsMargins(10, 4, 10, 4)
             column.setSpacing(1)
             label = QLabel(caption)
             label.setObjectName("StatCaption")
@@ -621,12 +677,17 @@ class MainWindow(QMainWindow):
         return strip
 
     def _build_parameter_panel(self) -> QWidget:
-        inner = QWidget()
-        layout = QVBoxLayout(inner)
-        layout.setContentsMargins(8, 8, 8, 8)
+        # What to start from and what to look for, above the scroll rather
+        # than inside it: both are about the whole panel, and scrolling down to
+        # the bearings used to scroll the search box away with the geometry.
+        top = QWidget()
+        top_column = QVBoxLayout(top)
+        top_column.setContentsMargins(0, 0, 0, 0)
+        top_column.setSpacing(6)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel("PRESET"))
+        row.setSpacing(6)
+        row.addWidget(branding.caption("Preset"))
         self._preset_box = QComboBox()
         # A "custom" entry, because this box is read as much as it is used.
         # Loading a design, running the optimiser or nudging any parameter
@@ -637,29 +698,46 @@ class MainWindow(QMainWindow):
             self._preset_box.addItem(f"{r}:1", r)
         self._preset_box.activated.connect(self._apply_preset)
         row.addWidget(self._preset_box, 1)
-        layout.addLayout(row)
 
-        self._optimise_btn = QPushButton("DESIGN FOR REQUIREMENTS")
-        self._optimise_btn.setProperty("primary", "true")
+        # Outlined, not filled.  It was a full-width slab of the brand blue at
+        # the top of the panel - the loudest thing in the window, on a tool
+        # that is used once per design.  Export is the primary action now, and
+        # a window with two of them has none.
+        self._optimise_btn = QPushButton("Design for requirements...")
+        self._optimise_btn.setProperty("accent", "true")
         self._optimise_btn.setToolTip(
             "State the ratio, torque and envelope you need and let the app "
             "search for the geometry, instead of tuning it by hand.")
         self._optimise_btn.clicked.connect(self._optimise)
-        layout.addWidget(self._optimise_btn)
+        row.addWidget(self._optimise_btn)
+        top_column.addLayout(row)
 
         self._filter = QLineEdit()
-        self._filter.setPlaceholderText("Filter parameters...")
+        self._filter.setPlaceholderText("Search parameters...")
         self._filter.setClearButtonEnabled(True)
         self._filter.textChanged.connect(self._apply_filter)
-        layout.addWidget(self._filter)
+        top_column.addWidget(self._filter)
 
-        for title, fields in GROUPS:
-            box = QGroupBox(title.upper())
-            form = QFormLayout(box)
-            form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        inner = QWidget()
+        inner.setObjectName("ParamPanel")
+        layout = QVBoxLayout(inner)
+        layout.setContentsMargins(4, 2, 4, 8)
+        layout.setSpacing(0)
+
+        self._sections: dict[str, Section] = {}
+        for index, (title, fields) in enumerate(GROUPS):
+            box = Section(title, first=index == 0)
+            box.set_theme(self.mode)
+            box.set_expanded(self._section_open(title, index))
+            box.toggled.connect(
+                lambda on, t=title: self._settings.setValue(_section_key(t), on))
+            self._sections[title] = box
+            form = QFormLayout(box.body)
+            form.setContentsMargins(8, 2, 6, 12)
+            form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-            form.setHorizontalSpacing(10)
-            form.setVerticalSpacing(7)
+            form.setHorizontalSpacing(12)
+            form.setVerticalSpacing(5)
             for f in fields:
                 w = self._make_widget(f)
                 self._widgets[f.name] = w
@@ -675,6 +753,17 @@ class MainWindow(QMainWindow):
                     label = QLabel(f.label)
                     form.addRow(label, w)
                     self._rows[f.name] = (label, w)
+            if any(f.name == "process" for f in fields):
+                # Beside the process it resets for, rather than as a full-width
+                # button at the foot of the whole panel, where it read as
+                # applying to everything above it.
+                btn = QPushButton("Apply process defaults")
+                btn.setProperty("role", "link")
+                btn.setCursor(Qt.PointingHandCursor)
+                btn.setToolTip("Reset both clearances to the guide values for "
+                               "the selected manufacturing process.")
+                btn.clicked.connect(self._apply_process_defaults)
+                form.addRow(btn)
             layout.addWidget(box)
             self._groups.append((box, [f.name for f in fields]))
 
@@ -686,19 +775,23 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.focusChanged.connect(self._focus_changed)
-
-        btn = QPushButton("APPLY PROCESS DEFAULTS")
-        btn.setToolTip("Reset both clearances to the guide values for the "
-                       "selected manufacturing process.")
-        btn.clicked.connect(self._apply_process_defaults)
-        layout.addWidget(btn)
         layout.addStretch(1)
 
         scroll = QScrollArea()
+        scroll.setObjectName("ParamScroll")
         scroll.setWidget(inner)
         scroll.setWidgetResizable(True)
-        scroll.setMinimumWidth(380)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._param_scroll = scroll
+
+        column = QWidget()
+        column.setMinimumWidth(360)
+        column_layout = QVBoxLayout(column)
+        column_layout.setContentsMargins(8, 8, 2, 0)
+        column_layout.setSpacing(8)
+        column_layout.addWidget(top)
+        column_layout.addWidget(scroll, 1)
+        self._param_column = column
 
         # Selecting a finding highlights the parameters it is about.  That says
         # *where* to look and nothing about why, which is the half of the answer
@@ -714,15 +807,34 @@ class MainWindow(QMainWindow):
         # list, which now has the full width it wanted anyway.
         self._explain = QTextBrowser()
         self._explain.setOpenExternalLinks(False)
-        self._explain.setMinimumHeight(120)
+        self._explain.setMinimumHeight(110)
+
+        explain_holder = QWidget()
+        explain_layout = QVBoxLayout(explain_holder)
+        explain_layout.setContentsMargins(8, 0, 2, 8)
+        explain_layout.addWidget(self._explain)
 
         self._explain_split = QSplitter(Qt.Vertical)
-        self._explain_split.addWidget(scroll)
-        self._explain_split.addWidget(self._explain)
+        self._explain_split.addWidget(column)
+        self._explain_split.addWidget(explain_holder)
         self._explain_split.setStretchFactor(0, 1)
         self._explain_split.setCollapsible(0, False)
-        self._explain_split.setSizes([620, 280])
+        self._explain_split.setSizes([680, 220])
         return self._explain_split
+
+    def _section_open(self, title: str, index: int) -> bool:
+        """Whether a section starts open: as it was left, or as a first run has it.
+
+        A first run opens the first three - the geometry, the disc and what
+        takes the output off it - which are the numbers that make the drive the
+        drive.  The rest are set once per design and wait behind their headings.
+        """
+        stored = self._settings.value(_section_key(title))
+        if stored is None:
+            return index < _OPEN_BY_DEFAULT
+        if isinstance(stored, str):
+            return stored.lower() == "true"
+        return bool(stored)
 
     def _align_label_column(self) -> None:
         """Give every group the same label column width.
@@ -799,7 +911,7 @@ class MainWindow(QMainWindow):
         strip.addLayout(self._build_overlay_row())
         pv.addLayout(strip)
         pv.addWidget(self._canvas_profile, 1)
-        self._drawing_tab = self.tabs.addTab(page, "DRAWING")
+        self._drawing_tab = self.tabs.addTab(page, "Drawing")
 
         self._view3d = Assembly3DTab()
         self._view3d.set_unit(self._unit)
@@ -815,7 +927,7 @@ class MainWindow(QMainWindow):
 
         self._fig_force = Figure(figsize=(6.4, 3.6), dpi=100)
         self._canvas_force = Canvas(self._fig_force)
-        self.tabs.addTab(self._canvas_force, "LOADS")
+        self.tabs.addTab(self._canvas_force, "Loads")
 
         self._fig_loss = Figure(figsize=(6.4, 3.0), dpi=100)
         self._canvas_loss = Canvas(self._fig_loss)
@@ -828,7 +940,7 @@ class MainWindow(QMainWindow):
         self._loss_note.setContentsMargins(12, 4, 12, 4)
         lv.addWidget(self._loss_note)
         lv.addStretch(1)
-        self.tabs.addTab(loss_page, "EFFICIENCY")
+        self.tabs.addTab(loss_page, "Efficiency")
 
         # Its own tab rather than a second figure under the loss bars.  What
         # the motor has is a question about the machine the gearbox goes into,
@@ -837,28 +949,28 @@ class MainWindow(QMainWindow):
         # gearbox's capacity and this, and that comparison is the point.
         self._fig_motor = Figure(figsize=(6.4, 3.2), dpi=100)
         self._canvas_motor = Canvas(self._fig_motor)
-        self.tabs.addTab(self._canvas_motor, "MOTOR")
+        self.tabs.addTab(self._canvas_motor, "Motor")
 
         self._datasheet = QTreeWidget()
-        self._datasheet.setHeaderLabels(["QUANTITY", "VALUE", "NOTE"])
+        self._datasheet.setHeaderLabels(["Quantity", "Value", "Note"])
         self._datasheet.setColumnWidth(0, 260)
         self._datasheet.setColumnWidth(1, 150)
-        self.tabs.addTab(self._datasheet, "DATASHEET")
+        self.tabs.addTab(self._datasheet, "Datasheet")
 
         self._trade = TradeStudyTab()
-        self.tabs.addTab(self._trade, "TRADE STUDY")
+        self.tabs.addTab(self._trade, "Trade study")
 
         self._compare_page = self._build_compare_tab()
-        self.tabs.addTab(self._compare_page, "COMPARE")
+        self.tabs.addTab(self._compare_page, "Compare")
 
         self._outputs = OutputsTab()
         self._outputs.export_requested.connect(self._start_export)
-        self._outputs_tab = self.tabs.addTab(self._outputs, "OUTPUTS")
+        self._outputs_tab = self.tabs.addTab(self._outputs, "Outputs")
         self.tabs.setTabToolTip(self._outputs_tab,
                                 "Every file an export writes, what it is for, "
                                 "and where it goes.")
 
-        self._log_tab = self.tabs.addTab(self.log, "LOG")
+        self._log_tab = self.tabs.addTab(self.log, "Log")
         self.tabs.setTabToolTip(self._log_tab,
                                 "Everything the app would otherwise print to a "
                                 "terminal you do not have.")
@@ -873,7 +985,7 @@ class MainWindow(QMainWindow):
 
         self.findings = QTreeWidget()
         self.findings.setHeaderLabels(
-            ["", "CHECK", "VALUE", "LIMIT", "DETAIL"])
+            ["", "Check", "Value", "Limit", "Detail"])
         self.findings.setRootIsDecorated(False)
         self.findings.currentItemChanged.connect(self._finding_selected)
         header = self.findings.header()
@@ -948,46 +1060,27 @@ class MainWindow(QMainWindow):
         self._view_split.setCollapsible(1, False)
         self._view_split.setSizes([620, 260])
         layout.addWidget(self._view_split, 1)
-
-        row = QHBoxLayout()
-        self._export_btn = QPushButton("EXPORT ALL FILES")
-        self._export_btn.setProperty("primary", "true")
-        self._export_btn.clicked.connect(lambda: self._export(True))
-        row.addWidget(self._export_btn)
-        self._export_2d_btn = QPushButton("EXPORT WITHOUT SOLIDS")
-        self._export_2d_btn.setToolTip(
-            "Everything except the solids - STEP, STL and 3MF: drawings, the "
-            "report and "
-            "the animation. Skips the CAD kernel, which is most of the wait.")
-        self._export_2d_btn.clicked.connect(lambda: self._export(False))
-        row.addWidget(self._export_2d_btn)
-        row.addStretch(1)
-        self._pin_btn = QPushButton("PIN AS REFERENCE")
-        self._pin_btn.setToolTip("Keep this design to compare later changes "
-                                 "against. It shows as a ghost on the drawing.")
-        self._pin_btn.clicked.connect(self._pin_reference)
-        row.addWidget(self._pin_btn)
-        layout.addLayout(row)
-        layout.addWidget(self._build_notice_strip())
         return panel
 
     def _build_notice_strip(self) -> QWidget:
-        """What this tool does not claim, under the buttons that produce it.
+        """What this tool does not claim, along the foot of the window.
 
         It used to be in Help ▸ About only, which is a dialog nobody opens and
         the wrong place for the one paragraph here that carries a consequence.
-        Under the export buttons it is in front of the person about to press
-        one, and it is not dismissible: a disclaimer with a close button is a
-        disclaimer that is shown once.
+        Then it was a bordered box under the export buttons - in front of the
+        person about to press one, but also one more box in the middle of the
+        work, on every tab.  The export is in the header now and asks before it
+        writes, with the full text, every time; this is the line that stays in
+        view between exports.  It is not dismissible: a disclaimer with a close
+        button is a disclaimer that is shown once.
 
-        Deliberately quiet - a hairline, the warning ink, one line of text.  A
-        banner that shouts gets read as decoration by the second session, and
-        this has to still be legible on the hundredth.
+        Deliberately quiet - the warning ink, one line of text.  A banner that
+        shouts gets read as decoration by the second session, and this has to
+        still be legible on the hundredth.
         """
         strip = QLabel(f"{notice.HEADLINE.upper()}  ·  {notice.SHORT}")
         strip.setObjectName("NoticeStrip")
-        strip.setWordWrap(True)
-        strip.setToolTip(notice.FULL.replace("\n\n", "\n\n"))
+        strip.setToolTip(notice.FULL)
         return strip
 
     def _build_crank_bar(self) -> QWidget:
@@ -995,23 +1088,31 @@ class MainWindow(QMainWindow):
         bar = QWidget()
         row = QHBoxLayout(bar)
         row.setContentsMargins(2, 0, 2, 0)
-        row.addWidget(QLabel("CRANK"))
+        row.setSpacing(8)
+
+        # First, where a player's play button is.  It was after the slider and
+        # its readout, between them and the speed it plays at, so the one
+        # control in the row that starts something was the hardest to find.
+        self._play = QPushButton("▶  Play")
+        self._play.setCheckable(True)
+        self._play.setMinimumWidth(84)
+        self._play.toggled.connect(self._toggle_animation)
+        row.addWidget(self._play)
+
+        row.addWidget(branding.caption("Crank"))
         self._crank_slider = QSlider(Qt.Horizontal)
         self._crank_slider.setRange(0, 359)
         self._crank_slider.valueChanged.connect(self._on_crank)
         row.addWidget(self._crank_slider, 1)
-        self._crank_label = QLabel("0 deg")
-        self._crank_label.setMinimumWidth(56)
+        self._crank_label = QLabel("0°")
+        self._crank_label.setMinimumWidth(40)
+        self._crank_label.setFont(self._mono)
         row.addWidget(self._crank_label)
 
-        self._play = QPushButton("ROTATE")
-        self._play.setCheckable(True)
-        self._play.toggled.connect(self._toggle_animation)
-        row.addWidget(self._play)
-
-        # "PLAYBACK", not "SPEED": the design has a speed too, it is on the
+        # "Playback", not "Speed": the design has a speed too, it is on the
         # drawing, and it is nothing to do with this control.
-        row.addWidget(QLabel("PLAYBACK"))
+        row.addSpacing(8)
+        row.addWidget(branding.caption("Playback"))
         self._speed_box = QComboBox()
         for label, factor in (("0.25x", 0.25), ("0.5x", 0.5), ("1x", 1.0),
                               ("2x", 2.0), ("4x", 4.0)):
@@ -1029,7 +1130,7 @@ class MainWindow(QMainWindow):
 
         # The multiplier alone cannot answer "1x of what?", and a tooltip only
         # answers it to someone who already suspects there is a question.
-        self._speed_note = QLabel()
+        self._speed_note = branding.caption("")
         self._speed_note.setToolTip(self._speed_box.toolTip())
         row.addWidget(self._speed_note)
         self._show_playback_rate()
@@ -1049,7 +1150,8 @@ class MainWindow(QMainWindow):
         """
         row = QHBoxLayout()
         row.setContentsMargins(12, 0, 4, 0)
-        row.addWidget(QLabel("OVERLAYS"))
+        row.setSpacing(6)
+        row.addWidget(branding.caption("Show"))
         self._overlay_boxes: dict[str, QCheckBox] = {}
         for key, label, default, tip in (
             ("contacts", "Contacts", True,
@@ -1063,7 +1165,7 @@ class MainWindow(QMainWindow):
              "revolution."),
             ("labels", "Pin numbers", False, "Number the ring pins."),
         ):
-            box = QCheckBox(label)
+            box = branding.chip(QCheckBox(label))
             box.setToolTip(tip)
             box.setChecked(bool(self._settings.value(f"overlay_{key}", default,
                                                      type=bool)))
@@ -1092,13 +1194,17 @@ class MainWindow(QMainWindow):
         """
         row = QHBoxLayout()
         row.setContentsMargins(2, 2, 2, 0)
-        row.addWidget(QLabel("CHECKS"))
+        row.setSpacing(6)
+        title = QLabel("Checks")
+        title.setObjectName("PanelTitle")
+        row.addWidget(title)
+        row.addSpacing(6)
 
         self._severity_filters: dict[Severity, QCheckBox] = {}
         for severity, label in ((Severity.ERROR, "Errors"),
                                 (Severity.WARNING, "Warnings"),
                                 (Severity.INFO, "Notes")):
-            box = QCheckBox(label)
+            box = branding.chip(QCheckBox(label))
             box.setChecked(bool(self._settings.value(
                 f"show_{severity.value}", True, type=bool)))
             colour = self._severity[severity].name()
@@ -1182,6 +1288,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._compare_gap, 1)
 
         row = QHBoxLayout()
+        # Here, on the tab it fills, rather than on a row under every tab.  It
+        # is also Design > Pin as reference, Ctrl+P, from anywhere.
+        self._pin_btn = QPushButton("Pin as reference")
+        self._pin_btn.setProperty("primary", "true")
+        self._pin_btn.setToolTip("Keep this design to compare later changes "
+                                 "against. It shows as a ghost on the drawing.")
+        self._pin_btn.clicked.connect(self._pin_reference)
+        row.addWidget(self._pin_btn)
         clear = QPushButton("Clear reference")
         clear.clicked.connect(self._clear_reference)
         row.addWidget(clear)
@@ -1208,6 +1322,13 @@ class MainWindow(QMainWindow):
         self._compare_gap.setVisible(not pinned)
         for button in self._compare_buttons:
             button.setEnabled(pinned)
+        # Filled only while pinning is the thing to do next.  With a reference
+        # in place it re-pins, which is a deliberate act and not an invitation.
+        primary = "false" if pinned else "true"
+        if self._pin_btn.property("primary") != primary:
+            self._pin_btn.setProperty("primary", primary)
+            self._pin_btn.style().unpolish(self._pin_btn)
+            self._pin_btn.style().polish(self._pin_btn)
 
     def _build_menu(self) -> None:
         m = self.menuBar().addMenu("&File")
@@ -1406,6 +1527,8 @@ class MainWindow(QMainWindow):
         self._refresh_status_link()
         for severity, box in self._severity_filters.items():
             box.setStyleSheet(f"QCheckBox {{ color: {self._severity[severity].name()}; }}")
+        for section in self._sections.values():
+            section.set_theme(self.mode)
         self._plot_bar.apply_theme(self.mode)
         self._show_explanation()
         self._view3d.refresh_theme(self.mode)
@@ -1508,7 +1631,7 @@ class MainWindow(QMainWindow):
         badge = " " + "!" * self._log_badge if self._log_badge else ""
         self._log_link.setText(
             f"<a href='#' style='color:{accent};text-decoration:none'>"
-            f"history in LOG{badge}</a>")
+            f"history in Log{badge}</a>")
 
     def _say(self, message: str, *, level: int = logging.INFO,
              seconds: int = 5) -> None:
@@ -1530,13 +1653,13 @@ class MainWindow(QMainWindow):
         if self.tabs.currentIndex() == self._log_tab:
             return
         self._log_badge = max(self._log_badge, 2 if level != "WARNING" else 1)
-        self.tabs.setTabText(self._log_tab, "LOG " + "!" * self._log_badge)
+        self.tabs.setTabText(self._log_tab, "Log " + "!" * self._log_badge)
         self._refresh_status_link()
 
     def _tab_changed(self, index: int) -> None:
         if index == self._log_tab:
             self._log_badge = 0
-            self.tabs.setTabText(self._log_tab, "LOG")
+            self.tabs.setTabText(self._log_tab, "Log")
             self._refresh_status_link()
         # The crank means nothing on a table of numbers, and a control that does
         # nothing where it is shown teaches people to ignore it.
@@ -1699,9 +1822,15 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------- filtering
     def _apply_filter(self, text: str) -> None:
+        """Show only the fields that match, with their sections opened.
+
+        Opened for as long as the search lasts and no longer: a match behind a
+        closed heading is a search that found nothing as far as anyone can
+        see, and clearing the search puts every section back as it was left.
+        """
         needle = text.strip().lower()
         by_name = {f.name: f for _, fs in GROUPS for f in fs}
-        for box, names in self._groups:
+        for index, (box, names) in enumerate(self._groups):
             visible = 0
             for name in names:
                 f = by_name[name]
@@ -1712,6 +1841,7 @@ class MainWindow(QMainWindow):
                 widget.setVisible(match)
                 visible += bool(match)
             box.setVisible(visible > 0)
+            box.set_expanded(bool(needle) or self._section_open(box.title, index))
 
     # ------------------------------------------------------------- computing
     def _recompute(self) -> None:
@@ -1756,8 +1886,10 @@ class MainWindow(QMainWindow):
         self._outputs.set_blocked([f.code for f in analysis.report.errors])
 
         s, a = self.spec, self.analysis
-        self._export_btn.setEnabled(a.report.ok)
-        self._export_2d_btn.setEnabled(a.report.ok)
+        # The two file exports, not the button: the animation in the same menu
+        # is a picture of the design and is not held to its checks.
+        self._export_all_action.setEnabled(a.report.ok)
+        self._export_2d_action.setEnabled(a.report.ok)
         e = a.efficiency
 
         def contact_kind(rolling: bool) -> str:
@@ -1804,7 +1936,10 @@ class MainWindow(QMainWindow):
         self._set_stat("temperature", f"{a.thermal.temperature_C:.0f} C",
                        warn=a.thermal.temperature_C > a.thermal.temperature_limit_C)
 
-        self._header_flag.setText("" if a.report.ok else "EXPORT BLOCKED")
+        blocked = [f.code for f in a.report.errors]
+        self._header_flag.setText("Export blocked")
+        self._header_flag.setToolTip("Fix these checks first: " + ", ".join(blocked))
+        self._header_flag.setVisible(bool(blocked))
 
     def _set_stat(self, key: str, text: str, *, warn: bool = False) -> None:
         """One cell of the strip, restyled only when its state actually moves.
@@ -1846,7 +1981,7 @@ class MainWindow(QMainWindow):
         counts = {Severity.ERROR: 0, Severity.WARNING: 0, Severity.INFO: 0}
         for f in self.analysis.report.findings:
             item = QTreeWidgetItem([
-                f.severity.value.upper(), f.code,
+                _SEVERITY_WORD[f.severity], f.code,
                 self._finding_number(f, f.value),
                 self._finding_number(f, f.limit),
                 f.message])
@@ -1961,8 +2096,21 @@ class MainWindow(QMainWindow):
             widget.setStyleSheet(self._highlight_css)
             self._highlighted.append(widget)
             first = first or widget
+            # A highlight behind a closed heading points at nothing.  Opened as
+            # the user's own choice would be, because following a check to its
+            # parameters is exactly the work the section is open for.
+            for section, names in self._groups:
+                if name in names and not section.is_expanded():
+                    section.set_expanded(True)
+                    self._settings.setValue(_section_key(section.title), True)
         if first is not None:
-            self._param_scroll.ensureWidgetVisible(first, 0, 60)
+            # After the layout pass a section that has just opened needs, or
+            # this scrolls to where the field was while it was hidden.  Bound
+            # to the scroll area, so a window closed in between drops the call
+            # instead of making it on a deleted widget.
+            scroll = self._param_scroll
+            QTimer.singleShot(0, scroll, lambda w=first:
+                              scroll.ensureWidgetVisible(w, 0, 60))
 
     def _focus_changed(self, _old, new) -> None:
         """Follow the focus into the parameter panel, and back out of it.
@@ -2012,7 +2160,7 @@ class MainWindow(QMainWindow):
         ink, dim, accent = p.ink, p.ink_dim, self._severity[finding.severity].name()
         parts = [
             f"<div style='color:{accent};font-size:10px;font-weight:700;"
-            f"letter-spacing:.6px'>{finding.severity.value.upper()} &middot; "
+            f"letter-spacing:.6px'>{_SEVERITY_WORD[finding.severity].upper()} &middot; "
             f"{finding.code}</div>",
             f"<div style='color:{ink};font-size:14px;font-weight:600;"
             f"margin:2px 0 8px 0'>{detail.title}</div>",
@@ -2088,7 +2236,7 @@ class MainWindow(QMainWindow):
                 colour = self._severity[f.severity].name()
                 rows.append(f"<div style='margin-bottom:2px'>"
                             f"<span style='color:{colour};font-size:11px;"
-                            f"font-weight:700'>{f.severity.value.upper()}</span> "
+                            f"font-weight:700'>{_SEVERITY_WORD[f.severity].upper()}</span> "
                             f"<code style='color:{ink};font-size:11px'>{code}"
                             f"</code></div>")
             quiet = len(codes) - len(live)
@@ -2440,7 +2588,7 @@ class MainWindow(QMainWindow):
         self._crank = float(value)
         if not self._anim.isActive():
             self._crank_exact = self._crank
-        self._crank_label.setText(f"{value} deg")
+        self._crank_label.setText(f"{value}°")
         self._sync_crank()
 
     def _sync_crank(self) -> None:
@@ -2479,11 +2627,11 @@ class MainWindow(QMainWindow):
         blocked = self._crank_slider.blockSignals(True)
         self._crank_slider.setValue(int(self._crank_exact) % 360)
         self._crank_slider.blockSignals(blocked)
-        self._crank_label.setText(f"{int(self._crank_exact) % 360} deg")
+        self._crank_label.setText(f"{int(self._crank_exact) % 360}°")
         self._sync_crank()
 
     def _toggle_animation(self, on: bool) -> None:
-        self._play.setText("STOP" if on else "ROTATE")
+        self._play.setText("■  Stop" if on else "▶  Play")
         self._anim.start() if on else self._anim.stop()
 
     # ---------------------------------------------------------------- files

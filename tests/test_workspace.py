@@ -1108,8 +1108,8 @@ def test_the_explanation_panel_is_beside_the_parameters(app):
     w = _window(app, width=1900)
     try:
         assert w._explain_split.orientation() == Qt.Vertical
-        assert w._explain_split.indexOf(w._param_scroll) == 0
-        assert w._explain_split.indexOf(w._explain) == 1
+        assert w._explain_split.widget(0).isAncestorOf(w._param_scroll)
+        assert w._explain_split.widget(1).isAncestorOf(w._explain)
         # the same column as the parameters, not the one the checks are in
         assert (w._explain.mapToGlobal(w._explain.rect().topLeft()).x()
                 < w.findings.mapToGlobal(w.findings.rect().topLeft()).x())
@@ -1328,14 +1328,25 @@ def test_the_tab_is_remembered_by_name_and_not_by_position(app):
     """
     w = _window(app)
     names = [w.tabs.tabText(i) for i in range(w.tabs.count())]
-    w.tabs.setCurrentIndex(names.index("DATASHEET"))
+    w.tabs.setCurrentIndex(names.index("Datasheet"))
     w._save_workspace()
-    assert _settings().value("tab") == "DATASHEET"
+    assert _settings().value("tab") == "Datasheet"
     w.close()
 
     again = _window(app)
-    assert again.tabs.tabText(again.tabs.currentIndex()) == "DATASHEET"
+    assert again.tabs.tabText(again.tabs.currentIndex()) == "Datasheet"
     again.close()
+
+
+def test_a_session_stored_under_the_capitalised_name_still_opens(app):
+    """The tabs used to be named in capitals, and a session left on
+    "DATASHEET" is still a session left on the datasheet."""
+    settings = _settings()
+    settings.setValue("tab", "DATASHEET")
+    settings.sync()
+    w = _window(app)
+    assert w.tabs.tabText(w.tabs.currentIndex()) == "Datasheet"
+    w.close()
 
 
 def test_a_session_stored_by_the_old_index_still_opens(app):
@@ -1397,3 +1408,131 @@ def test_pinning_puts_the_table_back_and_the_placeholder_away(app):
     assert not w._compare.isVisibleTo(w._compare_page)
     assert w._compare_gap.isVisibleTo(w._compare_page)
     w.close()
+
+
+# ------------------------------------------------------ the parameter sections
+
+def _fold_all(w) -> None:
+    for section in w._sections.values():
+        if section.is_expanded():
+            section.header.click()
+
+
+def _unfold_defaults(w) -> None:
+    from cycloidgen.ui.main_window import _OPEN_BY_DEFAULT
+    for index, section in enumerate(w._sections.values()):
+        if section.is_expanded() != (index < _OPEN_BY_DEFAULT):
+            section.header.click()
+
+
+def test_the_panel_opens_on_the_drive_and_folds_the_rest(app):
+    """Ten groups and sixty fields at once is a wall.  A first run opens the
+    three that make the drive the drive, and the rest wait behind headings."""
+    from cycloidgen.ui.fields import GROUPS
+    from cycloidgen.ui.main_window import _OPEN_BY_DEFAULT, _section_key
+
+    settings = _settings()
+    for title, _fields in GROUPS:
+        settings.remove(_section_key(title))
+    settings.sync()
+    w = _window(app)
+    opened = [t for t, s in w._sections.items() if s.is_expanded()]
+    assert opened == [t for t, _fields in GROUPS[:_OPEN_BY_DEFAULT]]
+    assert [s.title for s, _names in w._groups] == [t for t, _fields in GROUPS]
+    w.close()
+
+
+def test_a_section_stays_as_it_was_left(app):
+    w = _window(app)
+    bearings = w._sections["Bearings"]
+    was = bearings.is_expanded()
+    bearings.header.click()
+    assert bearings.is_expanded() is not was
+    w.close()
+
+    again = _window(app)
+    assert again._sections["Bearings"].is_expanded() is not was
+    again._sections["Bearings"].header.click()
+    again.close()
+
+
+def test_a_search_opens_what_it_finds_and_gives_it_back(app):
+    """A match behind a closed heading is a search that found nothing, as far
+    as anyone can see - and clearing it must not leave the panel unfolded."""
+    from cycloidgen.ui.fields import GROUPS
+
+    w = _window(app)
+    try:
+        _fold_all(w)
+        bearings = w._sections["Bearings"]
+        label = dict(GROUPS)["Bearings"][0].label
+        w._filter.setText(label)
+        assert bearings.is_expanded()
+        assert bearings.isVisibleTo(w._param_scroll)
+        w._filter.setText("")
+        assert not any(s.is_expanded() for s in w._sections.values())
+    finally:
+        _unfold_defaults(w)
+        w.close()
+
+
+def test_a_selected_check_opens_the_section_of_the_field_it_names(app):
+    """A highlight behind a closed heading points at nothing."""
+    from cycloidgen.ui.fields import CODE_FIELDS
+
+    w = _window(app)
+    try:
+        _fold_all(w)
+        for i in range(w.findings.topLevelItemCount()):
+            item = w.findings.topLevelItem(i)
+            names = [n for n in CODE_FIELDS.get(item.data(0, _USER_ROLE), ())
+                     if n in w._rows]
+            if names and not item.isHidden():
+                break
+        else:
+            pytest.skip("this design raised no check that names a field")
+        w.findings.setCurrentItem(item)
+        for section, members in w._groups:
+            if names[0] in members:
+                assert section.is_expanded()
+                assert w._rows[names[0]][1].isVisibleTo(w._param_scroll)
+    finally:
+        _unfold_defaults(w)
+        w.close()
+
+
+# ------------------------------------------------------------- the one action
+
+def test_the_header_export_is_held_to_the_checks_and_the_animation_is_not(app):
+    """The two file exports follow the report; the animation is a picture of
+    the design, not a deliverable, and has never been held to its checks."""
+    w = _window(app)
+    try:
+        ok = w.analysis.report.ok
+        assert w._export_all_action.isEnabled() is ok
+        assert w._export_2d_action.isEnabled() is ok
+        assert w._header_flag.isVisibleTo(w) is not ok
+        animation = next(a for a in w._export_btn.menu().actions()
+                         if "animation" in a.text())
+        assert animation.isEnabled()
+    finally:
+        w.close()
+
+
+def test_the_blocked_pill_names_what_is_blocking(app):
+    from cycloidgen.core.spec import preset
+
+    w = _window(app)
+    try:
+        spec = preset(15)
+        spec.output_torque_Nm = 400.0           # far past anything a 15:1 carries
+        w._replace_spec(spec)
+        _pump(app)
+        if w.analysis.report.ok:
+            pytest.skip("overloading this preset did not raise an error")
+        assert w._header_flag.isVisibleTo(w)
+        for finding in w.analysis.report.errors:
+            assert finding.code in w._header_flag.toolTip()
+        assert not w._export_all_action.isEnabled()
+    finally:
+        w.close()
