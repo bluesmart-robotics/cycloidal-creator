@@ -174,7 +174,8 @@ MANIFEST: tuple[Output, ...] = (
            "Each part in its own frame and under its own name, for handing one "
            "part to a machine shop, to a CAM package that would otherwise make "
            "you fish the body out of an assembly first, or into a CAD package "
-           "to build on.",
+           "to build on. A disc's flank is the sketch's spline rather than "
+           "facets, one face per flank with a vertex on every root and crest.",
            contents=lambda s: [f"{n}.step" for n in part_names(s)]),
     Output("stl", "stl/", "solids", "STL",
            "Meshes, one per part",

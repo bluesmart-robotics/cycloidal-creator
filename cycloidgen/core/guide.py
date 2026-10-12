@@ -260,8 +260,9 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "clearance the pins interfere and the drive binds, and it produces the "
         "missing half of transmission error."),
     "dxf_chord_tolerance": ParameterGuide(
-        "How finely the curved profile is sampled when it is written out as a "
-        "polyline - the largest gap between the chord and the true curve.",
+        "How far the written-out profile may leave the true curve - the chord "
+        "error of the cutting polyline, and the fit of the spline the sketch "
+        "and the STEP disc are both built from.",
         "Well inside your machine's own resolution. Five microns is fine for "
         "anything cut here.",
         "File size and how long a CAM package takes to chew on it. It has no "

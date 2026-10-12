@@ -10,6 +10,13 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import cadquery as cq
+import numpy as np
+from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeEdge
+from OCP.Geom import Geom_BSplineCurve
+from OCP.GeomConvert import GeomConvert
+from OCP.gp import gp_Pnt
+from OCP.TColgp import TColgp_Array1OfPnt
+from OCP.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
 
 from ..analysis.bearings import (
     BearingPlacement,
@@ -35,11 +42,6 @@ __all__ = [
     "write_step",
     "write_stls",
 ]
-
-#: Solid modelling uses a coarser sampling than DXF; OCCT slows sharply with
-#: vertex count and the mesh tolerance dominates the result anyway.
-_MAX_SOLID_POINTS = 1400
-
 
 def _colour(group: str) -> cq.Color:
     """Part colour, from the same table the 3D viewer paints with.
@@ -78,12 +80,56 @@ def _part_colour(name: str) -> cq.Color:
     return _colour(_PART_GROUP[name])
 
 
-def _profile_points(spec: GearSpec) -> list[tuple[float, float]]:
-    n = prof.sample_count_for_chord_tolerance(
-        spec.effective_R, spec.effective_Rr, spec.eccentricity, spec.lobes,
-        max(spec.stl_linear_tolerance, 1e-3), lo=360, hi=_MAX_SOLID_POINTS)
-    p = prof.profile_from_spec(spec, n=int(n))
-    return [(float(x), float(y)) for x, y in p.points]
+def _profile_edges(spec: GearSpec) -> list[cq.Edge]:
+    """The disc outline as the curve itself: one cubic B-spline edge per flank.
+
+    The flank of the solid used to be a polygon, sampled to the *mesh*
+    tolerance and capped at 1,400 vertices, so a STEP disc was a prism of up to
+    1,400 flat faces that left the true profile by 41 um on the 21:1 and 55 um on
+    the 59:1 - ten times what the cutting files are held to, governed by a
+    setting documented as being for STL.  A CAM package machining from the STEP
+    file was cutting the facets.  It is the sketch's spline now, the same
+    control points the DXF in ``sketch/`` carries, so the disc you build on and
+    the disc you cut from are one curve.
+
+    Split into one edge per flank - root to crest, crest to root - for two
+    reasons, and the first would be enough on its own.  It puts a vertex on
+    every lobe root and every crest, which are the two places anybody
+    dimensioning a cycloidal disc reaches for, and a single closed curve gives
+    them nothing to click.  And OCCT integrates a face's mass properties with a
+    fixed number of Gauss points across the whole face rather than per knot
+    span: one face carrying every span of the profile reports a prism up to
+    2.6% off across the presets, high on some and low on others.  One face per
+    lobe still leaves 5e-4 at the tightest tolerance; one per flank stays under
+    5e-5, which is inside the fit's own deviation.  Every check here that
+    compares a mesh against its solid reads that volume.
+
+    The splits are exact rather than approximate.  The fit samples whole lobes
+    starting from the root at ``t = 0``, so the root of lobe ``j`` is the knot
+    at ``j*n/lobes`` and its crest, by the profile's own mirror symmetry, is
+    halfway between two roots.  Splitting a B-spline only inserts knots, which
+    changes how the curve is written and not where it goes.
+    """
+    fit = prof.profile_spline_from_spec(spec)
+    n = len(fit.control_points)
+    # OCCT starts a periodic spline one interpolated point later than
+    # profile_spline's own evaluator does.  Rolling the poles by one puts
+    # parameter zero on the first point the fit passed through - the root.
+    poles = TColgp_Array1OfPnt(1, n)
+    for i, (x, y) in enumerate(np.roll(fit.control_points, 1, axis=0)):
+        poles.SetValue(i + 1, gp_Pnt(float(x), float(y), 0.0))
+    knots = TColStd_Array1OfReal(1, n + 1)
+    mults = TColStd_Array1OfInteger(1, n + 1)
+    for i in range(n + 1):
+        knots.SetValue(i + 1, float(i))
+        mults.SetValue(i + 1, 1)
+    curve = Geom_BSplineCurve(poles, knots, mults, 3, True)
+    curve.SetNotPeriodic()
+
+    flanks = 2 * spec.lobes
+    return [cq.Edge(BRepBuilderAPI_MakeEdge(GeomConvert.SplitBSplineCurve_s(
+                curve, n * j / flanks, n * (j + 1) / flanks, 1e-9)).Edge())
+            for j in range(flanks)]
 
 
 def disc_solid(spec: GearSpec, hole_phase: float = 0.0) -> cq.Workplane:
@@ -94,8 +140,9 @@ def disc_solid(spec: GearSpec, hole_phase: float = 0.0) -> cq.Workplane:
     :attr:`~cycloidgen.core.spec.GearSpec.disc_hole_phases` - because the discs
     are meshed at different angles but driven by one shared carrier.
     """
-    pts = _profile_points(spec)
-    disc = cq.Workplane("XY").polyline(pts).close().extrude(spec.disc_thickness)
+    outline = cq.Face.makeFromWires(cq.Wire.assembleEdges(_profile_edges(spec)))
+    disc = cq.Workplane("XY").add(cq.Solid.extrudeLinear(
+        outline, cq.Vector(0, 0, spec.disc_thickness)))
     disc = disc.faces(">Z").workplane().hole(spec.center_bore_diameter + spec.hole_clearance)
     disc = (disc.faces(">Z").workplane()
             .polarArray(spec.output_bolt_circle_radius, math.degrees(hole_phase),

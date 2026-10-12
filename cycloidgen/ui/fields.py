@@ -116,7 +116,7 @@ GROUPS: list[tuple[str, list[Field]]] = [
               tip="True-position zone diameter on the pin holes, ring and "
                   "carrier alike. Zero models a perfectly placed ring; enter "
                   "what your shop holds to see what it costs."),
-        Field("dxf_chord_tolerance", "DXF tolerance", "float", 0.0005, 0.5,
+        Field("dxf_chord_tolerance", "Profile tolerance", "float", 0.0005, 0.5,
               0.001, decimals=4, suffix=" mm"),
         Field("stl_linear_tolerance", "STL tolerance", "float", 0.005, 1.0, 0.01,
               decimals=3, suffix=" mm"),

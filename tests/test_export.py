@@ -86,6 +86,99 @@ def test_disc_solid_volume_matches_the_planar_area(spec):
     assert solid.disc_solid(spec).val().Volume() == pytest.approx(expected, rel=2e-3)
 
 
+def _outline_edges(disc):
+    """The flank edges of a disc solid's bottom face: everything not a circle."""
+    bottom = disc.val().Faces()
+    bottom = min(bottom, key=lambda f: f.Center().z)
+    return [e for e in bottom.Edges() if e.geomType() != "CIRCLE"]
+
+
+def test_the_step_disc_is_the_sketch_curve_not_a_polygon_of_it(spec):
+    """A CAM package machining from the STEP file was cutting facets.
+
+    The flank was a prism of several hundred flat faces sampled to the mesh
+    tolerance, and it left the true profile by ten times what the cutting files
+    are held to.  It is the spline the sketch DXF carries now - the same control
+    points - so it is checked against that curve to well under a micrometre and
+    against the exact profile to the design's own tolerance.
+    """
+    from scipy.spatial import cKDTree
+
+    disc = solid.disc_solid(spec)
+    edges = _outline_edges(disc)
+    assert {e.geomType() for e in edges} == {"BSPLINE"}
+    flanks = {f for f in disc.val().Faces()
+              if f.geomType() not in ("PLANE", "CYLINDER")}
+    assert len(flanks) == 2 * spec.lobes
+
+    drawn = np.array([(p.x, p.y) for e in edges
+                      for p in (e.positionAt(u) for u in np.linspace(0, 1, 40))])
+    fit = prof.profile_spline_from_spec(spec)
+    # Sampled at well under a micrometre, so what is left is the sampling.
+    sketch = prof.evaluate_closed_bspline(fit.control_points, per_segment=4096)
+    assert cKDTree(sketch).query(drawn)[0].max() < 5e-4
+
+    exact = prof.disc_profile(np.linspace(0.0, 2.0 * np.pi, 400_000, endpoint=False),
+                              spec.effective_R, spec.effective_Rr,
+                              spec.eccentricity, spec.lobes)
+    assert cKDTree(exact).query(drawn)[0].max() < spec.dxf_chord_tolerance
+
+
+def test_the_step_disc_has_a_vertex_on_every_root_and_every_crest(spec):
+    """The two places anybody dimensioning a cycloidal disc reaches for.
+
+    A single closed curve gives nothing to click.  Roots are points the fit
+    passed through, so they are exact; a crest falls between two of them when a
+    lobe has an odd number of samples, so it is held to the fit's tolerance.
+    """
+    disc = solid.disc_solid(spec).val()
+    outline = min(disc.Faces(), key=lambda f: f.Center().z).outerWire()
+    radii = np.array([np.hypot(v.X, v.Y) for v in outline.Vertices()])
+    exact = prof.sampled_profile(spec.effective_R, spec.effective_Rr,
+                                 spec.eccentricity, spec.lobes, 200_000)
+    middle = (exact.root_radius + exact.outer_radius) / 2.0
+    roots, crests = radii[radii < middle], radii[radii > middle]
+    assert len(roots) == len(crests) == spec.lobes
+    assert roots == pytest.approx(exact.root_radius, abs=1e-6)
+    assert crests == pytest.approx(exact.outer_radius, abs=spec.dxf_chord_tolerance)
+
+
+@pytest.mark.parametrize("ratio,tol", [(10, 0.005), (21, 0.005), (59, 0.005),
+                                       (21, 0.0005), (59, 0.0005)])
+def test_the_spline_disc_reports_its_own_volume(ratio, tol):
+    """OCCT integrates a face with a fixed number of Gauss points, not per span.
+
+    One face carrying every span of the profile reported a prism up to 2.6% off,
+    high on some designs and low on others, and every check that compares a
+    mesh against its solid reads that number.  A face per flank keeps it inside
+    the fit's own deviation - which at the tightest tolerance the field allows
+    is the hard case, because that is where a face carries the most spans.
+    """
+    s = preset(ratio)
+    s.dxf_chord_tolerance = tol
+    area = prof.sampled_profile(s.effective_R, s.effective_Rr, s.eccentricity,
+                                s.lobes, 400_000).area()
+    bore = np.pi * ((s.center_bore_diameter + s.hole_clearance) / 2) ** 2
+    holes = s.output_pin_count * np.pi * (s.output_hole_diameter / 2) ** 2
+    expected = (area - bore - holes) * s.disc_thickness
+    assert solid.disc_solid(s).val().Volume() == pytest.approx(expected, rel=2e-4)
+
+
+def test_the_mesh_tolerance_no_longer_shapes_the_step_disc(spec):
+    """``stl_linear_tolerance`` is documented as a print-quality setting.
+
+    It used to set how many facets the *solid* had, so refining the meshes
+    quietly changed the STEP file as well.  The solid is the curve now and the
+    mesh tolerance only decides how that curve is tessellated.  Finer rather
+    than coarser, because the old facet count was floored at 360 and a coarser
+    setting on this design would have changed nothing either way.
+    """
+    fine = spec.model_copy(update={"stl_linear_tolerance": 0.005})
+    a, b = solid.disc_solid(spec).val(), solid.disc_solid(fine).val()
+    assert a.Volume() == b.Volume()
+    assert len(a.Faces()) == len(b.Faces())
+
+
 def test_json_report_round_trips(spec, tmp_path):
     a = analyse(spec)
     data = json.loads(build.write_json(a, tmp_path / "r.json").read_text())
