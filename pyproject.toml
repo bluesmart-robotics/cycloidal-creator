@@ -48,6 +48,23 @@ dependencies = [
     "pillow>=9.1",
     "reportlab>=4.0",
     "PySide6>=6.6",
+    # ...and not 6.12 before Python 3.12.  6.12.0 hands `None` back from every
+    # call that returns nothing without taking a reference to it, so each such
+    # call costs `None` a reference it never had.  From 3.12 `None` is immortal
+    # and the debt is never collected; before that its count starts at about
+    # five thousand, and the interpreter aborts with "deallocating None" a few
+    # thousand Qt calls in - a few frames of the 3D view.  Measured:
+    #
+    #     6.12.0, 3.10 and 3.11   QLabel.setText x1000           ->  None -1000
+    #     6.11.2, 3.10            30,000 setPen/setBrush/setText ->  None  0
+    #
+    # The frozen builds run 3.12 and never met it; a pip install on 3.10 or
+    # 3.11 got 6.12.0 and a window that dies within seconds.  A ceiling rather
+    # than `!=6.12.0`, because a 6.12.1 that still has it would reach users
+    # before anything here could say so.  Lift it when one does not: the check
+    # is `tests/test_qt_references.py` on the 3.10 job, which is what caught
+    # this one.
+    "PySide6<6.12; python_version < '3.12'",
     # The one thing the update check needs that the standard library does not
     # supply everywhere.  `ssl.create_default_context()` reads the platform
     # store, which is the right answer on Windows and on a normal Linux install
@@ -59,7 +76,7 @@ dependencies = [
     # back to whatever the platform has.
     "certifi>=2024.2",
     "cadquery>=2.4",
-    # The one ceiling in this file, and it is not ours to want.
+    # Another ceiling, and it is not ours to want either.
     #
     # `import cadquery` pulls casadi in whether anything uses it or not - see
     # the PyInstaller runtime hook, which stubs it out of the frozen build for
