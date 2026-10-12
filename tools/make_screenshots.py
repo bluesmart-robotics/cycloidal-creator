@@ -46,9 +46,15 @@ os.environ.pop("QT_QPA_PLATFORM", None)
 # An empty file is also a better answer than a restored one: these images are
 # meant to show a fresh install, and now they are taken on one, so the tool no
 # longer has to know which preferences it is standing on.
+#
+# Empty but for one answer.  A fresh install asks whether it may check for
+# updates, and since 7.8.0 a fresh file has put that question up on the
+# operator's screen every time this ran - a modal box over the window being
+# photographed, waiting for a click the tool never makes.  It is answered "no"
+# here, which also keeps the run from reaching GitHub.
 _PREFS = ROOT / "build" / "screenshot-prefs.ini"
 _PREFS.parent.mkdir(parents=True, exist_ok=True)
-_PREFS.unlink(missing_ok=True)
+_PREFS.write_text("[General]\nupdate_check=off\n", encoding="utf-8")
 os.environ["CYCLOIDGEN_SETTINGS"] = str(_PREFS)
 
 from PIL import Image  # noqa: E402
