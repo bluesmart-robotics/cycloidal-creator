@@ -749,6 +749,24 @@ def build_mesh(spec: GearSpec,
             b.cylinder(spec.eccentricity * math.cos(phase),
                        -spec.eccentricity * math.sin(phase), cam_r, z0, z1, 32)
 
+    # What locates the shaft against its supports, and keeps the discs apart.
+    # They turn with the shaft and come out with it, so they take its motion -
+    # the sleeves a part each, the washers one part, as the solids are.
+    washers = [s for s in bores.spacers if s.name.startswith("washer")]
+    for s in bores.spacers:
+        if s in washers:
+            continue
+        with b.part(s.name, s.label, "shaft", PART_COLOURS["shaft"], spin=-1.0):
+            b.prism(_circle(0.0, 0.0, s.outer / 2.0, 28),
+                    (_circle(0.0, 0.0, s.bore / 2.0, 28),), s.z0, s.z1)
+    if washers:
+        with b.part("washers",
+                    "Disc washers" if len(washers) > 1 else "Disc washer",
+                    "shaft", PART_COLOURS["shaft"], spin=-1.0):
+            for s in washers:
+                b.prism(_circle(0.0, 0.0, s.outer / 2.0, 48),
+                        (_circle(0.0, 0.0, s.bore / 2.0, 28),), s.z0, s.z1)
+
     # A carrier drop below the disc stack, exactly as the STEP assembly places
     # it: a carrier face flush with the first disc would be two surfaces at the
     # same height, which is a fight the renderer cannot win.

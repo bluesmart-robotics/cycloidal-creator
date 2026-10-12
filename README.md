@@ -613,6 +613,13 @@ suggests it.
   motor's register cut into the same face - is reported rather than drawn
   without one.
 
+  The shaft is located against those lips by two sleeves, one from each end
+  cam to the support beyond it, so thrust either way runs cam, sleeve, inner
+  ring, outer ring, lip; and a washer between each pair of discs holds the gap
+  the stack was designed with, reaching from outside the disc bore to inside
+  the output holes however the discs have orbited. All three are made parts,
+  with their own files and their own lines on the bill of materials.
+
   Three of the five load paths can also be built without a bearing at all, and
   plenty of drives are. Switching one
   off takes the part out of the schedule, the BOM, the STEP and the 3D view, and

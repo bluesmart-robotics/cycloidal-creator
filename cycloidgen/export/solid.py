@@ -22,6 +22,7 @@ from ..analysis.bearings import (
     BearingPlacement,
     SeatBores,
     Shoulder,
+    Spacer,
     bearing_placements,
     bearing_schedule,
     pin_shank_diameter,
@@ -42,6 +43,7 @@ __all__ = [
     "output_flange",
     "parts",
     "ring_housing",
+    "spacer_parts",
     "tie_bolts",
     "write_part_steps",
     "write_step",
@@ -73,6 +75,9 @@ _PART_GROUP = {
     "input_end_plate": "end_plates",
     "output_end_plate": "end_plates",
     "tie_bolts": "fasteners",
+    "shaft_spacer_input": "shaft",
+    "shaft_spacer_output": "shaft",
+    "washers": "shaft",
 }
 
 
@@ -581,6 +586,36 @@ def bearing_solids(spec: GearSpec,
     return out
 
 
+def _ring(s: Spacer) -> cq.Workplane:
+    """One spacer, where it goes."""
+    return (cq.Workplane("XY").workplane(offset=s.z0)
+            .circle(s.outer / 2.0).circle(s.bore / 2.0).extrude(s.length))
+
+
+def spacer_parts(spec: GearSpec,
+                 bores: SeatBores | None = None) -> dict[str, cq.Workplane]:
+    """The shaft's two locating sleeves and the washers between the discs.
+
+    Built where they assemble, as the end cap is: they have no other frame worth
+    giving them, and a printer lays a part flat whatever height it came at.
+    The sleeves are a part each because they are different lengths; the
+    washers are one part however many there are, as the ring pins are, because
+    every one is the same washer.  No edge break - a millimetre-thick washer
+    would give most of itself to one.
+    """
+    bores = bores or seat_bores(spec)
+    out: dict[str, cq.Workplane] = {}
+    washers: cq.Workplane | None = None
+    for s in bores.spacers:
+        if s.name.startswith("washer"):
+            washers = _ring(s) if washers is None else washers.union(_ring(s))
+        else:
+            out[s.name] = _ring(s)
+    if washers is not None:
+        out["washers"] = washers
+    return out
+
+
 def tie_bolts(spec: GearSpec) -> cq.Workplane:
     """The bolts themselves, as one multi-solid part.
 
@@ -644,6 +679,8 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
 
     assy.add(eccentric_shaft(spec), name="eccentric_shaft",
              color=_part_colour("eccentric_shaft"))
+    for name, body in spacer_parts(spec, bores).items():
+        assy.add(body, name=name, color=_part_colour(name))
     assy.add(output_flange(spec, placements, bores), name="output_flange",
              loc=cq.Location(cq.Vector(0, 0, -CARRIER_DROP)),
              color=_part_colour("output_flange"))
@@ -708,6 +745,7 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
     out = {
         "housing": ring_housing(spec),
         "eccentric_shaft": eccentric_shaft(spec),
+        **spacer_parts(spec, bores),
         "output_flange": output_flange(spec, placements, bores),
         "input_end_plate": housing_end_plate(spec, bores.input_plate,
                                              motor_face=True,

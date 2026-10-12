@@ -50,6 +50,9 @@ class MassResult:
     #: it is a separate thing to make, and a made part quoting zero grams on
     #: the bill of materials is a part the mass model has not been told about.
     end_cap_mass_g: float
+    #: The shaft's two locating sleeves and the washers between the discs,
+    #: together: small, but made, and on the bill of materials.
+    spacers_mass_g: float
 
     disc_inertia_kg_mm2: float         # about its own centre
     reflected_inertia_kg_mm2: float    # whole stack, seen at the input shaft
@@ -230,8 +233,15 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None) -> MassResult:
                       + _lip_volume(bores, "output_end_plate"))
     plates_mass = max(plates_volume, 0.0) * _MM3_TO_CM3 * rho_house
 
+    # The sleeves in the shaft's material and the washers in the discs', which
+    # is what the bill of materials orders them in.
+    spacers_mass = sum(
+        math.pi * ((s.outer / 2.0) ** 2 - (s.bore / 2.0) ** 2) * s.length
+        * _MM3_TO_CM3 * (rho_disc if s.name.startswith("washer") else rho_shaft)
+        for s in bores.spacers)
+
     total = (n * disc_mass + housing_mass + plates_mass + pins_mass
-             + shaft_mass + flange_mass + cap_mass)
+             + shaft_mass + flange_mass + cap_mass + spacers_mass)
 
     # ---- inertia ------------------------------------------------------------
     # kg*mm^2:  g/cm^3 * mm^4 * 1e-3 (cm^3/mm^3) / 1e3 (kg/g) = 1e-6
@@ -293,6 +303,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None) -> MassResult:
         shaft_mass_g=shaft_mass,
         flange_mass_g=flange_mass,
         end_cap_mass_g=cap_mass,
+        spacers_mass_g=spacers_mass,
         disc_inertia_kg_mm2=disc_inertia,
         reflected_inertia_kg_mm2=reflected,
         unbalance_force_N=force,

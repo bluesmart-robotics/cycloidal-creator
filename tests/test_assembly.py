@@ -357,6 +357,10 @@ def _made_parts(spec: GearSpec) -> dict:
     from cycloidgen.export import solid
     parts = solid.parts(spec)
     parts.pop("ring_pins", None)          # dowels: bought, and their own maker's edges
+    # Spacers carry no break: a millimetre-thick washer would give most of
+    # itself to one.
+    for name in solid.spacer_parts(spec):
+        parts.pop(name)
     return parts
 
 
@@ -427,3 +431,83 @@ def test_a_large_break_is_trimmed_rather_than_refused(ratio):
     spec = preset(ratio).model_copy(update={"edge_chamfer": 3.0})
     for name, wp in _made_parts(spec).items():
         assert wp.val().isValid(), name
+
+
+# ------------------------------------------------------- what locates the shaft
+
+
+@pytest.mark.parametrize("output", ["output pin carrier", "ring housing"])
+def test_the_shaft_is_located_from_cam_to_shoulder(output):
+    """Thrust either way goes cam, sleeve, inner ring, balls, outer ring, lip.
+
+    So each sleeve has to run from a cam's end face exactly to a support's inner
+    ring, and bear on that ring and nothing else: its outside between the
+    bearing's bore and its pitch circle, which is where the shoulder's hole is.
+    Without them there was a millimetre and a half of air on one side of the
+    shaft and eight and a half on the other.
+    """
+    from cycloidgen.analysis.bearings import placements_for_spec, seat_bores
+
+    spec = preset(21)
+    spec.output_member = output
+    bores = seat_bores(spec)
+    sleeves = {s.name: s for s in bores.spacers if s.name.startswith("shaft_spacer")}
+    placed = {p.name: p for p in placements_for_spec(spec)}
+
+    top = sleeves["shaft_spacer_input"]
+    support = placed["bearing_shaft_input"]
+    assert top.z0 == pytest.approx(spec.stack_height)          # the last cam's face
+    assert top.z1 == pytest.approx(support.rings[0].z0)
+
+    bottom = sleeves["shaft_spacer_output"]
+    support = placed["bearing_shaft_output"]
+    assert bottom.z0 == pytest.approx(support.rings[0].z1)
+    assert bottom.z1 == pytest.approx(0.0)                      # the first cam's face
+
+    for s in (top, bottom):
+        assert spec.input_shaft_diameter < s.bore
+        assert support.bore < s.outer < (support.bore + support.outer) / 2.0
+
+
+def test_a_washer_holds_every_gap_and_bears_only_on_disc():
+    """Whichever way the two discs either side have orbited, the washer reaches
+    past the disc bore and stops short of the output holes."""
+    from cycloidgen.analysis.bearings import seat_bores
+
+    spec = preset(15)
+    spec.disc_count = 3
+    bores = seat_bores(spec)
+    washers = [s for s in bores.spacers if s.name.startswith("washer")]
+    assert len(washers) == spec.disc_count - 1
+    e = spec.eccentricity
+    pitch = spec.disc_thickness + spec.disc_gap
+    for i, w in enumerate(washers):
+        assert w.z0 == pytest.approx(i * pitch + spec.disc_thickness)
+        assert w.length == pytest.approx(spec.disc_gap)
+        assert bores.disc / 2.0 + e < w.outer / 2.0
+        assert w.outer / 2.0 < (spec.output_bolt_circle_radius
+                                - spec.output_hole_diameter / 2.0 - e)
+
+    single = preset(15)
+    single.disc_count = 1
+    assert not [s for s in seat_bores(single).spacers if s.name.startswith("washer")]
+
+
+@pytest.mark.parametrize("output", ["output pin carrier", "ring housing"])
+def test_no_spacer_shares_space_with_another_part(output):
+    """Each one sits in a gap the drive already had - on the shaft, through the
+    bores, between the discs - so it touches its neighbours and goes into
+    none of them."""
+    from cycloidgen.export import solid
+
+    spec = preset(21)
+    spec.output_member = output
+    assy = solid.build_assembly(spec)
+    spacers = set(solid.spacer_parts(spec))
+    placed = {c.name: c.obj.val().moved(c.loc) for c in assy.children}
+    for name in spacers:
+        for other, shape in placed.items():
+            if other == name:
+                continue
+            overlap = placed[name].intersect(shape).Volume()
+            assert overlap < 1e-6, f"{name} goes {overlap:.4f} mm^3 into {other}"

@@ -30,6 +30,7 @@ __all__ = [
     "part_names",
     "planned_files",
     "resolve_groups",
+    "spacer_names",
 ]
 
 
@@ -84,13 +85,29 @@ def part_names(spec: GearSpec) -> list[str]:
     already contains them, and a promise of ``ring_pins.stl`` on an integral
     drive is a file the Outputs tab lists, the writer skips and nobody can open.
     """
-    names = ["housing", "eccentric_shaft", "output_flange",
+    names = ["housing", "eccentric_shaft", *spacer_names(spec), "output_flange",
              "input_end_plate", "output_end_plate"]
     if not spec.ring_pins_integral:
         names.insert(1, "ring_pins")
     if spec.ground_frame_fitted:
         names.append("end_cap")
     return [*names, *disc_names(spec)]
+
+
+def spacer_names(spec: GearSpec) -> list[str]:
+    """The spacer parts this design has, by the names the exporter gives them.
+
+    Read off the same spacers the solids are built from, because which ones
+    exist turns on where the bearings went: a sleeve needs a support to bear
+    on, and a washer needs two discs and a gap between them.
+    """
+    from ..analysis.bearings import seat_bores
+
+    spacers = seat_bores(spec).spacers
+    names = [s.name for s in spacers if s.name.startswith("shaft_spacer")]
+    if any(s.name.startswith("washer") for s in spacers):
+        names.append("washers")
+    return names
 
 
 @dataclass(frozen=True)

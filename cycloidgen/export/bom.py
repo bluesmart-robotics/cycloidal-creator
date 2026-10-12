@@ -126,6 +126,34 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         note="cams phased "
              + ", ".join(f"{math.degrees(p):.0f}" for p in s.disc_phases) + " deg"))
 
+    # ---- what locates the shaft, and keeps the discs apart -------------------
+    # Made rather than bought: a sleeve a millimetre and a half long to a given
+    # bore and outside is not a catalogue part, and a washer between two discs
+    # is cut from what the discs are.
+    def _ring_mass(spacer, density: float) -> float:
+        return (math.pi * ((spacer.outer / 2.0) ** 2 - (spacer.bore / 2.0) ** 2)
+                * spacer.length / 1000.0 * density)
+
+    washers = [w for w in bores.spacers if w.name.startswith("washer")]
+    for sp in bores.spacers:
+        if sp in washers:
+            continue
+        items.append(BomItem(
+            part=sp.label, quantity=1, material=s.shaft_material,
+            size=f"{sp.bore:g} bore x {sp.outer:g} x {sp.length:g} mm",
+            mass_each_g=_ring_mass(sp, s.shaft_mat.density_g_cm3), source="make",
+            note="slides on the shaft between a cam's face and the support's "
+                 "inner ring; it is what locates the shaft along its axis"))
+    if washers:
+        w = washers[0]
+        items.append(BomItem(
+            part="Disc washer", quantity=len(washers), material=s.disc_material,
+            size=f"{w.bore:g} bore x {w.outer:g} x {w.length:g} mm",
+            mass_each_g=_ring_mass(w, s.disc_mat.density_g_cm3), source="make",
+            note="between neighbouring discs, holding the gap the stack was "
+                 "designed with; a bearing polymer or bronze is the better buy "
+                 "than the disc material it is quoted in"))
+
     # ---- bought pins --------------------------------------------------------
     # Both at their own length and their own diameter, neither of which is what
     # this used to quote.  A dowel ordered wrong is not a fit that can be

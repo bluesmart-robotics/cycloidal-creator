@@ -13,7 +13,7 @@ from ..core.spec import AUTOMATIC, CARRIER_DROP, DRY, GearSpec, OutputMember
 from .lubrication import ContactFilm, LubricationResult
 
 __all__ = ["CATALOGUE", "MIN_SHOULDER", "Bearing", "BearingChoice", "BearingPlacement",
-           "BearingRing", "MissingShoulder", "SeatBores", "Shoulder",
+           "BearingRing", "MissingShoulder", "SeatBores", "Shoulder", "Spacer",
            "bearing_placements", "bearing_schedule", "life_hours",
            "pin_shank_diameter", "placements_for_spec", "seat_bores",
            "select_bearings"]
@@ -701,6 +701,30 @@ class MissingShoulder:
 
 
 @dataclass(frozen=True)
+class Spacer:
+    """A ring on the shaft that keeps two faces a set distance apart.
+
+    One kind is a sleeve between a cam's end face and a shaft support's inner
+    ring, which is what locates the shaft: thrust either way goes cam, sleeve,
+    inner ring, balls, outer ring, shoulder.  The other is a washer between two
+    discs, which keeps the gap the stack was designed with when the needles in
+    the cam bearings would otherwise let the discs walk together.  Heights are
+    assembled; diameters are millimetres.
+    """
+
+    name: str
+    label: str
+    z0: float
+    z1: float
+    bore: float
+    outer: float
+
+    @property
+    def length(self) -> float:
+        return self.z1 - self.z0
+
+
+@dataclass(frozen=True)
 class SeatBores:
     """Every bearing seat as it is actually bored: to the bearing that goes in it.
 
@@ -735,6 +759,10 @@ class SeatBores:
     shoulders: tuple[Shoulder, ...] = ()
     #: The seats where there is not.
     unshouldered: tuple[MissingShoulder, ...] = ()
+    #: What locates the bearings against those shoulders from the shaft's side,
+    #: and keeps the discs apart.  Here rather than on a type of its own because
+    #: it is read by everything that reads the seats, and sized off them.
+    spacers: tuple[Spacer, ...] = ()
 
 
 def seat_bores(spec: GearSpec,
@@ -758,13 +786,63 @@ def seat_bores(spec: GearSpec,
     support = bored("Input shaft support", spec.hub_bore)
     main = bored("Main output bearing", spec.output_bearing_seat_diameter)
     input_plate = main if spec.ground_frame_fitted else support
-    shoulders, missing = _shoulders(spec, bearing_placements(spec, choices),
+    placements = bearing_placements(spec, choices)
+    shoulders, missing = _shoulders(spec, placements,
                                     input_plate=input_plate, hub=support)
+    disc = bored("Eccentric cam bearing",
+                 spec.center_bore_diameter + spec.hole_clearance)
     return SeatBores(
-        disc=bored("Eccentric cam bearing",
-                   spec.center_bore_diameter + spec.hole_clearance),
-        input_plate=input_plate, output_plate=main, hub=support, cap=support,
-        shoulders=shoulders, unshouldered=missing)
+        disc=disc, input_plate=input_plate, output_plate=main, hub=support,
+        cap=support, shoulders=shoulders, unshouldered=missing,
+        spacers=_spacers(spec, placements, disc))
+
+
+def _spacers(spec: GearSpec, placements: Sequence[BearingPlacement],
+             disc_bore: float) -> tuple[Spacer, ...]:
+    """The sleeves that locate the shaft, and the washers between the discs.
+
+    A sleeve's outside is halfway from the support's bore to its pitch circle:
+    on the inner ring's face, clear of the balls, for the same reason the
+    shoulder's hole is at the pitch circle.  It slides on the shaft with the
+    hole clearance.  A washer reaches from outside the disc bore at its widest
+    excursion to inside the output holes at theirs - the middle of the web,
+    seen from the shaft - so whichever way the two discs either side have
+    orbited, it bears on disc and nothing else.
+    """
+    out: list[Spacer] = []
+    bore = spec.input_shaft_diameter + spec.hole_clearance
+    by_name = {p.name: p for p in placements}
+    for name, label, low, high in (
+            ("shaft_spacer_input", "Shaft spacer, input side",
+             spec.stack_height, "bearing_shaft_input"),
+            ("shaft_spacer_output", "Shaft spacer, output side",
+             "bearing_shaft_output", 0.0)):
+        support = by_name.get(low if isinstance(low, str) else high)
+        if support is None:
+            continue
+        ring = support.rings[0]
+        z0 = ring.z1 if isinstance(low, str) else low
+        z1 = high if isinstance(low, str) else ring.z0
+        if z1 - z0 < 1e-6:
+            continue
+        outer = support.bore + (support.outer - support.bore) / 4.0
+        if outer <= bore:
+            continue
+        out.append(Spacer(name=name, label=label, z0=z0, z1=z1, bore=bore,
+                          outer=outer))
+
+    e = spec.eccentricity
+    inside = disc_bore / 2.0 + e
+    outside = spec.output_bolt_circle_radius - spec.output_hole_diameter / 2.0 - e
+    if spec.disc_count > 1 and spec.disc_gap > 0.0 and outside > inside:
+        pitch = spec.disc_thickness + spec.disc_gap
+        for i in range(spec.disc_count - 1):
+            z0 = i * pitch + spec.disc_thickness
+            out.append(Spacer(name=f"washer_{i + 1}",
+                              label=f"Disc washer {i + 1}", z0=z0,
+                              z1=z0 + spec.disc_gap, bore=bore,
+                              outer=inside + outside))
+    return tuple(out)
 
 
 def _register_depth(spec: GearSpec, face: str, bore: float) -> float:

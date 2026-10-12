@@ -175,6 +175,7 @@ def report_dict(a: DesignAnalysis) -> dict:
             "pins_mass_g": a.mass.pins_mass_g,
             "shaft_mass_g": a.mass.shaft_mass_g,
             "flange_mass_g": a.mass.flange_mass_g,
+            "spacers_mass_g": a.mass.spacers_mass_g,
             "disc_inertia_kg_mm2": a.mass.disc_inertia_kg_mm2,
             "reflected_inertia_kg_mm2": a.mass.reflected_inertia_kg_mm2,
             "unbalance_force_N": a.mass.unbalance_force_N,

@@ -67,7 +67,9 @@ def test_stls_are_binary_and_watertight_enough(spec, tmp_path):
     paths = solid.write_stls(spec, tmp_path / "stl")
     assert {p.stem for p in paths} == {"disc_1", "disc_2", "housing", "ring_pins",
                                        "eccentric_shaft", "output_flange",
-                                       "input_end_plate", "output_end_plate"}
+                                       "input_end_plate", "output_end_plate",
+                                       "shaft_spacer_input", "shaft_spacer_output",
+                                       "washers"}
     for p in paths:
         raw = p.read_bytes()
         assert len(raw) > 84
@@ -390,7 +392,9 @@ def test_part_steps_are_written_one_per_distinct_part(spec, tmp_path):
     paths = solid.write_part_steps(spec, tmp_path / "step")
     assert {p.stem for p in paths} == {"disc_1", "disc_2", "housing", "ring_pins",
                                        "eccentric_shaft", "output_flange",
-                                       "input_end_plate", "output_end_plate"}
+                                       "input_end_plate", "output_end_plate",
+                                       "shaft_spacer_input", "shaft_spacer_output",
+                                       "washers"}
     disc = cq.importers.importStep(str(tmp_path / "step" / "disc_1.step"))
     assert disc.val().Volume() == pytest.approx(
         solid.disc_solid(spec, spec.disc_hole_phases[0]).val().Volume(), rel=1e-6)
