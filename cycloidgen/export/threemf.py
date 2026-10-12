@@ -14,9 +14,10 @@ Three decisions are worth naming, because each had a plausible alternative.
 ``stl/`` - the bearings and the tie bolts are bought, and a mesh of a bearing is
 a fit check at best and something someone tries to print at worst.  They are
 placed as they assemble rather than laid out on a plate: arranging is what a
-slicer does in one click, and *which way up* each part should be printed is a
-question about walls and layer adhesion that this app has not been given the
-means to answer.  What it can say without guessing is where each part goes.
+slicer does in one click.  *Which way up* each printed part goes is answered
+in ``stl/``, where each one is laid on the face that needs the least support -
+see :mod:`cycloidgen.export.printing` - and this carries the same first-layer
+break on that face, so the two files are the same part.
 
 **One object per distinct part, referenced once per instance.**  A stack of two
 different discs is two objects; a stack of two identical ones is a single object
@@ -48,6 +49,7 @@ import cadquery as cq
 from .. import __version__
 from ..core.spec import GearSpec
 from .manifest import part_names
+from .printing import with_first_layer
 from .solid import build_assembly
 
 __all__ = ["model_xml", "write_3mf"]
@@ -186,6 +188,10 @@ def _collect(spec: GearSpec) -> tuple[list[_Object], list[tuple[int, tuple[float
         obj = objects.get(part)
         if obj is None:
             shape = child.obj.val() if isinstance(child.obj, cq.Workplane) else child.obj
+            # The same first-layer break the STL carries, on whichever face the
+            # part is printed on: two files of one part that disagree about it
+            # would be worse than either.
+            shape = with_first_layer(spec, part, shape)
             vertices, triangles = _weld(shape, tolerance)
             colour = child.color.toTuple() if child.color is not None else (
                 0.7, 0.7, 0.7, 1.0)

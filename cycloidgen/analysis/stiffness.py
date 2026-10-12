@@ -289,7 +289,7 @@ def _ring_contacts(spec: GearSpec, cs, torque_per_disc: float,
     with np.errstate(divide="ignore"):
         r_face = np.where(np.abs(cs.curvature[loaded]) > 1e-12,
                           -1.0 / cs.curvature[loaded], 1e9)
-    c = _fit_compliance(ideal, spec.disc_thickness, spec.pin_radius, r_face,
+    c = _fit_compliance(ideal, spec.contact_length, spec.pin_radius, r_face,
                         spec.pin_mat, spec.disc_mat, spec.pin_circle_radius)
     gaps = mesh_gaps(spec, cs.phi)[loaded]
     if error is not None:
@@ -317,7 +317,7 @@ def _output_contacts(spec: GearSpec, phi: float, torque_per_disc: float,
         return None
     arms = np.abs(ol.moment_arms[live])
     r_p = spec.output_pin_diameter / 2.0
-    c = _fit_compliance(ol.forces[live], spec.disc_thickness, r_p,
+    c = _fit_compliance(ol.forces[live], spec.contact_length, r_p,
                         -(r_p + spec.eccentricity), spec.pin_mat, spec.disc_mat,
                         spec.pin_circle_radius)
     gaps = np.full(arms.shape, spec.hole_clearance / 2.0)

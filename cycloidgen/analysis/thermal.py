@@ -162,7 +162,7 @@ def analyse_thermal(spec: GearSpec, efficiency: EfficiencyResult | None = None,
     omega_crank = omega_in * spec.crank_rate
     omega_rel = omega_in * spec.crank_relative_rate
     torque_per_disc = spec.output_torque_Nm * 1000.0 / spec.disc_count
-    length = spec.disc_thickness
+    length = spec.contact_length
 
     # ---- ring pin contact ---------------------------------------------------
     projected = 2.0 * spec.pin_radius * length          # mm^2 per pin

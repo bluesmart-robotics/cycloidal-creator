@@ -342,7 +342,7 @@ def analyse_lubrication(spec: GearSpec, ring_load_N: float, output_load_N: float
     entrainment doubles - which is a better film and less of it needed.
     """
     t = temperature_C if temperature_C is not None else spec.ambient_temp_C
-    length = spec.disc_thickness
+    length = spec.contact_length
 
     # ---- ring pin on the disc flank -----------------------------------------
     # R' is the pin's own radius, which is the flat-counterface equivalent.  The

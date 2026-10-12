@@ -297,6 +297,22 @@ class Process(str, Enum):
 
 
 #: (profile clearance per side mm, hole clearance on diameter mm) design guides.
+#: Materials a printer lays down, against the spec's own names for them.  A
+#: part in one of these is printed; the rest are made some other way.
+PRINT_MATERIALS = frozenset({"PLA", "PETG", "ABS", "PA12 (SLS)",
+                             "Tough Resin (SLA)"})
+
+#: The 45 degree break round the bed face of a printed part, by process.
+#:
+#: FDM squashes its first layer into the bed so that it sticks, and the
+#: squashed layer spreads past the part's outline - the elephant's foot.  On a
+#: disc that is a lip standing proud of the flank at exactly the place it has to
+#: clear the pins by a fifth of a millimetre, and on a bore it is a ring the
+#: bearing will not start over.  Breaking the bed edge back by about a layer
+#: and a half gives the spread somewhere to go.  The other processes do not
+#: squash a first layer, so they get none.
+FIRST_LAYER_CHAMFER: dict[Process, float] = {Process.FDM: 0.3}
+
 PROCESS_CLEARANCE: dict[Process, tuple[float, float]] = {
     Process.FDM: (0.22, 0.30),
     Process.SLA: (0.09, 0.12),
@@ -1308,6 +1324,27 @@ class GearSpec(BaseModel):
             if getattr(self, field) not in MATERIALS:
                 raise ValueError(f"unknown material {getattr(self, field)!r}")
         return self
+
+    @property
+    def first_layer_chamfer(self) -> float:
+        """The break round a printed part's bed face, from the process alone.
+
+        Not a setting: it follows the process the way the elephant's foot
+        does, so switching process cannot leave one behind.
+        """
+        return FIRST_LAYER_CHAMFER.get(self.process, 0.0)
+
+    @property
+    def contact_length(self) -> float:
+        """How long the line contacts on a disc are, along its thickness.
+
+        The thickness, less the first-layer break where the disc is printed -
+        that break is on the flank and in the output holes, which are where the
+        pins bear, so the bottom of each line is gone.
+        """
+        if self.disc_material in PRINT_MATERIALS:
+            return self.disc_thickness - self.first_layer_chamfer
+        return self.disc_thickness
 
     def apply_process_defaults(self) -> GearSpec:
         """Reset the two clearances to the design guide for the selected process."""

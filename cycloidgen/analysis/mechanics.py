@@ -80,7 +80,9 @@ def analyse_contacts(spec: GearSpec, steps: int = SWEEP_STEPS) -> ContactResult:
     torque_out_Nmm = spec.output_torque_Nm * 1000.0
     # each disc carries its share of the torque
     torque_per_disc = torque_out_Nmm / spec.disc_count
-    length = spec.disc_thickness
+    # Less the first-layer break on a printed disc, which takes the bottom of
+    # every line contact with it.
+    length = spec.contact_length
 
     e_star_ring = effective_modulus(spec.disc_mat.E_GPa, spec.disc_mat.nu,
                                     spec.pin_mat.E_GPa, spec.pin_mat.nu)

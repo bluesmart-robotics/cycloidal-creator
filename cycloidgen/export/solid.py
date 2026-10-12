@@ -870,13 +870,21 @@ def write_part_steps(spec: GearSpec, directory: str | Path) -> list[Path]:
 
 
 def write_stls(spec: GearSpec, directory: str | Path, prefix: str = "") -> list[Path]:
-    """Export every part as its own STL - STL has no assembly structure."""
+    """Export every part as its own STL - STL has no assembly structure.
+
+    A printed part goes out ready to print: on the face that needs the least
+    holding up, its bed edge broken back for the first layer, standing on z=0
+    - see :mod:`cycloidgen.export.printing`.  The rest are as they are modelled.
+    """
+    from .printing import print_ready
+
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     tol = spec.stl_linear_tolerance
     written: list[Path] = []
     for name, wp in parts(spec).items():
         out = directory / f"{prefix}{name}.stl"
-        cq.exporters.export(wp.val(), str(out), tolerance=tol, angularTolerance=0.1)
+        cq.exporters.export(print_ready(spec, name, wp.val()), str(out),
+                            tolerance=tol, angularTolerance=0.1)
         written.append(out)
     return written

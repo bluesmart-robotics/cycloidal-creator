@@ -196,9 +196,12 @@ MANIFEST: tuple[Output, ...] = (
            contents=lambda s: [f"{n}.step" for n in part_names(s)]),
     Output("stl", "stl/", "solids", "STL",
            "Meshes, one per part",
-           "Tessellated to the STL linear tolerance in the design. STL carries "
-           "no assembly structure and no colour, so a multi-disc stack arrives "
-           "as separate files - and they are not interchangeable.",
+           "Tessellated to the STL linear tolerance in the design. A printed "
+           "part is ready to print: on the face that needs the least support, "
+           "standing on the bed, its bed edge broken back for the first layer "
+           "on FDM. STL carries no assembly structure and no colour, so a "
+           "multi-disc stack arrives as separate files - and they are not "
+           "interchangeable.",
            contents=lambda s: [f"{n}.stl" for n in part_names(s)]),
     Output("threemf", "assembly.3mf", "solids", "3MF",
            "Printable assembly",
