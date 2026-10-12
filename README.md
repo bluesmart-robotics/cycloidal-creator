@@ -596,6 +596,14 @@ suggests it.
   the check names the dimension that is wrong and the 3D view leaves it out
   rather than drawing it shrunk to size.
 
+  Whichever part goes in, its seat is bored to it. A seat is sized as *room* and
+  the part chosen is the smallest that fits the room, which is rarely the
+  room's own size — a 19 mm 6800 for a 22 mm shaft-support seat, a 24 mm HK1808
+  for the 21:1's 26 mm disc bore — so the disc, the plates, the carrier's boss
+  and the end cap are cut to the outside of the bearing in each, in the STEP,
+  the meshes, the 3D view and the cutting DXFs alike, and weighed that way. A
+  seat left without a bearing keeps its room.
+
   Three of the five load paths can also be built without a bearing at all, and
   plenty of drives are. Switching one
   off takes the part out of the schedule, the BOM, the STEP and the 3D view, and

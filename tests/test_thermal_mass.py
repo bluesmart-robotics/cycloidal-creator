@@ -121,10 +121,15 @@ def test_mass_scales_with_density_and_thickness():
     assert (analyse_mass(heavy).disc_mass_g
             == pytest.approx(analyse_mass(light).disc_mass_g * ratio, rel=1e-6))
 
+    # The same holes in both.  The bore follows the cam bearing, and a disc
+    # twice as thick has room for a different one - which is a different disc,
+    # not this one scaled.
+    from cycloidgen.analysis.bearings import seat_bores
+    bores = seat_bores(light)
     thick = preset(15)
     thick.disc_thickness = 2 * light.disc_thickness
-    assert (analyse_mass(thick).disc_mass_g
-            == pytest.approx(2 * analyse_mass(light).disc_mass_g, rel=1e-6))
+    assert (analyse_mass(thick, bores).disc_mass_g
+            == pytest.approx(2 * analyse_mass(light, bores).disc_mass_g, rel=1e-6))
 
 
 def test_the_parts_add_up_to_the_assembly():

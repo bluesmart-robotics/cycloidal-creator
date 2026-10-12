@@ -68,6 +68,7 @@ import numpy as np
 from pydantic import BaseModel, Field, model_validator
 
 from ..analysis import DesignAnalysis, analyse
+from ..analysis.bearings import seat_bores, select_bearings
 from ..analysis.efficiency import analyse_efficiency
 from ..analysis.fatigue import output_pin_fatigue
 from ..analysis.mass import analyse_mass
@@ -660,7 +661,13 @@ def _fast_metrics(spec: GearSpec) -> dict | None:
     # decides the load sharing, and a search blind to it would happily pick a
     # design that only works on paper - but six rings is enough to rank by.
     stiff = analyse_stiffness(spec, steps=2, samples=6)
-    mass = analyse_mass(spec)
+    # Off the contact study already in hand: weighing the holes as bored needs
+    # the bearings, and working the loads out a second time to get them would
+    # double the cost of the commonest call in the search.
+    bearings = select_bearings(spec, contact.eccentric_bearing_load_N,
+                               contact.max_output_force_N,
+                               ring_pin_load_N=contact.max_pin_force_N)
+    mass = analyse_mass(spec, seat_bores(spec, bearings))
 
     concentration = max(stiff.load_concentration, 1.0)
     return {

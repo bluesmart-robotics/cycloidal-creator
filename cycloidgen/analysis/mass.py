@@ -26,7 +26,7 @@ import numpy as np
 
 from ..core import profile as prof
 from ..core.spec import GearSpec
-from .bearings import pin_diameters
+from .bearings import SeatBores, pin_diameters, seat_bores
 
 __all__ = ["MassResult", "analyse_mass"]
 
@@ -73,13 +73,18 @@ class MassResult:
         return torque_capacity_Nm / kg if kg > 0 else 0.0
 
 
-def _disc_section(spec: GearSpec) -> tuple[float, float]:
-    """Cross-sectional area and polar second moment of one disc, mm^2 and mm^4."""
+def _disc_section(spec: GearSpec, bore: float) -> tuple[float, float]:
+    """Cross-sectional area and polar second moment of one disc, mm^2 and mm^4.
+
+    ``bore`` is the hole as bored - see :class:`~.bearings.SeatBores` - which
+    is the cam bearing's outside wherever there is one, not the room the
+    parameter left for it.
+    """
     p = prof.profile_from_spec(spec, n=4000)
     area = p.area()
     polar = p.polar_second_moment()
 
-    bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
+    bore_r = bore / 2.0
     area -= math.pi * bore_r ** 2
     polar -= 0.5 * math.pi * bore_r ** 4
 
@@ -94,9 +99,15 @@ def _disc_section(spec: GearSpec) -> tuple[float, float]:
     return max(area, 0.0), max(polar, 0.0)
 
 
-def analyse_mass(spec: GearSpec) -> MassResult:
-    """Mass, inertia, unbalance and the disc web stress."""
-    area, polar = _disc_section(spec)
+def analyse_mass(spec: GearSpec, bores: SeatBores | None = None) -> MassResult:
+    """Mass, inertia, unbalance and the disc web stress.
+
+    Every bore is weighed as it is bored, which is to the bearing in it:
+    ``bores`` when the caller has the schedule already, worked out otherwise.
+    """
+    if bores is None:
+        bores = seat_bores(spec)
+    area, polar = _disc_section(spec, bores.disc)
     t = spec.disc_thickness
     n = spec.disc_count
 
@@ -152,15 +163,15 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     # Plus the boss the drive turns on, bored through for the shaft, and less
     # that same bore through the plate.
     flange_volume += math.pi * ((spec.hub_diameter / 2.0) ** 2
-                                - (spec.hub_bore / 2.0) ** 2) * spec.plate_thickness
-    flange_volume -= math.pi * (spec.hub_bore / 2.0) ** 2 * spec.output_flange_thickness
+                                - (bores.hub / 2.0) ** 2) * spec.plate_thickness
+    flange_volume -= math.pi * (bores.hub / 2.0) ** 2 * spec.output_flange_thickness
     # And, on a ring-output drive, the base on the end of that boss - the plate
     # the whole gearbox is bolted down by.  It is housing-sized and as thick as
     # an end plate, so on a small drive it is a fifth of the assembled mass;
     # leaving it out would report a gearbox lighter than the one exported.
     if spec.ground_frame_fitted:
         flange_volume += math.pi * (spec.housing_outer_radius ** 2
-                                    - (spec.hub_bore / 2.0) ** 2) * spec.plate_thickness
+                                    - (bores.hub / 2.0) ** 2) * spec.plate_thickness
         if spec.has_motor_face:
             frame = spec.motor_face
             flange_volume -= (frame.bolt_count * math.pi
@@ -175,11 +186,11 @@ def analyse_mass(spec: GearSpec) -> MassResult:
     if spec.ground_frame_fitted:
         pin_hole_r = (output_pin_d + spec.hole_clearance) / 2.0
         cap_volume = ((math.pi * plate_r ** 2
-                       - math.pi * (spec.hub_bore / 2.0) ** 2
+                       - math.pi * (bores.cap / 2.0) ** 2
                        - spec.output_pin_count * math.pi * pin_hole_r ** 2)
                       * spec.output_flange_thickness
                       + math.pi * ((spec.hub_diameter / 2.0) ** 2
-                                   - (spec.hub_bore / 2.0) ** 2)
+                                   - (bores.cap / 2.0) ** 2)
                       * spec.plate_thickness)
     cap_mass = max(cap_volume, 0.0) * _MM3_TO_CM3 * rho_house
 
@@ -196,8 +207,8 @@ def analyse_mass(spec: GearSpec) -> MassResult:
                         * (spec.output_bolt_diameter / 2.0) ** 2
                         if spec.ground_frame_fitted else 0.0)
     plates_volume = (2.0 * outer_area
-                     - math.pi * (spec.hub_bore / 2.0) ** 2
-                     - math.pi * (spec.output_bearing_seat_diameter / 2.0) ** 2
+                     - math.pi * (bores.input_plate / 2.0) ** 2
+                     - math.pi * (bores.output_plate / 2.0) ** 2
                      - 2.0 * bolt_area          # the tie bolts go through both
                      - output_bolt_area
                      ) * spec.plate_thickness
@@ -234,7 +245,7 @@ def analyse_mass(spec: GearSpec) -> MassResult:
 
     # ---- disc web -----------------------------------------------------------
     hole_r = spec.output_hole_diameter / 2.0
-    bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
+    bore_r = bores.disc / 2.0
     p = prof.profile_from_spec(spec, n=4000)
     web_inner = spec.output_bolt_circle_radius - hole_r - bore_r
     web_outer = p.root_radius - (spec.output_bolt_circle_radius + hole_r)

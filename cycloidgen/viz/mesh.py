@@ -34,8 +34,12 @@ import numpy as np
 
 from ..analysis.bearings import (
     BearingPlacement,
+    SeatBores,
+    bearing_placements,
+    bearing_schedule,
     pin_shank_diameter,
     placements_for_spec,
+    seat_bores,
 )
 from ..core import profile as prof
 from ..core.spec import CARRIER_DROP, GearSpec
@@ -588,14 +592,19 @@ def _pilot_recess(spec: GearSpec, bore: float) -> float:
 
 
 def build_mesh(spec: GearSpec,
-               placements: Sequence[BearingPlacement] | None = None) -> Mesh:
+               placements: Sequence[BearingPlacement] | None = None,
+               bores: SeatBores | None = None) -> Mesh:
     """Every part of ``spec`` as a polygon mesh, in assembly order.
 
-    ``placements`` is worked out from the spec when it is not supplied; passing
-    it in is how :func:`mesh_for_spec` avoids sizing the bearings twice.
+    ``placements`` and ``bores`` are worked out from the spec when they are not
+    supplied; passing them in is how :func:`mesh_for_spec` avoids sizing the
+    bearings twice.  The seats are drawn as bored, to the bearing in each, for
+    the same reason the STEP file bores them so.
     """
-    if placements is None:
-        placements = placements_for_spec(spec)
+    if placements is None or bores is None:
+        choices = bearing_schedule(spec)
+        placements = tuple(bearing_placements(spec, choices))
+        bores = seat_bores(spec, choices)
     b = _Builder()
     stack = spec.stack_height
     # Ring pins are small and there are a lot of them, so the segment count is
@@ -641,7 +650,7 @@ def build_mesh(spec: GearSpec,
                            pin_segments)
 
     outline = prof.profile_from_spec(spec, n=_profile_segments(spec)).points
-    bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
+    bore_r = bores.disc / 2.0
     hole_r = spec.output_hole_diameter / 2.0
     z = 0.0
     for i, (phase, hole_phase) in enumerate(zip(spec.disc_phases,
@@ -699,7 +708,7 @@ def build_mesh(spec: GearSpec,
     drop = CARRIER_DROP
     plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
     hub_r = spec.hub_diameter / 2.0
-    bore_r = spec.hub_bore / 2.0
+    bore_r = bores.hub / 2.0
     plate_bottom = -drop - spec.output_flange_thickness
     with b.part("output_flange", "Output carrier", "carrier",
                 PART_COLOURS["carrier"], spin=1.0 / spec.lobes):
@@ -727,7 +736,7 @@ def build_mesh(spec: GearSpec,
             base_outer = _circle(0.0, 0.0, spec.housing_outer_radius, 96)
             motor_holes = motor_bolt_holes(spec)
             floor = spec.base_plate_bottom
-            recess = _pilot_recess(spec, spec.hub_bore)
+            recess = _pilot_recess(spec, bores.hub)
             if recess:
                 # Two prisms, and the step between them emitted only where it is
                 # actually exposed: the recess is wider than the bore, so all
@@ -767,7 +776,7 @@ def build_mesh(spec: GearSpec,
     if spec.ground_frame_fitted:
         cap_r = plate_r
         cap_hub_r = spec.hub_diameter / 2.0
-        cap_bore = _circle(0.0, 0.0, bore_r, 28)
+        cap_bore = _circle(0.0, 0.0, bores.cap / 2.0, 28)
         pin_holes = [
             _circle(spec.output_bolt_circle_radius * math.cos(a),
                     spec.output_bolt_circle_radius * math.sin(a),
@@ -792,10 +801,10 @@ def build_mesh(spec: GearSpec,
     # same colour as the barrel they bolt to, and they are why the shaft
     # supports and the output bearing have somewhere to be.
     for name, label, bore, z0, apart, motor in (
-            ("input_end_plate", "Input end plate", spec.input_plate_bore,
+            ("input_end_plate", "Input end plate", bores.input_plate,
              spec.barrel_top, 2.0, True),
             ("output_end_plate", "Output end plate",
-             spec.output_bearing_seat_diameter,
+             bores.output_plate,
              plate_bottom - spec.plate_thickness, -1.6, False)):
         # Each comes off its own face rather than staying with the barrel: they
         # are bolted on, and an exploded view that leaves them there is showing
@@ -864,7 +873,8 @@ def build_mesh(spec: GearSpec,
 
 
 def mesh_fingerprint(spec: GearSpec,
-                     placements: Sequence[BearingPlacement] | None = None) -> tuple:
+                     placements: Sequence[BearingPlacement] | None = None,
+                     bores: SeatBores | None = None) -> tuple:
     """Everything :func:`build_mesh` reads, and nothing else.
 
     Keying the cache on the whole serialised spec would be safe and useless:
@@ -883,8 +893,10 @@ def mesh_fingerprint(spec: GearSpec,
     turn and requires that an unchanged fingerprint really does mean an
     unchanged mesh.
     """
-    if placements is None:
-        placements = placements_for_spec(spec)
+    if placements is None or bores is None:
+        choices = bearing_schedule(spec)
+        placements = tuple(bearing_placements(spec, choices))
+        bores = seat_bores(spec, choices)
     return (
         spec.effective_R, spec.effective_Rr, spec.eccentricity, spec.lobes,
         spec.pin_circle_radius, spec.pin_radius,
@@ -907,6 +919,9 @@ def mesh_fingerprint(spec: GearSpec,
         spec.output_member, spec.frame_spin, spec.ground_frame_fitted,
         spec.output_bolt_count, spec.output_bolt_diameter,
         tuple(placements),
+        # The seats as bored, which follow the bearings for the same reason the
+        # placements are here: the outcome cannot be wrong about itself.
+        bores,
     )
 
 
@@ -920,11 +935,13 @@ def mesh_for_spec(spec: GearSpec) -> Mesh:
     changes are not geometry.  Returning the *same object* for the same geometry
     is what lets the 3D view skip re-uploading unchanged parts.
     """
-    placements = placements_for_spec(spec)
-    key = mesh_fingerprint(spec, placements)
+    choices = bearing_schedule(spec)
+    placements = tuple(bearing_placements(spec, choices))
+    bores = seat_bores(spec, choices)
+    key = mesh_fingerprint(spec, placements, bores)
     mesh = _CACHE.get(key)
     if mesh is None:
         if len(_CACHE) >= 4:               # dragging a spin box makes a new key a
             _CACHE.clear()                 # frame; this is a cache, not a history
-        mesh = _CACHE[key] = build_mesh(spec, placements)
+        mesh = _CACHE[key] = build_mesh(spec, placements, bores)
     return mesh

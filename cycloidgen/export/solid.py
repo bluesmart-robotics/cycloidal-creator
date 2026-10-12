@@ -20,8 +20,12 @@ from OCP.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
 
 from ..analysis.bearings import (
     BearingPlacement,
+    SeatBores,
+    bearing_placements,
+    bearing_schedule,
     pin_shank_diameter,
     placements_for_spec,
+    seat_bores,
 )
 from ..core import profile as prof
 from ..core.spec import CARRIER_DROP, GearSpec
@@ -180,18 +184,24 @@ def _profile_edges(spec: GearSpec) -> list[cq.Edge]:
             for j in range(flanks)]
 
 
-def disc_solid(spec: GearSpec, hole_phase: float = 0.0) -> cq.Workplane:
+def disc_solid(spec: GearSpec, hole_phase: float = 0.0,
+               bore: float | None = None) -> cq.Workplane:
     """One cycloidal disc: profile, central bore, output pin holes.
 
     ``hole_phase`` (radians) rotates the output-hole pattern against the lobes.
     Every disc past the first needs its own value - see
     :attr:`~cycloidgen.core.spec.GearSpec.disc_hole_phases` - because the discs
     are meshed at different angles but driven by one shared carrier.
+
+    ``bore`` is the central hole as bored - the cam bearing's outside wherever
+    there is one, see :class:`~cycloidgen.analysis.bearings.SeatBores` - and is
+    worked out from the spec when the caller does not already have it.
     """
     outline = cq.Face.makeFromWires(cq.Wire.assembleEdges(_profile_edges(spec)))
     disc = cq.Workplane("XY").add(cq.Solid.extrudeLinear(
         outline, cq.Vector(0, 0, spec.disc_thickness)))
-    bore = spec.center_bore_diameter + spec.hole_clearance
+    if bore is None:
+        bore = seat_bores(spec).disc
     disc = disc.faces(">Z").workplane().hole(bore)
     disc = (disc.faces(">Z").workplane()
             .polarArray(spec.output_bolt_circle_radius, math.degrees(hole_phase),
@@ -310,7 +320,8 @@ def _motor_pattern(wp: cq.Workplane, spec: GearSpec) -> cq.Workplane:
 
 
 def output_flange(spec: GearSpec,
-                  placements: Sequence[BearingPlacement] = ()) -> cq.Workplane:
+                  placements: Sequence[BearingPlacement] = (),
+                  bores: SeatBores | None = None) -> cq.Workplane:
     """Carrier plate, its output pins, the boss, and - on a ring-output drive -
     the base the whole gearbox is bolted down by.
 
@@ -334,6 +345,8 @@ def output_flange(spec: GearSpec,
     t = spec.output_flange_thickness
     shank = pin_shank_diameter(placements, "bearing_output_pins",
                                spec.output_pin_diameter)
+    # Bored to the outboard shaft support, which sits in it.
+    bore = (bores or seat_bores(spec)).hub
     plate = cq.Workplane("XY").circle(plate_r).extrude(-t)
     hub = (cq.Workplane("XY").workplane(offset=-t)
            .circle(spec.hub_diameter / 2.0)
@@ -360,7 +373,7 @@ def output_flange(spec: GearSpec,
             # The register first, and only where the spigot is wider than the
             # bore already through here - a motor that pilots on 22 mm into a
             # 22 mm bore is already located by it.
-            if frame.pilot_diameter > spec.hub_bore:
+            if frame.pilot_diameter > bore:
                 base = (base.faces("<Z").workplane()
                         .circle(frame.pilot_diameter / 2.0)
                         .cutBlind(-min(frame.pilot_depth,
@@ -372,18 +385,19 @@ def output_flange(spec: GearSpec,
     # through all of it and a two-diameter bore here would be a fit this app has
     # no reason to claim.
     body = (body.faces("<Z").workplane()
-            .circle(spec.hub_bore / 2.0)
+            .circle(bore / 2.0)
             .cutThruAll())
     # The plate's rim, the end of the boss and both mouths of the bore - the
     # output bearing goes on over one and a shaft support into the other.  Not
     # the pins: they are what the disc's holes and the rollers run on.
-    radii = [plate_r, spec.hub_diameter / 2.0, spec.hub_bore / 2.0]
+    radii = [plate_r, spec.hub_diameter / 2.0, bore / 2.0]
     if spec.ground_frame_fitted:
         radii.append(spec.housing_outer_radius)
     return _break_edges(body, radii, min(spec.edge_chamfer, t / 4.0))
 
 
-def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq.Workplane:
+def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = (),
+            bores: SeatBores | None = None) -> cq.Workplane:
     """The carrier's mirror image at the far end of the output pins.
 
     It exists only on a ring-output drive, and it is what makes that drive a
@@ -424,11 +438,13 @@ def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq.W
                         spec.output_pin_count)
             .circle((shank + spec.hole_clearance) / 2.0)
             .extrude(spec.output_flange_thickness))
+    # Bored to the inboard shaft support, which sits in it.
+    seat = (bores or seat_bores(spec)).cap
     bore = (cq.Workplane("XY").workplane(offset=spec.end_cap_bottom)
-            .circle(spec.hub_bore / 2.0)
+            .circle(seat / 2.0)
             .extrude(spec.cap_boss_top - spec.end_cap_bottom))
     return _break_edges(plate.union(boss).cut(pins).cut(bore),
-                        [plate_r, spec.hub_diameter / 2.0, spec.hub_bore / 2.0],
+                        [plate_r, spec.hub_diameter / 2.0, seat / 2.0],
                         min(spec.edge_chamfer, spec.output_flange_thickness / 4.0))
 
 
@@ -541,7 +557,12 @@ def tie_bolts(spec: GearSpec) -> cq.Workplane:
 def build_assembly(spec: GearSpec) -> cq.Assembly:
     """Full gearbox at crank angle zero, each disc on its own phase."""
     assy = cq.Assembly(name=f"cycloidal_{spec.ratio}to1")
-    placements = placements_for_spec(spec)
+    # One schedule for both: where the bearings go, and what their seats are
+    # bored to.  Two lookups could not disagree, but they would size every
+    # bearing twice.
+    choices = bearing_schedule(spec)
+    placements = tuple(bearing_placements(spec, choices))
+    bores = seat_bores(spec, choices)
 
     #: Where each part was put, so that a bearing can be placed against its host
     #: rather than have the same pose worked out a second time.  Only the planar
@@ -564,7 +585,7 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
         cx = spec.eccentricity * math.cos(phase)
         cy = -spec.eccentricity * math.sin(phase)
         rot = math.degrees(phase / spec.lobes)
-        assy.add(disc_solid(spec, hole_phase), name=f"disc_{i + 1}",
+        assy.add(disc_solid(spec, hole_phase, bores.disc), name=f"disc_{i + 1}",
                  loc=cq.Location(cq.Vector(cx, cy, z), cq.Vector(0, 0, 1), rot),
                  color=_part_colour(f"disc_{i + 1}"))
         planar[f"disc_{i + 1}"] = cq.Location(cq.Vector(cx, cy, 0.0),
@@ -573,7 +594,7 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
 
     assy.add(eccentric_shaft(spec), name="eccentric_shaft",
              color=_part_colour("eccentric_shaft"))
-    assy.add(output_flange(spec, placements), name="output_flange",
+    assy.add(output_flange(spec, placements, bores), name="output_flange",
              loc=cq.Location(cq.Vector(0, 0, -CARRIER_DROP)),
              color=_part_colour("output_flange"))
     planar["eccentric_shaft"] = planar["output_flange"] = identity
@@ -582,7 +603,7 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     # the second thing the housing turns on.  Built at its assembled height, so
     # it needs no placement of its own.
     if spec.ground_frame_fitted:
-        assy.add(end_cap(spec, placements), name="end_cap",
+        assy.add(end_cap(spec, placements, bores), name="end_cap",
                  color=_part_colour("end_cap"))
         planar["end_cap"] = identity
 
@@ -590,11 +611,11 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     # outboard of the carrier, so the boss passes through it and the pins stay
     # inside; the input one sits straight on top of the barrel - which reaches
     # past the discs to cover the end cap when there is one.
-    assy.add(housing_end_plate(spec, spec.input_plate_bore, motor_face=True),
+    assy.add(housing_end_plate(spec, bores.input_plate, motor_face=True),
              name="input_end_plate",
              loc=cq.Location(cq.Vector(0, 0, spec.barrel_top)),
              color=_part_colour("input_end_plate"))
-    assy.add(housing_end_plate(spec, spec.output_bearing_seat_diameter),
+    assy.add(housing_end_plate(spec, bores.output_plate),
              name="output_end_plate",
              loc=cq.Location(cq.Vector(
                  0, 0, -CARRIER_DROP - spec.output_flange_thickness
@@ -629,18 +650,19 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
     best and a part someone tries to print at worst; they are in the assembly,
     which is where fit is checked, and in the BOM, which is where you order them.
     """
-    placements = placements_for_spec(spec)
+    choices = bearing_schedule(spec)
+    placements = tuple(bearing_placements(spec, choices))
+    bores = seat_bores(spec, choices)
     out = {
         "housing": ring_housing(spec),
         "eccentric_shaft": eccentric_shaft(spec),
-        "output_flange": output_flange(spec, placements),
-        "input_end_plate": housing_end_plate(spec, spec.input_plate_bore,
+        "output_flange": output_flange(spec, placements, bores),
+        "input_end_plate": housing_end_plate(spec, bores.input_plate,
                                              motor_face=True),
-        "output_end_plate": housing_end_plate(
-            spec, spec.output_bearing_seat_diameter),
+        "output_end_plate": housing_end_plate(spec, bores.output_plate),
     }
     if spec.ground_frame_fitted:
-        out["end_cap"] = end_cap(spec, placements)
+        out["end_cap"] = end_cap(spec, placements, bores)
     # Integral pins are not a part, so there is no file for them.  The bundle
     # is declared from this dict, so leaving an empty one in would put a solid
     # in the manifest that the housing already contains.
@@ -649,7 +671,7 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
     phases = (spec.disc_hole_phases[:1] if spec.discs_are_identical
               else spec.disc_hole_phases)
     for name, hole_phase in zip(disc_names(spec), phases, strict=True):
-        out[name] = disc_solid(spec, hole_phase)
+        out[name] = disc_solid(spec, hole_phase, bores.disc)
     return out
 
 

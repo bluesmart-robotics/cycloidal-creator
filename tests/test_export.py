@@ -13,6 +13,7 @@ import pytest
 matplotlib.use("Agg")
 
 from cycloidgen.analysis import analyse
+from cycloidgen.analysis.bearings import seat_bores
 from cycloidgen.core import profile as prof
 from cycloidgen.core.spec import preset
 from cycloidgen.export import dxf, solid, svg
@@ -80,7 +81,7 @@ def test_disc_solid_volume_matches_the_planar_area(spec):
     p = prof.profile_from_spec(spec)
     x, y = p.points[:, 0], p.points[:, 1]
     area = 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
-    bore = np.pi * ((spec.center_bore_diameter + spec.hole_clearance) / 2) ** 2
+    bore = np.pi * (seat_bores(spec).disc / 2) ** 2
     holes = spec.output_pin_count * np.pi * (spec.output_hole_diameter / 2) ** 2
     expected = (area - bore - holes) * spec.disc_thickness
     assert solid.disc_solid(spec).val().Volume() == pytest.approx(expected, rel=2e-3)
@@ -158,7 +159,7 @@ def test_the_spline_disc_reports_its_own_volume(ratio, tol):
     s.edge_chamfer = 0.0          # the bore's lead-in is not what is measured here
     area = prof.sampled_profile(s.effective_R, s.effective_Rr, s.eccentricity,
                                 s.lobes, 400_000).area()
-    bore = np.pi * ((s.center_bore_diameter + s.hole_clearance) / 2) ** 2
+    bore = np.pi * (seat_bores(s).disc / 2) ** 2
     holes = s.output_pin_count * np.pi * (s.output_hole_diameter / 2) ** 2
     expected = (area - bore - holes) * s.disc_thickness
     assert solid.disc_solid(s).val().Volume() == pytest.approx(expected, rel=2e-4)
@@ -293,9 +294,14 @@ def _plate(spec, tmp_path, name):
 def test_each_end_plate_is_bored_for_what_actually_sits_in_it(spec, tmp_path):
     """The plates are the same disc of metal with different holes: a shaft
     support one end, the bearing the whole drive turns on at the other.  Boring
-    them alike would give the output bearing nowhere to go."""
-    for name, bore in (("input_end_plate", spec.hub_bore),
-                       ("output_end_plate", spec.output_bearing_seat_diameter)):
+    them alike would give the output bearing nowhere to go - and each is bored
+    to the outside of the bearing in it, not to the room the seat left, or the
+    6800 support would sit in a 22 mm hole with a millimetre and a half of air
+    round it."""
+    bores = seat_bores(spec)
+    assert bores.input_plate < spec.hub_bore          # the case that was wrong
+    for name, bore in (("input_end_plate", bores.input_plate),
+                       ("output_end_plate", bores.output_plate)):
         msp = _plate(spec, tmp_path, name)
         outer = msp.query('CIRCLE[layer=="HOUSING"]')
         assert len(outer) == 1
@@ -350,8 +356,10 @@ def test_the_register_is_drawn_only_where_there_is_one_left_to_cut(tmp_path):
     their own leave it free to sit anywhere inside them.  But it is a recess in
     a face, so a bore wider than the spigot has already taken it away, and
     drawing the circle anyway would put a line on the plate with no metal under
-    it.  On the default 10 mm shaft a NEMA 17 is exactly that case: its 22 mm
-    spigot lands on the 22 mm hub bore to the millimetre."""
+    it.  A NEMA 8's 15 mm spigot is inside the 19 mm the plate is bored to for
+    its shaft support.  A NEMA 17's 22 mm used to land on the bore exactly - the
+    bore was the seat's 22 mm room then, not the bearing - and it is a register
+    to cut now that the plate is bored to the 6800 that sits in it."""
     def register(frame_name):
         s = preset(15)
         s.motor_frame = frame_name
@@ -360,13 +368,14 @@ def test_the_register_is_drawn_only_where_there_is_one_left_to_cut(tmp_path):
         return s, [c for c in msp.query('CIRCLE[layer=="MOTOR"]')
                    if c.dxf.radius == pytest.approx(s.motor_face.pilot_diameter / 2.0)]
 
-    s, swallowed = register("NEMA 17")
-    assert s.motor_face.pilot_diameter == s.hub_bore        # the exact-equality case
+    s, swallowed = register("NEMA 8")
+    assert s.motor_face.pilot_diameter < seat_bores(s).input_plate
     assert swallowed == []
 
-    s, cut = register("NEMA 23")
-    assert s.motor_face.pilot_diameter > s.hub_bore
-    assert len(cut) == 1
+    for frame in ("NEMA 17", "NEMA 23"):
+        s, cut = register(frame)
+        assert s.motor_face.pilot_diameter > seat_bores(s).input_plate
+        assert len(cut) == 1, frame
 
 
 def test_a_plate_with_no_motor_on_it_gets_no_motor_pattern(spec, tmp_path):

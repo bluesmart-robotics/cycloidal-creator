@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..analysis import DesignAnalysis
-from ..analysis.bearings import pin_diameters
+from ..analysis.bearings import pin_diameters, seat_bores
 from ..core.spec import OutputMember
 
 __all__ = ["BomItem", "bom_items", "write_bom_csv"]
@@ -49,6 +49,7 @@ def _pin_mass(diameter: float, length: float, density_g_cm3: float) -> float:
 def bom_items(a: DesignAnalysis) -> list[BomItem]:
     """Every part in the assembly, made and bought."""
     s, m = a.spec, a.mass
+    bores = seat_bores(s, a.bearings)
     items: list[BomItem] = []
 
     # ---- discs --------------------------------------------------------------
@@ -85,8 +86,10 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         part="Housing end plate", quantity=2, material=s.housing_material,
         size=f"{2 * s.housing_outer_radius:.1f} dia x {s.plate_thickness:g} mm",
         mass_each_g=m.plates_mass_g / 2.0, source="make",
-        note=f"input side bored {s.hub_bore:.1f} for the shaft support, output "
-             f"side {s.output_bearing_seat_diameter:.1f} for the output bearing "
+        note=f"input side bored {bores.input_plate:.1f} for the "
+             + ("second output bearing" if s.ground_frame_fitted
+                else "shaft support")
+             + f", output side {bores.output_plate:.1f} for the output bearing "
              f"- they are not interchangeable"
              + (f"; the input side also carries the {s.output_bolt_count} "
                 f"output bolts the load hangs on" if s.ground_frame_fitted

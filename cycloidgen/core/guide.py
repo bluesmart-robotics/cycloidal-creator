@@ -118,8 +118,11 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "around.",
         "Only length. There is no reason to make it large."),
     "center_bore_diameter": ParameterGuide(
-        "The hole through the middle of the disc. It is the *bearing* seat - "
-        "what the cam bearing's outside diameter sits in - not the shaft size.",
+        "The room through the middle of the disc for the cam bearing - the "
+        "*bearing* seat, not the shaft size. The hole itself is bored to the "
+        "outside of the bearing chosen for it, which is rarely this exact size; "
+        "it is cut at this size only when the disc runs on the cam with no "
+        "bearing.",
         "Sized from the eccentric bearing you intend to use, and that from the "
         "crank reaction. Larger is a stiffer, longer-lived cam bearing.",
         "It eats the disc from the inside: the web between the bore and the "

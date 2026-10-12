@@ -8,6 +8,7 @@ what the light-mode aqua contrast warning requires.
 """
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -16,6 +17,7 @@ from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle, Polygon
 
+from ..analysis.bearings import seat_bores
 from ..core import profile as prof
 from ..core.kinematics import contacts, ring_stage_period, sweep, to_world
 from ..core.spec import GearSpec, OutputMember
@@ -202,6 +204,23 @@ class Overlays:
     labels: bool = False         # ring pin numbers
 
 
+def _disc_bore(spec: GearSpec) -> float:
+    """The disc's central hole as bored, the way every exported file has it.
+
+    That needs the bearing schedule, which needs the load study, and a design
+    too broken for that still has to be drawn - it is how somebody sees what is
+    broken.  So it is drawn at its room, the size the parameter says, and the
+    reason goes to the log rather than taking the drawing with it.
+    """
+    try:
+        return seat_bores(spec).disc
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "disc bore drawn at the parameter: the bearings could not be sized",
+            exc_info=True)
+        return spec.center_bore_diameter + spec.hole_clearance
+
+
 class ProfileView:
     """The drawing, built once and then *moved*.
 
@@ -329,7 +348,7 @@ class ProfileView:
 
         self._profile = prof.profile_from_spec(spec)
         self._discs = []
-        bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
+        bore_r = _disc_bore(spec) / 2.0
         hole_r = spec.output_hole_diameter / 2.0
         for i in range(spec.disc_count):
             alpha = 1.0 if i == 0 else 0.45

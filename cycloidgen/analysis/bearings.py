@@ -13,8 +13,9 @@ from ..core.spec import AUTOMATIC, CARRIER_DROP, DRY, GearSpec, OutputMember
 from .lubrication import ContactFilm, LubricationResult
 
 __all__ = ["CATALOGUE", "Bearing", "BearingChoice", "BearingPlacement", "BearingRing",
-           "bearing_placements", "bearing_schedule", "life_hours",
-           "pin_shank_diameter", "placements_for_spec", "select_bearings"]
+           "SeatBores", "bearing_placements", "bearing_schedule", "life_hours",
+           "pin_shank_diameter", "placements_for_spec", "seat_bores",
+           "select_bearings"]
 
 
 @dataclass(frozen=True)
@@ -644,6 +645,69 @@ def bearing_schedule(spec: GearSpec, contact=None,
                            contact.max_output_force_N,
                            ring_pin_load_N=contact.max_pin_force_N,
                            lubrication=lubrication)
+
+
+# --------------------------------------------------------------- seats as bored
+
+
+@dataclass(frozen=True)
+class SeatBores:
+    """Every bearing seat as it is actually bored: to the bearing that goes in it.
+
+    The seats were sized as *room* - the disc bore is a parameter, the plate and
+    boss bores are a wall's allowance off the hub - and the catalogue is then
+    searched for the smallest part that fits the room and lasts.  That part is
+    rarely the room's own size, and nothing ever bored the hole to it: on every
+    preset a 6800 shaft support, 19 mm outside, sat in a 22 mm bore, and on the
+    21:1 an HK1808 cup, 24 mm, sat in a 26.3 mm disc bore - in the STEP file,
+    the STL, the 3D view and the cutting DXF alike.  A pressed bearing with a
+    millimetre of air round it is not held by anything.
+
+    So a seat with a bearing in it is bored to that bearing's outside, with no
+    running clearance added - a cup is pressed in, and the fit is a drawing note
+    rather than a millimetre this app invents.  A seat *without* one keeps the
+    size it had: a plain cam runs in the disc bore with the hole clearance, and
+    an empty boss is a boss.  Millimetres, diameters.
+    """
+
+    #: Through every disc: the cam bearing's seat, or the cam's running hole.
+    disc: float
+    #: The input end plate: the shaft support, or with a frame the second main
+    #: bearing.
+    input_plate: float
+    #: The output end plate: the main output bearing.
+    output_plate: float
+    #: Through the carrier and its boss: the outboard shaft support.
+    hub: float
+    #: Through the end cap's boss, on a frame: the inboard shaft support.
+    cap: float
+
+
+def seat_bores(spec: GearSpec,
+               choices: Sequence[BearingChoice] | None = None) -> SeatBores:
+    """The seats of this design bored to the bearings chosen for them.
+
+    ``choices`` is the schedule when the caller already has it; worked out from
+    the spec otherwise.  A part that does not go in its seat leaves the seat at
+    its room, for the same reason it is not drawn: boring a hole to a part that
+    cannot be fitted would be drawing the part at a size it is not.
+    """
+    if choices is None:
+        choices = bearing_schedule(spec)
+    fitted = {c.role: c.bearing for c in choices
+              if c.fitted and c.fits and c.bearing is not None}
+
+    def bored(role: str, room: float) -> float:
+        part = fitted.get(role)
+        return part.outer if part is not None else room
+
+    support = bored("Input shaft support", spec.hub_bore)
+    main = bored("Main output bearing", spec.output_bearing_seat_diameter)
+    return SeatBores(
+        disc=bored("Eccentric cam bearing",
+                   spec.center_bore_diameter + spec.hole_clearance),
+        input_plate=main if spec.ground_frame_fitted else support,
+        output_plate=main, hub=support, cap=support)
 
 
 # ------------------------------------------------------------------- placement

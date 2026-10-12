@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..analysis.bearings import seat_bores
 from ..core import profile as prof
 from ..core.spec import GearSpec
 
@@ -35,7 +36,7 @@ def svg_document(spec: GearSpec) -> str:
         f'<circle cx="0" cy="0" r="{spec.pin_circle_radius:.4f}" stroke="#bbb" '
         f'stroke-dasharray="2,2" {_STROKE}/>',
         f'<path d="{_path_d(p.points)}" stroke="#0a7" stroke-width="0.5" fill="none"/>',
-        f'<circle cx="0" cy="0" r="{(spec.center_bore_diameter + spec.hole_clearance) / 2:.4f}" '
+        f'<circle cx="0" cy="0" r="{seat_bores(spec).disc / 2:.4f}" '
         f'stroke="#c33" {_STROKE}/>',
     ]
 

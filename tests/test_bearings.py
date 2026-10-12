@@ -817,3 +817,87 @@ def test_the_plates_are_weighed():
     with_plates = analyse_mass(spec).total_mass_g
     spec.end_plate_thickness = 0.001                   # as good as none
     assert analyse_mass(spec).total_mass_g < with_plates
+
+
+# ------------------------------------------------------- seats as bored
+
+
+#: Which seat each placed bearing is bored into, by placement name.
+_SEAT_OF = {
+    "bearing_cam_1": "disc", "bearing_cam_2": "disc", "bearing_cam_3": "disc",
+    "bearing_shaft_output": "hub",
+    "bearing_output_main": "output_plate",
+    "bearing_output_input": "input_plate",
+}
+
+
+def _seat(placement, ground_frame: bool) -> str | None:
+    if placement.name == "bearing_shaft_input":
+        return "cap" if ground_frame else "input_plate"
+    return _SEAT_OF.get(placement.name)
+
+
+@pytest.mark.parametrize("ratio,output", [(15, "output pin carrier"),
+                                          (21, "output pin carrier"),
+                                          (21, "ring housing"),
+                                          (59, "output pin carrier")])
+def test_every_bearing_is_held_by_its_seat(ratio, output):
+    """A pressed bearing with a millimetre of air round it is held by nothing.
+
+    The seats were sized as room and the catalogue searched for the smallest
+    part that fits it - which is rarely the room's own size, and nothing bored
+    the hole to it: every preset sat a 19 mm 6800 in a 22 mm bore, and the 21:1
+    a 24 mm HK1808 in a 26.3 mm disc bore.  So the solid each bearing is hosted
+    on has to have a bore at that bearing's outside, on its axis.
+    """
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+
+    from cycloidgen.analysis.bearings import seat_bores
+    from cycloidgen.export import solid
+
+    spec = preset(ratio)
+    spec.output_member = output
+    bores = seat_bores(spec)
+    parts = solid.parts(spec)
+    placed = [p for p in placements_for_spec(spec)
+              if _seat(p, spec.ground_frame_fitted) is not None]
+    assert placed, "nothing in this design to check"
+    for p in placed:
+        assert getattr(bores, _seat(p, spec.ground_frame_fitted)) == p.outer, p.name
+        host = parts["disc" if p.host.startswith("disc") and "disc" in parts
+                     else p.host].val()
+        radii = {round(BRepAdaptor_Surface(f.wrapped).Cylinder().Radius(), 6)
+                 for f in host.Faces() if f.geomType() == "CYLINDER"
+                 and abs(f.Center().x) < 1e-6 and abs(f.Center().y) < 1e-6}
+        assert round(p.outer / 2.0, 6) in radii, (p.name, p.outer, sorted(radii))
+
+
+def test_the_cut_disc_holds_its_cam_bearing(tmp_path):
+    """The laser case: the cutting file's bore is the cup's outside."""
+    import ezdxf
+
+    from cycloidgen.export import dxf
+
+    spec = preset(21)
+    cam = next(p for p in placements_for_spec(spec) if p.name == "bearing_cam_1")
+    paths = dxf.write_part_dxfs(spec, tmp_path)
+    disc = next(p for p in paths if p.stem.startswith("disc"))
+    bore = ezdxf.readfile(disc).modelspace().query('CIRCLE[layer=="DISC_BORE"]')
+    assert len(bore) == 1
+    assert 2.0 * bore[0].dxf.radius == pytest.approx(cam.outer)
+    assert cam.outer < spec.center_bore_diameter      # the room it used to be cut to
+
+
+def test_a_seat_with_no_bearing_keeps_its_room():
+    """A plain cam runs in the disc bore with the hole clearance, and an empty
+    boss is a boss: only a seat with a part in it is bored to that part."""
+    from cycloidgen.analysis.bearings import seat_bores
+
+    spec = preset(21)
+    spec.cam_bearing_fitted = False
+    spec.shaft_bearings_fitted = False
+    spec.output_bearing_fitted = False
+    bores = seat_bores(spec)
+    assert bores.disc == pytest.approx(spec.center_bore_diameter + spec.hole_clearance)
+    assert bores.hub == bores.input_plate == pytest.approx(spec.hub_bore)
+    assert bores.output_plate == pytest.approx(spec.output_bearing_seat_diameter)

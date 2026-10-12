@@ -11,7 +11,12 @@ import ezdxf
 import numpy as np
 
 from .. import __version__
-from ..analysis.bearings import pin_shank_diameter, placements_for_spec
+from ..analysis.bearings import (
+    bearing_placements,
+    bearing_schedule,
+    pin_shank_diameter,
+    seat_bores,
+)
 from ..core import profile as prof
 from ..core.spec import GearSpec
 from .manifest import disc_names
@@ -153,7 +158,8 @@ def write_dxf(spec: GearSpec, path: str | Path) -> Path:
     p = prof.profile_from_spec(spec)
     msp.add_lwpolyline(p.points, close=True, dxfattribs={"layer": "DISC_PROFILE"})
 
-    bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
+    # As bored: to the cam bearing's outside wherever there is one.
+    bore_r = seat_bores(spec).disc / 2.0
     msp.add_circle((0, 0), bore_r, dxfattribs={"layer": "DISC_BORE"})
 
     # Each disc in a stack carries its hole pattern at a different angle, so a
@@ -206,7 +212,13 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
     written: list[Path] = []
 
     p = prof.profile_from_spec(spec)
-    bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
+    # One schedule for every file in the folder: the disc bore, the carrier's
+    # and the plates' are each cut to the bearing that goes in them, and a
+    # cutting file with a millimetre of air round a pressed cup is a disc the
+    # bearing falls out of.
+    choices = bearing_schedule(spec)
+    bores = seat_bores(spec, choices)
+    bore_r = bores.disc / 2.0
     hole_r = spec.output_hole_diameter / 2.0
 
     identical = spec.discs_are_identical
@@ -247,11 +259,13 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
     plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
     # A pin carrying a roller is pressed in by its shank, not by the diameter the
     # disc runs on - drilling the working size would leave nothing to press.
-    shank = pin_shank_diameter(placements_for_spec(spec), "bearing_output_pins",
-                               spec.output_pin_diameter)
+    shank = pin_shank_diameter(bearing_placements(spec, choices),
+                               "bearing_output_pins", spec.output_pin_diameter)
     msp.add_circle((0, 0), plate_r, dxfattribs={"layer": "HOUSING"})
-    msp.add_circle((0, 0), (spec.input_shaft_diameter + 1.0) / 2.0,
-                   dxfattribs={"layer": "DISC_BORE"})
+    # The bore the solid has, which is the outboard shaft support's seat.  This
+    # was a shaft clearance hole, a millimetre over the shaft, while the STEP
+    # carrier was bored to the seat - two answers to one hole.
+    msp.add_circle((0, 0), bores.hub / 2.0, dxfattribs={"layer": "DISC_BORE"})
     msp.add_circle((0, 0), spec.output_bolt_circle_radius,
                    dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
     for c in _polar(spec.output_bolt_circle_radius, spec.output_pin_count):
@@ -270,10 +284,13 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
     # New made parts as of the end plates, and the only ones whose whole job is
     # a hole pattern: a bolt circle and a motor face are things you drill, and
     # a STEP file is not something you can drill from.
+    # The input plate's bore is not always the shaft support's: with a frame
+    # the second main bearing sits in it, and this used to drill that plate to
+    # the 22 mm support seat while the STEP plate had the 42 mm bearing seat.
     written.append(_end_plate(spec, directory, "input_end_plate",
-                              spec.hub_bore, motor_face=True))
+                              bores.input_plate, motor_face=True))
     written.append(_end_plate(spec, directory, "output_end_plate",
-                              spec.output_bearing_seat_diameter))
+                              bores.output_plate))
     return written
 
 
@@ -334,7 +351,7 @@ def write_sketch_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
 
     fitted = prof.profile_spline_from_spec(spec)
     outer = float(np.hypot(*prof.profile_from_spec(spec).points.T).max())
-    bore_r = (spec.center_bore_diameter + spec.hole_clearance) / 2.0
+    bore_r = seat_bores(spec).disc / 2.0
     hole_r = spec.output_hole_diameter / 2.0
     bolt_r = spec.output_bolt_circle_radius
 

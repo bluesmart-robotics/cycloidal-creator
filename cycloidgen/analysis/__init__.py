@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from ..core.spec import PROCESS_POSITION_TOLERANCE, GearSpec
 from ..core.validate import Report, Severity, validate
-from .bearings import BearingChoice, select_bearings
+from .bearings import BearingChoice, seat_bores, select_bearings
 from .duty import DutyResult, analyse_duty
 from .efficiency import EfficiencyResult
 from .fatigue import FatigueResult, analyse_fatigue
@@ -92,11 +92,6 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # the design they decide each other: friction heats the oil, the hot oil
     # stops holding the surfaces apart, and that is more friction.
     eff, therm = solve_operating_point(spec)
-    mass = analyse_mass(spec)
-    # At the running temperature, not the ambient: the drive heats itself and
-    # fatigue strength goes down with it.
-    fatigue = analyse_fatigue(spec, mass.web_shear_MPa, mass.min_web_mm,
-                              temperature_C=therm.temperature_C)
     # The film comes in with the loads rather than being looked up afterwards:
     # a seat this drive runs without a bearing is a plain sliding contact, the
     # efficiency solve has already built the film across it at the running
@@ -106,6 +101,15 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                                contact.max_output_force_N,
                                ring_pin_load_N=contact.max_pin_force_N,
                                lubrication=eff.lubrication)
+    # Before the mass rather than after it, because the holes are bored to the
+    # bearings in them: the disc, the plates and the bosses weigh what they
+    # weigh once the parts that go in them are known.
+    bores = seat_bores(spec, bearings)
+    mass = analyse_mass(spec, bores)
+    # At the running temperature, not the ambient: the drive heats itself and
+    # fatigue strength goes down with it.
+    fatigue = analyse_fatigue(spec, mass.web_shear_MPa, mass.min_web_mm,
+                              temperature_C=therm.temperature_C)
     capacity = torque_capacity(spec, contact=contact)
     # After the efficiency solve rather than beside it: what the motor is asked
     # for is the input torque *including* the loss, and on a printed drive with
@@ -489,13 +493,17 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
         # a message that sends them to the wrong parameter.
         face = ("carrier's base" if spec.motor_mounts_on_carrier
                 else "input end plate")
-        if reach - frame.bolt_diameter / 2.0 < spec.hub_bore / 2.0:
+        # The bore as it is bored: the motor face is the input plate on a
+        # carrier drive and the carrier's base on a ring drive, and either way
+        # the hole through it is the shaft support's seat.
+        bore = bores.hub
+        if reach - frame.bolt_diameter / 2.0 < bore / 2.0:
             rep.add(Severity.ERROR, "MOTOR_FACE_CLASH",
                     f"The {frame.name} bolt pattern falls into the "
-                    f"{spec.hub_bore:.1f} mm bore of the {face} - there "
+                    f"{bore:.1f} mm bore of the {face} - there "
                     f"is no metal there to bolt to. A smaller frame, or a "
                     f"narrower carrier boss.",
-                    2.0 * reach, spec.hub_bore)
+                    2.0 * reach, bore)
         elif reach + frame.bolt_diameter / 2.0 > spec.housing_outer_radius:
             rep.add(Severity.ERROR, "MOTOR_FACE_CLASH",
                     f"The {frame.name} bolt pattern runs off the edge of a "
