@@ -21,6 +21,7 @@ from OCP.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
 from ..analysis.bearings import (
     BearingPlacement,
     SeatBores,
+    Shoulder,
     bearing_placements,
     bearing_schedule,
     pin_shank_diameter,
@@ -122,6 +123,39 @@ def _break_edges(wp: cq.Workplane, radii: Sequence[float],
     if not edges:
         return wp
     return cq.Workplane("XY").add(body.chamfer(size, None, edges))
+
+
+def _host_offset(spec: GearSpec, host: str) -> float:
+    """Where a part's own frame sits along the axis once it is assembled."""
+    return {"input_end_plate": spec.barrel_top,
+            "output_end_plate": spec.barrel_bottom - spec.plate_thickness,
+            "output_flange": -CARRIER_DROP,
+            "end_cap": 0.0}[host]
+
+
+def _add_shoulders(wp: cq.Workplane, spec: GearSpec,
+                   shoulders: Sequence[Shoulder], host: str) -> cq.Workplane:
+    """Leave a lip at the outside end of each seat ``host`` carries.
+
+    The part is built with its seat bored right through, and the lip is put
+    back as a ring rather than the seat being counterbored from inside: the
+    same three lines whichever part it is and whichever end it faces, and the
+    ring's outside is the seat's own surface, which the union merges.
+    """
+    offset = _host_offset(spec, host)
+    for s in shoulders:
+        if s.host != host:
+            continue
+        lip = (cq.Workplane("XY").workplane(offset=s.z0 - offset)
+               .circle(s.seat / 2.0).circle(s.bore / 2.0)
+               .extrude(s.thickness))
+        wp = wp.union(lip)
+    return wp
+
+
+def _lips(shoulders: Sequence[Shoulder], host: str) -> list[float]:
+    """The radii of ``host``'s lips, for the break on their mouths."""
+    return [s.bore / 2.0 for s in shoulders if s.host == host]
 
 
 def _rim_land(spec: GearSpec) -> float:
@@ -346,7 +380,8 @@ def output_flange(spec: GearSpec,
     shank = pin_shank_diameter(placements, "bearing_output_pins",
                                spec.output_pin_diameter)
     # Bored to the outboard shaft support, which sits in it.
-    bore = (bores or seat_bores(spec)).hub
+    bores = bores or seat_bores(spec)
+    bore = bores.hub
     plate = cq.Workplane("XY").circle(plate_r).extrude(-t)
     hub = (cq.Workplane("XY").workplane(offset=-t)
            .circle(spec.hub_diameter / 2.0)
@@ -390,7 +425,12 @@ def output_flange(spec: GearSpec,
     # The plate's rim, the end of the boss and both mouths of the bore - the
     # output bearing goes on over one and a shaft support into the other.  Not
     # the pins: they are what the disc's holes and the rollers run on.
-    radii = [plate_r, spec.hub_diameter / 2.0, bore / 2.0]
+    # And the lip past the support, which holds its outer ring in against the
+    # crank's thrust - down the rest of the boss, and on a frame through the
+    # base as well, short of the motor's register.
+    body = _add_shoulders(body, spec, bores.shoulders, "output_flange")
+    radii = [plate_r, spec.hub_diameter / 2.0, bore / 2.0,
+             *_lips(bores.shoulders, "output_flange")]
     if spec.ground_frame_fitted:
         radii.append(spec.housing_outer_radius)
     return _break_edges(body, radii, min(spec.edge_chamfer, t / 4.0))
@@ -438,18 +478,23 @@ def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = (),
                         spec.output_pin_count)
             .circle((shank + spec.hole_clearance) / 2.0)
             .extrude(spec.output_flange_thickness))
-    # Bored to the inboard shaft support, which sits in it.
-    seat = (bores or seat_bores(spec)).cap
+    # Bored to the inboard shaft support, which sits in it, with the lip that
+    # holds it in past it.
+    bores = bores or seat_bores(spec)
+    seat = bores.cap
     bore = (cq.Workplane("XY").workplane(offset=spec.end_cap_bottom)
             .circle(seat / 2.0)
             .extrude(spec.cap_boss_top - spec.end_cap_bottom))
-    return _break_edges(plate.union(boss).cut(pins).cut(bore),
-                        [plate_r, spec.hub_diameter / 2.0, seat / 2.0],
+    body = _add_shoulders(plate.union(boss).cut(pins).cut(bore), spec,
+                          bores.shoulders, "end_cap")
+    return _break_edges(body,
+                        [plate_r, spec.hub_diameter / 2.0, seat / 2.0,
+                         *_lips(bores.shoulders, "end_cap")],
                         min(spec.edge_chamfer, spec.output_flange_thickness / 4.0))
 
 
-def housing_end_plate(spec: GearSpec, bore: float,
-                      motor_face: bool = False) -> cq.Workplane:
+def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
+                      shoulders: Sequence[Shoulder] = ()) -> cq.Workplane:
     """One of the two plates that close the housing.
 
     Same outside as the housing, because they bolt to it face to face.  What
@@ -493,9 +538,14 @@ def housing_end_plate(spec: GearSpec, bore: float,
                      .circle(frame.pilot_diameter / 2.0)
                      .cutBlind(-frame.pilot_depth))
         plate = _motor_pattern(plate.faces(">Z").workplane(), spec)
+    # The lip on the outside face that holds the bearing's outer ring in.
+    # ``shoulders`` is every seat's; this plate takes the ones cut in it.
+    host = "input_end_plate" if motor_face else "output_end_plate"
+    plate = _add_shoulders(plate, spec, shoulders, host)
     # The rim, held clear of the tie-bolt holes as the barrel's is, and both
     # mouths of the bore, which is a bearing seat in either plate.
-    return _break_edges(plate, [spec.housing_outer_radius, max(bore, 1e-3) / 2.0],
+    return _break_edges(plate, [spec.housing_outer_radius, max(bore, 1e-3) / 2.0,
+                                *_lips(shoulders, host)],
                         min(spec.edge_chamfer, spec.plate_thickness / 4.0,
                             _rim_land(spec) / 2.0))
 
@@ -611,11 +661,13 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     # outboard of the carrier, so the boss passes through it and the pins stay
     # inside; the input one sits straight on top of the barrel - which reaches
     # past the discs to cover the end cap when there is one.
-    assy.add(housing_end_plate(spec, bores.input_plate, motor_face=True),
+    assy.add(housing_end_plate(spec, bores.input_plate, motor_face=True,
+                               shoulders=bores.shoulders),
              name="input_end_plate",
              loc=cq.Location(cq.Vector(0, 0, spec.barrel_top)),
              color=_part_colour("input_end_plate"))
-    assy.add(housing_end_plate(spec, bores.output_plate),
+    assy.add(housing_end_plate(spec, bores.output_plate,
+                               shoulders=bores.shoulders),
              name="output_end_plate",
              loc=cq.Location(cq.Vector(
                  0, 0, -CARRIER_DROP - spec.output_flange_thickness
@@ -658,8 +710,10 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
         "eccentric_shaft": eccentric_shaft(spec),
         "output_flange": output_flange(spec, placements, bores),
         "input_end_plate": housing_end_plate(spec, bores.input_plate,
-                                             motor_face=True),
-        "output_end_plate": housing_end_plate(spec, bores.output_plate),
+                                             motor_face=True,
+                                             shoulders=bores.shoulders),
+        "output_end_plate": housing_end_plate(spec, bores.output_plate,
+                                              shoulders=bores.shoulders),
     }
     if spec.ground_frame_fitted:
         out["end_cap"] = end_cap(spec, placements, bores)

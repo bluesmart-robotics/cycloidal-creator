@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from ..core.spec import PROCESS_POSITION_TOLERANCE, GearSpec
 from ..core.validate import Report, Severity, validate
-from .bearings import BearingChoice, seat_bores, select_bearings
+from .bearings import MIN_SHOULDER, BearingChoice, seat_bores, select_bearings
 from .duty import DutyResult, analyse_duty
 from .efficiency import EfficiencyResult
 from .fatigue import FatigueResult, analyse_fatigue
@@ -80,6 +80,13 @@ class DesignAnalysis:
     def torque_capacity_with_clearance_Nm(self) -> float:
         """Torque capacity derated for the same effect."""
         return self.torque_capacity_Nm / max(self.stiffness.load_concentration, 1.0)
+
+
+#: What each part that holds a bearing is called in a sentence.
+_SEAT_HOST = {"input_end_plate": "input end plate",
+              "output_end_plate": "output end plate",
+              "output_flange": "carrier's boss",
+              "end_cap": "end cap's boss"}
 
 
 def analyse(spec: GearSpec) -> DesignAnalysis:
@@ -692,6 +699,25 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                     f"{choice.life_hours:,.0f} h against the "
                     f"{spec.bearing_min_life_hours:,.0f} h this design asks for.",
                     choice.life_hours, spec.bearing_min_life_hours)
+
+    # A seat with no room past its bearing has nothing to hold the outer ring
+    # in.  Never on the defaults - every plate leaves at least a millimetre -
+    # but a thinner plate takes it, and so does a motor's register cut into
+    # the same face, where the spigot can end up standing on the bearing.
+    for missing in bores.unshouldered:
+        where = _SEAT_HOST.get(missing.host, missing.host.replace("_", " "))
+        if missing.register and missing.room < 0.0:
+            why = (f"the motor's register is cut {-missing.room:.1f} mm into the "
+                   f"bearing's own length, so the spigot lands on it")
+        elif missing.register:
+            why = "the motor's register is cut where its shoulder would be"
+        else:
+            why = (f"{max(missing.room, 0.0):.1f} mm is left between it and the "
+                   f"outside of the {where}")
+        rep.add(Severity.WARNING, "SEAT_HAS_NO_SHOULDER",
+                f"The {missing.label.lower()} has nothing to hold its outer ring "
+                f"in: {why}. A shoulder takes {MIN_SHOULDER:g} mm past the bearing.",
+                missing.room, MIN_SHOULDER)
 
     return DesignAnalysis(spec=spec, report=rep, contact=contact, efficiency=eff,
                           stiffness=stiff, transmission_error=te, thermal=therm,

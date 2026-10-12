@@ -29,12 +29,14 @@ import math
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 
 from ..analysis.bearings import (
     BearingPlacement,
     SeatBores,
+    Shoulder,
     bearing_placements,
     bearing_schedule,
     pin_shank_diameter,
@@ -447,6 +449,27 @@ class _Builder:
                  segments: int) -> None:
         self.prism(_circle(cx, cy, r, segments), (), z0, z1)
 
+    def bored_prism(self, outer: np.ndarray, holes, runs, segments: int, *,
+                    cap_bottom: bool = True, cap_top: bool = True) -> None:
+        """A prism with a stepped bore on the axis: one prism per run of it.
+
+        ``runs`` is ``(z0, z1, radius)`` from the bottom up, as
+        :func:`_bore_runs` makes it.  Where the radius changes, the face
+        between two runs is interior except for the annulus between the two
+        bores - the step a bearing's outer ring sits on - and that annulus is
+        all that is emitted, facing the wider run, for the same reason
+        :meth:`cap` exists.
+        """
+        for i, (z0, z1, r) in enumerate(runs):
+            self.prism(outer, (_circle(0.0, 0.0, r, segments), *holes), z0, z1,
+                       cap_bottom=cap_bottom and i == 0,
+                       cap_top=cap_top and i == len(runs) - 1)
+            if i + 1 < len(runs) and abs(runs[i + 1][2] - r) > 1e-9:
+                wider = runs[i + 1][2]
+                self.ring(_circle(0.0, 0.0, max(r, wider), segments),
+                          _circle(0.0, 0.0, min(r, wider), segments), z1,
+                          up=wider > r)
+
     def build(self, spec: GearSpec) -> Mesh:
         outer = [lp[0] for lp in self._loops]
         counts = np.array([len(o) for o in outer], dtype=np.int32)
@@ -591,6 +614,30 @@ def _pilot_recess(spec: GearSpec, bore: float) -> float:
     return min(spec.motor_face.pilot_depth, spec.plate_thickness / 2.0)
 
 
+def _bore_runs(seat_r: float, shoulders: Sequence[Shoulder], host: str,
+               z0: float, z1: float) -> list[tuple[float, float, float]]:
+    """The bore of ``host`` between ``z0`` and ``z1``, as runs of one radius.
+
+    The seat's radius everywhere except where one of the part's shoulders is,
+    which is the lip's.  Neighbouring runs of the same radius are merged, so a
+    part with no shoulder in this length comes back as a single run.
+    """
+    lips = [s for s in shoulders if s.host == host]
+    cuts = sorted({z0, z1, *(min(max(v, z0), z1)
+                             for s in lips for v in (s.z0, s.z1))})
+    runs: list[tuple[float, float, float]] = []
+    for a, c in pairwise(cuts):
+        if c - a < 1e-9:
+            continue
+        mid = 0.5 * (a + c)
+        r = next((s.bore / 2.0 for s in lips if s.z0 <= mid <= s.z1), seat_r)
+        if runs and abs(runs[-1][2] - r) < 1e-9:
+            runs[-1] = (runs[-1][0], c, r)
+        else:
+            runs.append((a, c, r))
+    return runs
+
+
 def build_mesh(spec: GearSpec,
                placements: Sequence[BearingPlacement] | None = None,
                bores: SeatBores | None = None) -> Mesh:
@@ -726,9 +773,11 @@ def build_mesh(spec: GearSpec,
         # a shaft support sits in its bore.  Its top is inside the plate, and so
         # is its bottom whenever there is a base under it.
         boss_bottom = spec.boss_bottom
-        b.prism(_circle(0.0, 0.0, hub_r, 40), (_circle(0.0, 0.0, bore_r, 28),),
-                boss_bottom, plate_bottom, cap_top=False,
-                cap_bottom=not spec.ground_frame_fitted)
+        # Stepped where the lip that holds the outboard support in runs down it.
+        b.bored_prism(_circle(0.0, 0.0, hub_r, 40), (),
+                      _bore_runs(bore_r, bores.shoulders, "output_flange",
+                                 boss_bottom, plate_bottom), 28,
+                      cap_top=False, cap_bottom=not spec.ground_frame_fitted)
         if spec.ground_frame_fitted:
             # The base the gearbox is bolted down by, on the end of the boss.
             # Housing-sized, because it is the face of the machine at that end
@@ -737,6 +786,8 @@ def build_mesh(spec: GearSpec,
             motor_holes = motor_bolt_holes(spec)
             floor = spec.base_plate_bottom
             recess = _pilot_recess(spec, bores.hub)
+            base_runs = _bore_runs(bore_r, bores.shoulders, "output_flange",
+                                   floor + recess, boss_bottom)
             if recess:
                 # Two prisms, and the step between them emitted only where it is
                 # actually exposed: the recess is wider than the bore, so all
@@ -746,12 +797,13 @@ def build_mesh(spec: GearSpec,
                 pilot = _circle(0.0, 0.0, spec.motor_face.pilot_diameter / 2.0, 48)
                 b.prism(base_outer, (pilot, *motor_holes), floor, floor + recess,
                         cap_top=False)
-                b.ring(pilot, _circle(0.0, 0.0, bore_r, 28), floor + recess,
-                       up=False)
+                # Down to the bore that is there at the register's floor, which
+                # is the lip's when the lip runs out to the register.
+                b.ring(pilot, _circle(0.0, 0.0, base_runs[0][2], 28),
+                       floor + recess, up=False)
                 floor += recess
-            b.prism(base_outer, (_circle(0.0, 0.0, bore_r, 28), *motor_holes),
-                    floor, boss_bottom, cap_top=False,
-                    cap_bottom=not recess)
+            b.bored_prism(base_outer, motor_holes, base_runs, 28,
+                          cap_top=False, cap_bottom=not recess)
             # The base's top: covered by the boss standing on it, and pierced by
             # the motor's bolts, which pass right through and so are open at
             # this end too.
@@ -794,8 +846,10 @@ def build_mesh(spec: GearSpec,
             b.cap(_circle(0.0, 0.0, cap_r, 72),
                   (_circle(0.0, 0.0, cap_hub_r, 40), *pin_holes),
                   spec.end_cap_top, up=True)
-            b.prism(_circle(0.0, 0.0, cap_hub_r, 40), (cap_bore,),
-                    spec.end_cap_top, spec.cap_boss_top, cap_bottom=False)
+            b.bored_prism(_circle(0.0, 0.0, cap_hub_r, 40), (),
+                          _bore_runs(bores.cap / 2.0, bores.shoulders, "end_cap",
+                                     spec.end_cap_top, spec.cap_boss_top), 28,
+                          cap_bottom=False)
 
     # The two plates that close the housing.  They do not move, they are the
     # same colour as the barrel they bolt to, and they are why the shaft
@@ -814,9 +868,11 @@ def build_mesh(spec: GearSpec,
             bolts = _plate_bolt_holes(spec, motor)
             outer = _circle(0.0, 0.0, spec.housing_outer_radius, 96)
             top = z0 + spec.plate_thickness
-            bore_loop = _circle(0.0, 0.0, max(bore, 1e-3) / 2.0, 48)
             recess = (_pilot_recess(spec, bore)
                       if motor and not spec.ground_frame_fitted else 0.0)
+            # The bore, stepped where the lip that holds the bearing in is.
+            runs = _bore_runs(max(bore, 1e-3) / 2.0, bores.shoulders, name,
+                              z0, top - recess)
             if recess:
                 # A register is a step, not a hole: the outer face is bored to
                 # the motor's spigot for the first couple of millimetres and to
@@ -834,9 +890,10 @@ def build_mesh(spec: GearSpec,
                 pilot = _circle(0.0, 0.0, spec.motor_face.pilot_diameter / 2.0, 48)
                 b.prism(outer, (pilot, *bolts), top - recess, top,
                         cap_bottom=False)
-                b.ring(pilot, bore_loop, top - recess, up=False)
+                b.ring(pilot, _circle(0.0, 0.0, runs[-1][2], 48), top - recess,
+                       up=False)
                 top -= recess
-            b.prism(outer, (bore_loop, *bolts), z0, top, cap_top=not recess)
+            b.bored_prism(outer, bolts, runs, 48, cap_top=not recess)
 
     # Bearings last, and each one takes the motion of the part it was placed
     # against rather than restating it.  Two copies of "how does a disc move"

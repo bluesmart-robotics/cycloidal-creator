@@ -684,6 +684,33 @@ def test_every_part_is_watertight_once_built_for_vtk(ratio):
     assert not faults, "; ".join(faults)
 
 
+@pytest.mark.parametrize("output,frame", [("ring housing", "None"),
+                                          ("output pin carrier", "NEMA 17"),
+                                          ("ring housing", "NEMA 17")])
+def test_a_stepped_bore_is_still_watertight(output, frame):
+    """The lips that hold the bearings in make every bearing bore two bores.
+
+    Each step between them is a face of its own, and the run either side is a
+    prism that must not keep the face it meets the other on - the same fault a
+    register had once.  The register cases are the hard ones: on the carrier's
+    base a lip runs out to the register floor, so three bores meet down one
+    axis, and on the input plate the register has taken the lip altogether.
+    """
+    from cycloidgen.viz.vtkbridge import closed_polydata
+
+    spec = preset(21)
+    spec.output_member = output
+    spec.motor_frame = frame
+    mesh = build_mesh(spec)
+    faults = []
+    for part in mesh.parts:
+        holes, nonmanifold = _edge_counts(closed_polydata(mesh, part))
+        if holes or nonmanifold:
+            faults.append(f"{part.name}: {holes} hole edges, "
+                          f"{nonmanifold} non-manifold")
+    assert not faults, "; ".join(faults)
+
+
 @pytest.mark.parametrize("ratio", [15, 21, 29])
 def test_a_face_is_cut_into_triangles_that_cover_it_exactly(ratio):
     """The check the old triangulator did not do for itself.

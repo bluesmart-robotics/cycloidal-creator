@@ -35,6 +35,9 @@ LAYERS = {
     # drilling one wants to be able to switch the other off.
     "BOLTS": 6,
     "MOTOR": 4,
+    # The lip past a bearing seat: the through hole, where the seat is bored
+    # from one face only.
+    "SHOULDER": 30,
 }
 
 
@@ -81,7 +84,7 @@ def _polar(radius: float, count: int,
 
 
 def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
-               motor_face: bool = False) -> Path:
+               motor_face: bool = False, shoulders=()) -> Path:
     """One of the two plates that close the housing, as a drilling drawing.
 
     Both are the housing outside diameter on the same tie-bolt circle; what
@@ -99,6 +102,16 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
     _cross(msp, (0.0, 0.0), size=max(bore / 2.0, 1.0) + 3.0)
 
     note = f"{name.replace('_', ' ')}  OD {2 * r:g}  bore {bore:g}"
+
+    # The lip that holds the bearing in: the seat is bored from the inside to
+    # a depth and the hole carries on through at the lip's size.  On its own
+    # layer, because a laser cutting the plate cuts the through hole and the
+    # seat is a second operation - and saying which face it is bored from is
+    # the half of it a circle cannot.
+    for lip in (s for s in shoulders if s.host == name):
+        msp.add_circle((0, 0), lip.bore / 2.0, dxfattribs={"layer": "SHOULDER"})
+        depth = spec.plate_thickness - lip.thickness
+        note += (f" x {depth:g} deep from the inside, through {lip.bore:g}")
 
     if spec.housing_bolt_count:
         msp.add_circle((0, 0), spec.housing_bolt_radius,
@@ -288,9 +301,10 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
     # the second main bearing sits in it, and this used to drill that plate to
     # the 22 mm support seat while the STEP plate had the 42 mm bearing seat.
     written.append(_end_plate(spec, directory, "input_end_plate",
-                              bores.input_plate, motor_face=True))
+                              bores.input_plate, motor_face=True,
+                              shoulders=bores.shoulders))
     written.append(_end_plate(spec, directory, "output_end_plate",
-                              bores.output_plate))
+                              bores.output_plate, shoulders=bores.shoulders))
     return written
 
 

@@ -901,3 +901,73 @@ def test_a_seat_with_no_bearing_keeps_its_room():
     assert bores.disc == pytest.approx(spec.center_bore_diameter + spec.hole_clearance)
     assert bores.hub == bores.input_plate == pytest.approx(spec.hub_bore)
     assert bores.output_plate == pytest.approx(spec.output_bearing_seat_diameter)
+
+
+# ------------------------------------------------------------- shoulders
+
+
+@pytest.mark.parametrize("output", ["output pin carrier", "ring housing"])
+def test_every_outer_ring_has_a_shoulder_that_clears_the_inner_one(output):
+    """A seat bored right through holds its bearing by the press fit alone.
+
+    Each one stops short of the outside face, and what is left is a lip the
+    outer ring bears on.  Its hole is the bearing's pitch circle: always between
+    the two rings' lands, so the lip clears the inner ring that turns against
+    it and clears whatever passes through - the shaft through a support's, the
+    turning boss through a main bearing's.  And it starts where the bearing
+    stops, not inside it.
+    """
+    from cycloidgen.analysis.bearings import MIN_SHOULDER, seat_bores
+
+    spec = preset(21)
+    spec.output_member = output
+    bores = seat_bores(spec)
+    placed = {p.name: p for p in placements_for_spec(spec)}
+    held = {"bearing_shaft_input", "bearing_shaft_output", "bearing_output_main"}
+    if spec.ground_frame_fitted:
+        held.add("bearing_output_input")
+    assert {s.bearing for s in bores.shoulders} == held
+    assert not bores.unshouldered
+    for s in bores.shoulders:
+        p = placed[s.bearing]
+        ring = p.rings[0]
+        assert p.bore < s.bore < p.outer and s.seat == p.outer
+        assert s.thickness >= MIN_SHOULDER
+        assert s.z0 == pytest.approx(ring.z1) or s.z1 == pytest.approx(ring.z0)
+        through = (spec.input_shaft_diameter if "shaft" in s.bearing
+                   else spec.hub_diameter)
+        assert s.bore > through, s.bearing
+
+
+def test_a_main_bearing_sits_against_the_inside_of_its_plate():
+    """Centred, a 7 mm bearing in an 8 mm plate leaves half a millimetre
+    either side, which is no shoulder; against the inside face it leaves a
+    millimetre on the outside, where the shoulder is, and its inner ring meets
+    the carrier plate that turns with it."""
+    spec = preset(21)
+    main = next(p for p in placements_for_spec(spec)
+                if p.name == "bearing_output_main")
+    inside = -CARRIER_DROP - spec.output_flange_thickness
+    assert main.rings[0].z1 == pytest.approx(inside)
+
+
+def test_a_seat_without_room_for_a_shoulder_says_so():
+    """Never on the defaults; a thinner plate takes it, and so does a motor's
+    register cut into the same face - which, deeper than the room past the
+    bearing, puts the spigot on the bearing itself."""
+    def raised(spec):
+        return [f for f in analyse(spec).report.findings
+                if f.code == "SEAT_HAS_NO_SHOULDER"]
+
+    for ratio in (10, 21, 59):
+        assert not raised(preset(ratio))
+
+    thin = preset(21)
+    thin.end_plate_thickness = 7.0                    # the 6806 is 7 wide
+    (found,) = raised(thin)
+    assert "main output bearing" in found.message
+
+    motor = preset(21)
+    motor.motor_frame = "NEMA 17"
+    (found,) = raised(motor)
+    assert "spigot lands on it" in found.message and found.value < 0.0

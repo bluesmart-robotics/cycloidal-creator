@@ -99,6 +99,17 @@ def _disc_section(spec: GearSpec, bore: float) -> tuple[float, float]:
     return max(area, 0.0), max(polar, 0.0)
 
 
+def _lip_volume(bores: SeatBores, host: str) -> float:
+    """The metal the shoulders leave in ``host``'s seats, mm^3.
+
+    A seat is weighed bored right through to the bearing; the lip past the
+    bearing is metal that bore does not take, and it is put back here as the
+    solid puts it back.
+    """
+    return sum(math.pi * ((s.seat / 2.0) ** 2 - (s.bore / 2.0) ** 2) * s.thickness
+               for s in bores.shoulders if s.host == host)
+
+
 def analyse_mass(spec: GearSpec, bores: SeatBores | None = None) -> MassResult:
     """Mass, inertia, unbalance and the disc web stress.
 
@@ -177,6 +188,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None) -> MassResult:
             flange_volume -= (frame.bolt_count * math.pi
                               * (frame.bolt_diameter / 2.0) ** 2
                               * spec.plate_thickness)
+    flange_volume += _lip_volume(bores, "output_flange")
     flange_mass = max(flange_volume, 0.0) * _MM3_TO_CM3 * rho_house
 
     # The end cap at the far end of the pins: the carrier's mirror image, and
@@ -192,6 +204,8 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None) -> MassResult:
                       + math.pi * ((spec.hub_diameter / 2.0) ** 2
                                    - (bores.cap / 2.0) ** 2)
                       * spec.plate_thickness)
+    if spec.ground_frame_fitted:
+        cap_volume += _lip_volume(bores, "end_cap")
     cap_mass = max(cap_volume, 0.0) * _MM3_TO_CM3 * rho_house
 
     # The two plates that close the housing.  They are part of the gearbox and
@@ -212,6 +226,8 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None) -> MassResult:
                      - 2.0 * bolt_area          # the tie bolts go through both
                      - output_bolt_area
                      ) * spec.plate_thickness
+    plates_volume += (_lip_volume(bores, "input_end_plate")
+                      + _lip_volume(bores, "output_end_plate"))
     plates_mass = max(plates_volume, 0.0) * _MM3_TO_CM3 * rho_house
 
     total = (n * disc_mass + housing_mass + plates_mass + pins_mass

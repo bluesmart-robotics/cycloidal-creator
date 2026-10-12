@@ -583,6 +583,21 @@ EXPLANATIONS: dict[str, Explanation] = {
         "but a loose one, and a press fit onto nothing is not a fit at all.",
         "Turn the journal to the bearing's bore, open the housing around it, or "
         "put the seat back on automatic and take what the study picks."),
+    "SEAT_HAS_NO_SHOULDER": Explanation(
+        "A bearing seat with nothing to hold the outer ring in",
+        "length past the bearing, to the outside face  >=  1 mm, nothing else "
+        "cut into it",
+        "Every seat is bored to its bearing from the inside and stops short of "
+        "the outside face, and the lip that leaves is what the outer ring bears "
+        "on. Without one the bearing is held by its press fit alone, and the "
+        "crank's thrust or a knock on the output walks it out of the plate. A "
+        "motor's register cut into the same face takes the lip first; cut "
+        "deeper than the room past the bearing, it puts the motor's spigot on "
+        "the bearing itself.",
+        "Thicken the housing wall, which the end plates follow, or the boss; "
+        "pick a narrower bearing for the seat; or, where it is the register, a "
+        "frame whose spigot is shallower.",
+        keep="above", unit="mm"),
     "PV_LIMIT_CAM": Explanation(
         "Cam journal sliding duty past the wear limit",
         "p*v at the cam/bore contact  <  the PV limit for the pair",

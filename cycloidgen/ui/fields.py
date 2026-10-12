@@ -363,6 +363,8 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "MOTOR_RADIAL_LOAD": ("motor_frame", "shaft_bearings_fitted", "output_torque_Nm"),
     "BEARING_DOES_NOT_FIT": ("cam_bearing", "shaft_bearing", "output_bearing",
                              "eccentric_cam_diameter", "center_bore_diameter"),
+    "SEAT_HAS_NO_SHOULDER": ("housing_wall", "output_boss_protrusion",
+                             "shaft_bearing", "output_bearing", "motor_frame"),
     "BEARINGS_OMITTED": ("cam_bearing_fitted", "shaft_bearings_fitted",
                          "output_bearing_fitted"),
     "OVERTEMP": ("input_rpm", "ring_pins_are_rollers", "housing_material"),

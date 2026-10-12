@@ -51,7 +51,7 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Sixty-three checks that explain themselves.** Each says what it tests, what
+- **Sixty-four checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -485,7 +485,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Sixty-three of them. Errors block export; warnings do not; several are readings
+Sixty-four of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -511,7 +511,7 @@ rather than tests.
 **Wear, heat and life** — `LOW_EFFICIENCY` · `LUBRICATION_REGIME` ·
 `PV_LIMIT_RING` · `PV_MARGIN_RING` · `PV_LIMIT_OUTPUT` · `PV_LIMIT_CAM` ·
 `OVERTEMP` · `RUNNING_HOT` · `SHORT_BEARING_LIFE` · `NO_BEARING_FITS` ·
-`BEARING_DOES_NOT_FIT` · `BEARINGS_OMITTED`
+`BEARING_DOES_NOT_FIT` · `BEARINGS_OMITTED` · `SEAT_HAS_NO_SHOULDER`
 
 **Mounting** — `HOUSING_BOLT_CLASH` · `OUTPUT_BOLT_CLASH` ·
 `MOTOR_SHAFT_MISMATCH` · `MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD`
@@ -603,6 +603,15 @@ suggests it.
   and the end cap are cut to the outside of the bearing in each, in the STEP,
   the meshes, the 3D view and the cutting DXFs alike, and weighed that way. A
   seat left without a bearing keeps its room.
+
+  And each seat stops short of the outside face. What is left is a lip the
+  outer ring bears on, its hole at the bearing's pitch circle so that it clears
+  the inner ring turning against it; the main output bearings sit against the
+  inside of their plates so that the lip gets all the spare length, and the
+  part that turns with the inner ring is the shoulder on the other side. A seat
+  with no room left for a lip - a plate thinned to the bearing's width, or a
+  motor's register cut into the same face - is reported rather than drawn
+  without one.
 
   Three of the five load paths can also be built without a bearing at all, and
   plenty of drives are. Switching one

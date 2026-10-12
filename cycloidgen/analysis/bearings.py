@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from ..core.spec import AUTOMATIC, CARRIER_DROP, DRY, GearSpec, OutputMember
 from .lubrication import ContactFilm, LubricationResult
 
-__all__ = ["CATALOGUE", "Bearing", "BearingChoice", "BearingPlacement", "BearingRing",
-           "SeatBores", "bearing_placements", "bearing_schedule", "life_hours",
+__all__ = ["CATALOGUE", "MIN_SHOULDER", "Bearing", "BearingChoice", "BearingPlacement",
+           "BearingRing", "MissingShoulder", "SeatBores", "Shoulder",
+           "bearing_placements", "bearing_schedule", "life_hours",
            "pin_shank_diameter", "placements_for_spec", "seat_bores",
            "select_bearings"]
 
@@ -650,6 +651,55 @@ def bearing_schedule(spec: GearSpec, contact=None,
 # --------------------------------------------------------------- seats as bored
 
 
+#: The thinnest shoulder worth cutting, millimetres.  Below this a lip is a
+#: burr: a couple of printed layers, or a step a press fit walks the bearing
+#: over the first time it is driven home.
+MIN_SHOULDER = 1.0
+
+
+@dataclass(frozen=True)
+class Shoulder:
+    """The lip at the outside end of a seat that holds a bearing's outer ring in.
+
+    The seat is bored to the bearing from the inside and stops short of the
+    outside face; what is left is this ring.  Its hole is the bearing's pitch
+    circle, which is always between the two rings' lands - so the lip bears on
+    the outer ring's face and stands clear of the inner ring, which turns
+    against it.  That is geometry rather than catalogue data, which is why it
+    is the rule: an abutment table per bearing is the thing this app does not
+    have.  Heights are assembled, as a :class:`BearingRing`'s are.
+    """
+
+    #: The placement it holds, by name.
+    bearing: str
+    #: The part it is cut in, by its assembly name.
+    host: str
+    z0: float
+    z1: float
+    #: Through the lip, millimetres: the bearing's pitch circle.
+    bore: float
+    #: The seat it steps down from: the bearing's outside.
+    seat: float
+
+    @property
+    def thickness(self) -> float:
+        return self.z1 - self.z0
+
+
+@dataclass(frozen=True)
+class MissingShoulder:
+    """A seat with no room left for a shoulder, and why."""
+
+    bearing: str
+    label: str
+    host: str
+    #: What was left between the bearing and the outside, millimetres.
+    #: Negative when something else is cut into the bearing's own length.
+    room: float
+    #: Whether a motor's register is what took it.
+    register: bool
+
+
 @dataclass(frozen=True)
 class SeatBores:
     """Every bearing seat as it is actually bored: to the bearing that goes in it.
@@ -681,6 +731,10 @@ class SeatBores:
     hub: float
     #: Through the end cap's boss, on a frame: the inboard shaft support.
     cap: float
+    #: The lips that hold each bearing's outer ring in, where there is room.
+    shoulders: tuple[Shoulder, ...] = ()
+    #: The seats where there is not.
+    unshouldered: tuple[MissingShoulder, ...] = ()
 
 
 def seat_bores(spec: GearSpec,
@@ -703,11 +757,74 @@ def seat_bores(spec: GearSpec,
 
     support = bored("Input shaft support", spec.hub_bore)
     main = bored("Main output bearing", spec.output_bearing_seat_diameter)
+    input_plate = main if spec.ground_frame_fitted else support
+    shoulders, missing = _shoulders(spec, bearing_placements(spec, choices),
+                                    input_plate=input_plate, hub=support)
     return SeatBores(
         disc=bored("Eccentric cam bearing",
                    spec.center_bore_diameter + spec.hole_clearance),
-        input_plate=main if spec.ground_frame_fitted else support,
-        output_plate=main, hub=support, cap=support)
+        input_plate=input_plate, output_plate=main, hub=support, cap=support,
+        shoulders=shoulders, unshouldered=missing)
+
+
+def _register_depth(spec: GearSpec, face: str, bore: float) -> float:
+    """How deep a motor's register is cut into ``face``, if one is cut at all.
+
+    The input plate's outside on a carrier drive, the carrier's base on a ring
+    drive, and only where the spigot is wider than the bore already through
+    there - the same three conditions the parts are cut by.
+    """
+    if not spec.has_motor_face or spec.motor_face.pilot_diameter <= bore:
+        return 0.0
+    frame = spec.motor_face
+    if face == "input_plate" and not spec.ground_frame_fitted:
+        return frame.pilot_depth
+    if face == "base" and spec.ground_frame_fitted:
+        return min(frame.pilot_depth, spec.plate_thickness / 2.0)
+    return 0.0
+
+
+def _shoulders(spec: GearSpec, placements: Sequence[BearingPlacement], *,
+               input_plate: float, hub: float
+               ) -> tuple[tuple[Shoulder, ...], tuple[MissingShoulder, ...]]:
+    """The lip past each seated bearing, between it and the outside of its part.
+
+    The whole of that length rather than a nominal depth: the bore beyond the
+    bearing has no other job, and a lip that runs to the face is one less step
+    to machine.  A register cut into the same face comes off the end of it.
+    """
+    outside_input = spec.barrel_top + spec.plate_thickness
+    outside_output = spec.barrel_bottom - spec.plate_thickness
+    boss_end = (spec.base_plate_bottom if spec.ground_frame_fitted
+                else spec.boss_bottom)
+    found: list[Shoulder] = []
+    missing: list[MissingShoulder] = []
+    for p in placements:
+        ring = p.rings[0]
+        if p.name == "bearing_shaft_input":
+            if spec.ground_frame_fitted:
+                face, up, cut = spec.cap_boss_top, True, 0.0
+            else:
+                face, up = outside_input, True
+                cut = _register_depth(spec, "input_plate", input_plate)
+        elif p.name == "bearing_output_input":
+            face, up, cut = outside_input, True, 0.0
+        elif p.name == "bearing_shaft_output":
+            face, up = boss_end, False
+            cut = _register_depth(spec, "base", hub)
+        elif p.name == "bearing_output_main":
+            face, up, cut = outside_output, False, 0.0
+        else:
+            continue
+        z0, z1 = (ring.z1, face - cut) if up else (face + cut, ring.z0)
+        if z1 - z0 >= MIN_SHOULDER - 1e-9:
+            found.append(Shoulder(bearing=p.name, host=p.host, z0=z0, z1=z1,
+                                  bore=(p.bore + p.outer) / 2.0, seat=p.outer))
+        else:
+            missing.append(MissingShoulder(bearing=p.name, label=p.label,
+                                           host=p.host, room=z1 - z0,
+                                           register=cut > 0.0))
+    return tuple(found), tuple(missing)
 
 
 # ------------------------------------------------------------------- placement
@@ -791,6 +908,19 @@ def _span(z0: float, z1: float, width: float) -> tuple[float, float]:
         return z0, z1
     middle = 0.5 * (z0 + z1)
     return middle - width / 2.0, middle + width / 2.0
+
+
+def _flush(z0: float, z1: float, width: float, *,
+           inside_at_top: bool) -> tuple[float, float]:
+    """A bearing ``width`` long against one end of the seat from ``z0`` to ``z1``.
+
+    The inside end, which is the top of a seat whose inside faces up.  A bearing
+    longer than its seat is centred instead, as :func:`_span` does: it does not
+    fit, and where it overhangs is not this function's to choose.
+    """
+    if width >= z1 - z0:
+        return _span(z0, z1, width)
+    return (z1 - width, z1) if inside_at_top else (z0, z0 + width)
 
 
 def _courses(z0: float, z1: float, width: float) -> list[tuple[float, float]]:
@@ -964,10 +1094,18 @@ def bearing_placements(spec: GearSpec,
     # moment at all, and whatever is bolted to a turning barrel is exactly the
     # kind of load that applies one.  Each is placed in its own end plate, so
     # each stays with the plate that holds its outer ring.
+    #
+    # Each sits against the *inside* face of its plate rather than in the
+    # middle of it.  Centred, a 7 mm bearing in an 8 mm plate leaves half a
+    # millimetre either side, which is no shoulder at all; pushed in, all of the
+    # spare length is on the outside, where the shoulder that holds the outer
+    # ring is cut, and the inner ring's face meets the member that turns with
+    # it - the carrier's plate, or the end cap's - which is the other shoulder.
     main = by_role.get("Main output bearing")
     if main is not None and main.bearing is not None:
         top = -CARRIER_DROP - spec.output_flange_thickness
-        z0, z1 = _span(top - spec.plate_thickness, top, main.bearing.width)
+        z0, z1 = _flush(top - spec.plate_thickness, top, main.bearing.width,
+                        inside_at_top=True)
         seats = [("bearing_output_main", "Main output bearing",
                   (z0, z1), "output_end_plate")]
         if spec.ground_frame_fitted:
@@ -975,7 +1113,8 @@ def bearing_placements(spec: GearSpec,
                         (z0, z1), "output_end_plate")
             seats.append((
                 "bearing_output_input", "Main output bearing, input side",
-                _span(spec.barrel_top, spec.cap_boss_top, main.bearing.width),
+                _flush(spec.barrel_top, spec.cap_boss_top, main.bearing.width,
+                       inside_at_top=False),
                 "input_end_plate"))
         for name, label, (a, bz), host in seats:
             out.append(BearingPlacement(
