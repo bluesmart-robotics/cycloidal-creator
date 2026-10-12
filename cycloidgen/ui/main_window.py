@@ -114,6 +114,11 @@ _MIN_CHECKS_PX = 130
 #: The checks list's columns.  DETAIL is the one that carries a sentence.
 _DETAIL_COL = 4
 
+#: The detail wraps only while this many findings still fit wrapped; past that
+#: each finding is one elided line.  The same four rows the floor above was
+#: chosen for - which, wrapped, it was delivering as two on a 1366x768 laptop.
+_WRAP_ROWS = 4
+
 #: The compare tab before there is anything to compare against.  Declared once
 #: because it is set in two places - when the tab is built and whenever the
 #: reference is cleared - and a state that describes itself differently
@@ -895,9 +900,19 @@ class MainWindow(QMainWindow):
         # became a set of codes you had to click one at a time to read, which
         # is the opposite of a list you can scan.  It wraps now, and rows take
         # the height their own text needs.
+        #
+        # Except when the list is short.  Wrapped, two findings filled the
+        # panel at its floor, and a list of two is not one you can scan either.
+        # So below the height that holds _WRAP_ROWS wrapped findings it goes
+        # back to one line each, elided and without the column header - and the
+        # sentence the ellipsis cut is not lost: it is the tooltip, and the
+        # explanation panel on the left shows it in full, value and limit
+        # included, for whichever finding is selected.
         self.findings.setWordWrap(True)
         self.findings.setUniformRowHeights(False)
-        self.findings.setItemDelegate(WrappingColumn(self.findings, _DETAIL_COL))
+        self._detail = WrappingColumn(self.findings, _DETAIL_COL,
+                                      keep_rows=_WRAP_ROWS)
+        self.findings.setItemDelegate(self._detail)
 
         # The list gets the whole width.  The explanation panel used to sit
         # beside it and is under the parameters now - see
@@ -1120,6 +1135,9 @@ class MainWindow(QMainWindow):
             self.findings.setCurrentItem(None)
         self._findings_summary.setText(
             "" if shown == total else f"showing {shown} of {total}")
+        # Which rows are shown decides whether they fit wrapped, and hiding a
+        # row is not something the view tells its delegate about.
+        self._detail.refit()
 
     def _build_compare_tab(self) -> QWidget:
         page = QWidget()

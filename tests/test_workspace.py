@@ -592,6 +592,55 @@ def test_the_checks_list_cannot_be_squeezed_out_of_existence(app):
         w.close()
 
 
+def test_a_short_checks_list_is_one_line_per_finding(app):
+    """At its floor on a 1366x768 laptop the list held two wrapped findings.
+
+    The floor was chosen for four rows; wrapping spent them on reading one
+    finding instead of seeing several.  So a short list goes to one elided
+    line per finding - the sentence is the tooltip and the explanation panel -
+    and a list given the room wraps again.
+
+    One line each was two and a half rows while the column header kept 37 of
+    the pixels, so the header goes with the wrapping and comes back with it.
+    The promise is the four rows, so that is what is checked: every one of them
+    wholly inside the viewport, not merely started.
+    """
+    from cycloidgen.ui.main_window import _MIN_CHECKS_PX, _WRAP_ROWS
+
+    w = _window(app, width=1366)
+    try:
+        w.resize(1366, 768)
+        _pump(app, 0.4)
+        tree = w.findings
+        shown = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())
+                 if not tree.topLevelItem(i).isHidden()]
+        assert len(shown) > _WRAP_ROWS, "the default design no longer tests this"
+        line = tree.fontMetrics().height()
+        total = sum(w._view_split.sizes())
+
+        w._view_split.setSizes([total - _MIN_CHECKS_PX, _MIN_CHECKS_PX])
+        _pump(app, 0.3)
+        assert not w._detail.wrapping and not tree.wordWrap()
+        assert tree.header().isHidden()
+        assert all(tree.visualItemRect(item).height() < 2 * line for item in shown)
+        assert all(tree.visualItemRect(item).bottom() < tree.viewport().height()
+                   for item in shown[:_WRAP_ROWS])
+        assert all(item.toolTip(4) == item.text(4) for item in shown)
+
+        # The stage will not give up more than this at 768 px, so the room
+        # comes from a taller window - which is the case that wraps anyway.
+        w.resize(1366, 1050)
+        _pump(app, 0.3)
+        total = sum(w._view_split.sizes())
+        w._view_split.setSizes([total - 420, 420])
+        _pump(app, 0.3)
+        assert w._detail.wrapping and tree.wordWrap()
+        assert not tree.header().isHidden()
+        assert max(tree.visualItemRect(item).height() for item in shown) >= 2 * line
+    finally:
+        w.close()
+
+
 def test_the_checks_split_is_remembered(app):
     w = _window(app)
     total = sum(w._view_split.sizes())
