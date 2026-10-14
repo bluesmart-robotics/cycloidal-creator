@@ -26,10 +26,11 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..core import profile as prof
+from ..core.fasteners import nut_volume, screw_volume
 from ..core.spec import GearSpec
 from .bearings import BearingChoice, SeatBores, bearing_schedule, pin_diameters, seat_bores
 
-__all__ = ["MassResult", "analyse_mass"]
+__all__ = ["MassResult", "analyse_mass", "tie_bolt_mass_g"]
 
 _MM3_TO_CM3 = 1e-3
 
@@ -59,6 +60,10 @@ class MassResult:
     #: rollers.  Bought, but in the gearbox, so on the scale.  Estimated from
     #: each part's envelope - see :data:`~.bearings.BEARING_FILL`.
     bearings_mass_g: float
+    #: The tie bolts and their nuts, in the material the bill orders them in.
+    #: Only those: the motor's bolts and the output bolts have no length until
+    #: the drive knows what they go into, and a guessed length is a guessed mass.
+    fasteners_mass_g: float
 
     disc_inertia_kg_mm2: float         # about its own centre
     reflected_inertia_kg_mm2: float    # whole stack, seen at the input shaft
@@ -117,6 +122,19 @@ def _lip_volume(bores: SeatBores, host: str) -> float:
     """
     return sum(math.pi * ((s.seat / 2.0) ** 2 - (s.bore / 2.0) ** 2) * s.thickness
                for s in bores.shoulders if s.host == host)
+
+
+def tie_bolt_mass_g(spec: GearSpec) -> float:
+    """One tie bolt and its nut, grams; zero where the drive cannot name them.
+
+    A hole the fastener table has no size for is ordered by the hole and a
+    length, which is not a part anybody can weigh.
+    """
+    size, length = spec.tie_bolt_size, spec.tie_screw_length
+    if size is None or length is None:
+        return 0.0
+    return ((screw_volume(size, length) + nut_volume(size))
+            * _MM3_TO_CM3 * spec.pin_mat.density_g_cm3)
 
 
 def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
@@ -257,8 +275,11 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     bearings_mass = sum(c.count * c.bearing.mass_g for c in bearings
                         if c.fitted and c.fits and c.bearing is not None)
 
+    fasteners_mass = tie_bolt_mass_g(spec) * spec.housing_bolt_count
+
     total = (n * disc_mass + housing_mass + plates_mass + pins_mass
-             + shaft_mass + flange_mass + cap_mass + spacers_mass + bearings_mass)
+             + shaft_mass + flange_mass + cap_mass + spacers_mass + bearings_mass
+             + fasteners_mass)
 
     # ---- inertia ------------------------------------------------------------
     # kg*mm^2:  g/cm^3 * mm^4 * 1e-3 (cm^3/mm^3) / 1e3 (kg/g) = 1e-6
@@ -322,6 +343,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
         end_cap_mass_g=cap_mass,
         spacers_mass_g=spacers_mass,
         bearings_mass_g=bearings_mass,
+        fasteners_mass_g=fasteners_mass,
         disc_inertia_kg_mm2=disc_inertia,
         reflected_inertia_kg_mm2=reflected,
         unbalance_force_N=force,

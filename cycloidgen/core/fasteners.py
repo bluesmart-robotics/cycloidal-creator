@@ -17,8 +17,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-__all__ = ["SCREW_LENGTHS", "SIZES", "MetricSize", "hexagon", "screw_length",
-           "size_for_hole"]
+__all__ = ["SCREW_LENGTHS", "SIZES", "MetricSize", "hexagon", "nut_volume",
+           "screw_length", "screw_volume", "size_for_hole"]
 
 
 @dataclass(frozen=True)
@@ -94,3 +94,41 @@ def screw_length(grip: float, size: MetricSize) -> float | None:
     """
     need = grip + size.nut_m + 2.0 * size.pitch
     return next((n for n in SCREW_LENGTHS if n >= need - 1e-9), None)
+
+
+# ------------------------------------------------------------------- weight --
+#
+# What a bought fastener weighs, for the assembled mass.  Off the dimensions
+# above rather than from a weight table of its own, so the screw that is drawn,
+# ordered and weighed is one screw - and measured against the published ones:
+# ISO 4762's own mass table (at 7.85 g/cm3) has M3x30 1.86 g, M4x40 4.65 g,
+# M5x50 8.63 g, M6x40 11.0 g and M8x50 24.9 g, and these come within 5% of all
+# five; steel ISO 4032 nuts are sold at 0.8, 1.2, 2.5 and 5.2 g from M4 to M8,
+# and the nut here within 11% of each.  `tests/test_fasteners.py` holds both.
+
+
+def screw_volume(size: MetricSize, length: float) -> float:
+    """The steel in an ISO 4762 screw ``length`` under the head, mm^3.
+
+    The head as a cylinder less its socket, the shank at the nominal diameter,
+    and the threaded end - ISO 4762's reference thread length, ``2d + 12``, or
+    the whole shank when it is shorter - at the stress-area diameter, since a
+    thread is a groove and not a sleeve.
+    """
+    head = math.pi / 4.0 * size.head_d ** 2 * size.head_h
+    socket = math.sqrt(3.0) / 2.0 * size.socket ** 2 * size.socket_depth
+    shank = math.pi / 4.0 * size.d ** 2 * length
+    threaded = min(length, 2.0 * size.d + 12.0)
+    stress_d = size.d - 0.9382 * size.pitch
+    groove = threaded * math.pi / 4.0 * (size.d ** 2 - stress_d ** 2)
+    return head - socket + shank - groove
+
+
+def nut_volume(size: MetricSize) -> float:
+    """The steel in an ISO 4032 nut, mm^3.
+
+    A hexagonal prism bored to the nominal diameter: the thread's flanks that
+    leaves out and the corner chamfers it leaves in come to about the same.
+    """
+    return ((math.sqrt(3.0) / 2.0 * size.nut_s ** 2 - math.pi / 4.0 * size.d ** 2)
+            * size.nut_m)

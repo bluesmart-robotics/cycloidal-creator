@@ -137,9 +137,11 @@ def test_the_parts_add_up_to_the_assembly():
     m = analyse_mass(spec)
     parts = (spec.disc_count * m.disc_mass_g + m.housing_mass_g + m.plates_mass_g
              + m.pins_mass_g + m.shaft_mass_g + m.flange_mass_g
-             + m.end_cap_mass_g + m.spacers_mass_g + m.bearings_mass_g)
+             + m.end_cap_mass_g + m.spacers_mass_g + m.bearings_mass_g
+             + m.fasteners_mass_g)
     assert m.spacers_mass_g > 0.0
     assert m.bearings_mass_g > 0.0
+    assert m.fasteners_mass_g > 0.0
     assert m.total_mass_g == pytest.approx(parts, rel=1e-9)
 
 

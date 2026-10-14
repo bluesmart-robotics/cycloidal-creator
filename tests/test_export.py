@@ -538,13 +538,12 @@ def test_bom_calls_out_that_the_discs_are_different_parts(spec):
 
 
 def test_bom_mass_agrees_with_the_analysis(spec):
+    """The whole bill, every line, adds up to the assembled mass - made and
+    bought alike, now that the bought parts are weighed too."""
     from cycloidgen.export.bom import bom_items
     a = analyse(spec)
-    made = sum(i.mass_total_g for i in bom_items(a) if i.source == "make")
-    pins = sum(i.mass_total_g for i in bom_items(a) if i.part.endswith("(dowel)"))
-    bearings = sum(i.mass_total_g for i in bom_items(a)
-                   if i.material == "bearing steel")
-    assert made + pins + bearings == pytest.approx(a.mass.total_mass_g, rel=1e-6)
+    assert (sum(i.mass_total_g for i in bom_items(a))
+            == pytest.approx(a.mass.total_mass_g, rel=1e-6))
 
 
 def test_bom_csv_round_trips(spec, tmp_path):

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from ..analysis import DesignAnalysis
 from ..analysis.bearings import pin_diameters, seat_bores
+from ..core.fasteners import nut_volume, screw_volume
 from ..core.spec import OutputMember
 
 __all__ = ["BomItem", "bom_items", "write_bom_csv"]
@@ -201,19 +202,24 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
     # Named by size and length when the hole is one the table knows - what a
     # supplier is actually asked for - and by the hole when it is not.
     bolt = s.tie_bolt_size
-    if s.housing_bolt_count and bolt is not None:
+    if s.housing_bolt_count and bolt is not None and s.tie_screw_length is not None:
+        # The two halves of `tie_bolt_mass_g`, which is what the mass model
+        # adds up - so the lines and the total cannot disagree.
+        density = s.pin_mat.density_g_cm3 / 1000.0
+        screw_g = screw_volume(bolt, s.tie_screw_length) * density
+        nut_g = nut_volume(bolt) * density
         items.append(BomItem(
             part="Tie bolt", quantity=s.housing_bolt_count, material=s.pin_material,
             size=f"{bolt.name} x {s.tie_screw_length:g} socket head cap screw, "
                  f"ISO 4762",
-            mass_each_g=0.0, source="buy",
+            mass_each_g=screw_g, source="buy",
             note=f"head on the output end plate, through it, the barrel and the "
                  f"input end plate, on a {2 * s.housing_bolt_radius:.1f} mm "
                  f"circle; {s.tie_bolt_length:.0f} mm of grip"))
         items.append(BomItem(
             part="Tie bolt nut", quantity=s.housing_bolt_count,
             material=s.pin_material, size=f"{bolt.name} hexagon nut, ISO 4032",
-            mass_each_g=0.0, source="buy",
+            mass_each_g=nut_g, source="buy",
             note="on the input end plate's outside face"))
     elif s.housing_bolt_count:
         items.append(BomItem(

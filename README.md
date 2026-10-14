@@ -482,8 +482,9 @@ Beyond the geometry checks, every design gets a datasheet:
   the published limits use, *not* the Hertzian peak; the two differ by several
   times and are not interchangeable.
 - **Mass, inertia, unbalance.** Off the real lobed section, not a cylinder,
-  with every bearing in the drive on the scale too — estimated from its
-  envelope, which lands six published bearing masses within 11%.
+  with the bought parts on the scale too: every bearing, estimated from its
+  envelope, and the tie bolts and nuts, from their ISO dimensions — each held
+  to published masses in the tests.
   Reflected inertia at the input, and the shaking force a single disc throws —
   which goes as the square of speed. Evenly phased discs cancel the force and
   leave a couple.
@@ -844,7 +845,9 @@ lumped body in still air with no conduction into whatever the gearbox is bolted
 to. Bearing catalogue values are nominal metric-series figures, and a bearing's
 mass is estimated from its envelope rather than read from a maker's table; the
 unbalance and the reflected inertia count the discs alone, not the cam bearings
-orbiting with them, and the bolts are not weighed at all. PV limits are
+orbiting with them, and of the bolts only the tie bolts are weighed: the
+motor's and the output's have no length until the drive knows what they go
+into. PV limits are
 dry-against-steel design-guide values. The lubrication model builds a
 Dowson-Hamrock film for a *line* contact and applies it to the two conforming
 ones as well, where the formula was not derived — their film is capped at the

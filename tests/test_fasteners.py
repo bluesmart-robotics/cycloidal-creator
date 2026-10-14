@@ -5,7 +5,14 @@ from itertools import pairwise
 
 import pytest
 
-from cycloidgen.core.fasteners import SIZES, hexagon, screw_length, size_for_hole
+from cycloidgen.core.fasteners import (
+    SIZES,
+    hexagon,
+    nut_volume,
+    screw_length,
+    screw_volume,
+    size_for_hole,
+)
 
 
 def test_a_hole_names_the_bolt_it_is_the_clearance_for():
@@ -44,3 +51,31 @@ def test_a_hexagon_has_a_flat_where_it_is_asked_for():
     xs = [p[0] for p in pts]
     assert max(xs) == pytest.approx(3.5)                 # half across flats
     assert max(math.hypot(*p) for p in pts) == pytest.approx(7.0 / math.sqrt(3.0))
+
+
+#: ISO 4762's mass table, at the 7.85 g/cm3 it is computed with.
+_STEEL = 7.85e-3
+
+
+@pytest.mark.parametrize(("name", "length", "published_g"), [
+    ("M3", 30, 1.86), ("M4", 40, 4.65), ("M5", 50, 8.63),
+    ("M6", 40, 11.0), ("M8", 50, 24.9),
+])
+def test_a_screw_weighs_what_the_standard_says(name, length, published_g):
+    size = next(s for s in SIZES if s.name == name)
+    assert screw_volume(size, length) * _STEEL == pytest.approx(published_g, rel=0.06)
+
+
+@pytest.mark.parametrize(("name", "sold_g"), [
+    ("M4", 0.8), ("M5", 1.2), ("M6", 2.5), ("M8", 5.2),
+])
+def test_a_nut_weighs_about_what_it_is_sold_at(name, sold_g):
+    size = next(s for s in SIZES if s.name == name)
+    assert nut_volume(size) * _STEEL == pytest.approx(sold_g, rel=0.12)
+
+
+def test_a_longer_screw_is_heavier_by_its_shank_and_no_more():
+    """Past the thread, a millimetre more is a millimetre of plain shank."""
+    m4 = next(s for s in SIZES if s.name == "M4")
+    step = screw_volume(m4, 50.0) - screw_volume(m4, 40.0)
+    assert step == pytest.approx(10.0 * 3.141592653589793 / 4.0 * 16.0)
