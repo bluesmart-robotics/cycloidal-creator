@@ -105,11 +105,20 @@ def test_mesh_volume_matches_the_exported_solid(ratio, discs):
     # STEP assembly, so they are held to the same agreement as everything else.
     solids = {**solid.parts(s), **solid.bearing_solids(s),
               "tie_bolts": solid.tie_bolts(s), "tie_nuts": solid.tie_nuts(s)}
+    # A bearing is the exception.  The quick mesh draws it as the room it
+    # takes, and the solid is the bearing - rings and rolling elements, about
+    # two thirds of that room, which `test_bearings.py` holds it to.  So the
+    # quick one is held to the room.
+    from cycloidgen.analysis.bearings import placements_for_spec
+    room = {p.name: sum(np.pi / 4.0 * (p.outer ** 2 - p.bore ** 2) * (r.z1 - r.z0)
+                        for r in p.rings)
+            for p in placements_for_spec(s)}
     for i, part in enumerate(mesh.parts):
         name = part.name
         if part.group == "discs" and s.discs_are_identical:
             name = "disc"
-        expected = solids[name].val().Volume()
+        expected = (room[name] if part.group == "bearings"
+                    else solids[name].val().Volume())
         assert volumes[i] == pytest.approx(expected, rel=0.03), part.name
     # ...and nothing is in one and not the other.  Stated against the export's
     # own part list rather than a count, which was a magic number that had to be

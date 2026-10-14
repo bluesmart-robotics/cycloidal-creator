@@ -19,6 +19,7 @@ from OCP.TColgp import TColgp_Array1OfPnt
 from OCP.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
 
 from ..analysis.bearings import (
+    BY_NAME,
     BearingPlacement,
     SeatBores,
     Shoulder,
@@ -30,7 +31,7 @@ from ..analysis.bearings import (
     seat_bores,
 )
 from ..core import profile as prof
-from ..core.fasteners import hexagon
+from ..core.fasteners import THREAD_DEPTH, MetricSize, hexagon, thread_length
 from ..core.spec import CARRIER_DROP, GearSpec
 from ..viz.mesh import PART_COLOURS, TIE_BOLT_NOMINAL
 from .manifest import disc_names
@@ -110,6 +111,54 @@ def _convex(body: cq.Shape, edge: cq.Edge, step: float = 1e-3) -> bool:
     a, b = faces[0].normalAt(p), faces[1].normalAt(p)
     return not (body.isInside(p + a * step - b * step)
                 or body.isInside(p + b * step - a * step))
+
+
+#: The radius an inside corner is turned or milled to, millimetres - what a
+#: cutter's own nose leaves rather than a sharp corner nobody can cut.  Under the
+#: 0.3 mm that the smallest bearing ring here is chamfered to at least, so a ring
+#: still sits flat on the face beside it: the rule a bearing catalogue gives for
+#: the corner a ring is fitted against.
+INSIDE_RADIUS = 0.2
+
+
+def _round_inside(wp: cq.Workplane, size: float = INSIDE_RADIUS) -> cq.Workplane:
+    """Radius the inside corners of ``wp`` that run round the drive's axis.
+
+    The seat-to-lip corner a bearing's outer ring sits in, and the root of the
+    carrier's boss its inner ring stands against.  Only round the axis: a
+    corner round anything else here is where a bought dowel goes into a made
+    part, and that has no radius.  Not the shaft, either: every face of every
+    cam has a sleeve or a disc washer standing on it, a millimetre-thick washer
+    can spare nothing to a chamfer that would clear one, and a sharp corner is
+    what the shaft had.  A kernel that will not fillet a corner leaves the part
+    as it was rather than failing the export.
+    """
+    body = wp.val()
+
+    def on_axis(edge: cq.Edge) -> bool:
+        centre = edge._geomAdaptor().Circle().Location()
+        return abs(centre.X()) < 1e-6 and abs(centre.Y()) < 1e-6
+
+    edges = [e for e in body.Edges()
+             if e.geomType() == "CIRCLE" and on_axis(e) and _concave(body, e)]
+    if not edges:
+        return wp
+    try:
+        rounded = body.fillet(size, edges)
+    except Exception:
+        return wp
+    return cq.Workplane("XY").add(rounded) if rounded.isValid() else wp
+
+
+def _concave(body: cq.Shape, edge: cq.Edge, step: float = 1e-3) -> bool:
+    """The inside corner :func:`_convex` refuses: both probes land in metal."""
+    faces = [f for f in body.Faces() if any(edge.isSame(e) for e in f.Edges())]
+    if len(faces) != 2:
+        return False
+    p = edge.positionAt(0.5)
+    a, b = faces[0].normalAt(p), faces[1].normalAt(p)
+    return (body.isInside(p + a * step - b * step)
+            and body.isInside(p + b * step - a * step))
 
 
 def _break_edges(wp: cq.Workplane, radii: Sequence[float],
@@ -451,7 +500,7 @@ def output_flange(spec: GearSpec,
              *_lips(bores.shoulders, "output_flange")]
     if spec.ground_frame_fitted:
         radii.append(spec.housing_outer_radius)
-    return _break_edges(body, radii, min(spec.edge_chamfer, t / 4.0))
+    return _round_inside(_break_edges(body, radii, min(spec.edge_chamfer, t / 4.0)))
 
 
 def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = (),
@@ -505,10 +554,10 @@ def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = (),
             .extrude(spec.cap_boss_top - spec.end_cap_bottom))
     body = _add_shoulders(plate.union(boss).cut(pins).cut(bore), spec,
                           bores.shoulders, "end_cap")
-    return _break_edges(body,
-                        [plate_r, spec.hub_diameter / 2.0, seat / 2.0,
-                         *_lips(bores.shoulders, "end_cap")],
-                        min(spec.edge_chamfer, spec.output_flange_thickness / 4.0))
+    return _round_inside(_break_edges(
+        body, [plate_r, spec.hub_diameter / 2.0, seat / 2.0,
+               *_lips(bores.shoulders, "end_cap")],
+        min(spec.edge_chamfer, spec.output_flange_thickness / 4.0)))
 
 
 def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
@@ -562,20 +611,112 @@ def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
     plate = _add_shoulders(plate, spec, shoulders, host)
     # The rim, held clear of the tie-bolt holes as the barrel's is, and both
     # mouths of the bore, which is a bearing seat in either plate.
-    return _break_edges(plate, [spec.housing_outer_radius, max(bore, 1e-3) / 2.0,
-                                *_lips(shoulders, host)],
-                        min(spec.edge_chamfer, spec.plate_thickness / 4.0,
-                            _rim_land(spec) / 2.0))
+    return _round_inside(_break_edges(
+        plate, [spec.housing_outer_radius, max(bore, 1e-3) / 2.0,
+                *_lips(shoulders, host)],
+        min(spec.edge_chamfer, spec.plate_thickness / 4.0, _rim_land(spec) / 2.0)))
+
+
+#: A deep-groove ball's diameter as a share of the bearing's radial section,
+#: ``(D - d) / 2``.  Catalogues do not print it, and it is close to the same
+#: number across a series: it puts a 6004's ball at 6.6 mm against the 6.35 mm
+#: it has.
+BALL_SHARE = 0.60
+#: How far each ring's shoulder reaches towards the pitch circle, as a share of
+#: the ball - leaving a gap between the rings that the balls show through.
+SHOULDER_SHARE = 0.36
+#: A drawn cup's wall, as a share of the radial section; the rest is needle.
+CUP_SHARE = 0.25
+#: Needle centres apart, in needle diameters: the cage between them.  Sets the
+#: cup at about two thirds of its envelope, where the published masses of HK
+#: cups put it - see :data:`~cycloidgen.analysis.bearings.BEARING_FILL`.
+CAGE_PITCH = 1.45
+
+
+def _ball_bearing(d: float, D: float, B: float) -> list[cq.Shape]:
+    """A deep-groove ball bearing on the Z axis, from z = 0 to ``B``.
+
+    Two rings with their corners broken and a raceway in each, and a full
+    pitch circle of balls showing between them.  No cage: it is what holds the
+    balls apart, and the balls held apart is what it would show.
+    """
+    section = (D - d) / 2.0
+    ball = BALL_SHARE * section
+    pitch = (D + d) / 4.0                                  # pitch radius
+    inner_out = pitch - SHOULDER_SHARE * ball
+    outer_in = pitch + SHOULDER_SHARE * ball
+    corner = min(0.3, B / 10.0, section / 8.0)
+
+    def ring(r_out: float, r_in: float) -> cq.Shape:
+        body = cq.Workplane("XY").circle(r_out).circle(r_in).extrude(B)
+        body = body.edges("%CIRCLE").chamfer(corner).val()
+        groove = cq.Solid.makeTorus(pitch, 0.52 * ball,
+                                    pnt=cq.Vector(0, 0, B / 2.0))
+        return body.cut(groove)
+
+    count = max(int(2.0 * math.pi * pitch / (1.25 * ball)), 3)
+    balls = [cq.Solid.makeSphere(ball / 2.0, cq.Vector(
+        pitch * math.cos(2.0 * math.pi * k / count),
+        pitch * math.sin(2.0 * math.pi * k / count), B / 2.0),
+        angleDegrees1=-90, angleDegrees2=90)
+        for k in range(count)]
+    return [ring(D / 2.0, outer_in), ring(inner_out, d / 2.0), *balls]
+
+
+def _drawn_cup(fw: float, D: float, C: float) -> list[cq.Shape]:
+    """A drawn-cup needle roller bearing on the Z axis, from z = 0 to ``C``.
+
+    A thin pressed cup with a lip turned in at each end, and needles riding
+    directly on whatever goes through it - which is why its bore is ``Fw``, the
+    needles' own inscribed circle, and not a ring.
+    """
+    section = (D - fw) / 2.0
+    wall = CUP_SHARE * section
+    needle = section - wall
+    lip = fw / 2.0 + 0.55 * needle
+    profile = [(D / 2.0, 0.0), (D / 2.0, C), (lip, C), (lip, C - wall),
+               (D / 2.0 - wall, C - wall), (D / 2.0 - wall, wall), (lip, wall),
+               (lip, 0.0)]
+    cup = (cq.Workplane("XZ").polyline(profile).close()
+           .revolve(360.0, (0, 0, 0), (0, 1, 0)).val())
+    length = C - 2.0 * wall - 0.2
+    centre = fw / 2.0 + needle / 2.0
+    count = max(int(2.0 * math.pi * centre / (CAGE_PITCH * needle)), 3)
+    needles = [cq.Solid.makeCylinder(needle / 2.0, length, cq.Vector(
+        centre * math.cos(2.0 * math.pi * k / count),
+        centre * math.sin(2.0 * math.pi * k / count), wall + 0.1))
+        for k in range(count)]
+    return [cup, *needles]
+
+
+def _bearing_shapes(placement: BearingPlacement, width: float) -> list[cq.Shape]:
+    """One bearing of ``placement``, at the origin: races and rolling elements
+    where the catalogue says what kind it is, a plain ring where it does not."""
+    part = BY_NAME.get(placement.catalogue)
+    d, D = placement.bore, placement.outer
+    try:
+        if part is not None and part.kind == "needle":
+            return _drawn_cup(d, D, width)
+        if part is not None:
+            return _ball_bearing(d, D, width)
+    except Exception:                       # a kernel that will not cut it
+        pass
+    return [cq.Workplane("XY").circle(D / 2.0).circle(d / 2.0)
+            .extrude(width).val()]
 
 
 def bearing_solids(spec: GearSpec,
                    placements: Sequence[BearingPlacement] | None = None
                    ) -> dict[str, cq.Workplane]:
-    """The bearings as plain rings, keyed by part name.
+    """The bearings, keyed by part name: rings, races and rolling elements.
 
-    Rings, not races and rolling elements.  What the assembly has to answer is
-    where a bearing goes and how much room it takes, and a modelled cage would
-    add a few thousand faces to say nothing more about either.
+    Drawn as the part rather than as the room it takes, because a CAD model
+    with a grey annulus where a bearing goes is a sketch, and anyone opening
+    the STEP file sees the bearing before they see anything else.  Each one is
+    a compound of separate solids - rings, balls, needles, a cup - and not a
+    union: they are separate pieces of steel, and fusing a few hundred needles
+    into one body is a boolean that costs seconds to say nothing.  One bearing
+    is built per placement and copied to every position it has.
 
     Built at their **assembled** height rather than in a part-local frame,
     because that is the one thing they share with the mesh: the two differ by a
@@ -586,16 +727,17 @@ def bearing_solids(spec: GearSpec,
         placements = placements_for_spec(spec)
     out: dict[str, cq.Workplane] = {}
     for placement in placements:
-        body: cq.Workplane | None = None
+        made: dict[float, list[cq.Shape]] = {}
+        shapes: list[cq.Shape] = []
         for r in placement.rings:
-            ring = (cq.Workplane("XY").workplane(offset=r.z0)
-                    .center(r.cx, r.cy)
-                    .circle(placement.outer / 2.0)
-                    .circle(placement.bore / 2.0)
-                    .extrude(r.z1 - r.z0))
-            body = ring if body is None else body.union(ring)
-        if body is not None:
-            out[placement.name] = body
+            width = round(r.z1 - r.z0, 9)
+            if width not in made:
+                made[width] = _bearing_shapes(placement, width)
+            shapes += [s.moved(cq.Location(cq.Vector(r.cx, r.cy, r.z0)))
+                       for s in made[width]]
+        if shapes:
+            out[placement.name] = cq.Workplane("XY").add(
+                cq.Compound.makeCompound(shapes))
     return out
 
 
@@ -669,18 +811,84 @@ def tie_bolts(spec: GearSpec) -> cq.Workplane:
                 .circle(shank / 2.0)
                 .extrude(spec.tie_bolt_length))
     length = spec.tie_screw_length or spec.tie_bolt_length
-    body: cq.Workplane | None = None
+    shapes = []
     for cx, cy, a in _bolt_centres(spec):
-        bolt = (cq.Workplane("XY").workplane(offset=z0).center(cx, cy)
-                .circle(size.d / 2.0).extrude(length))
-        head = (cq.Workplane("XY").workplane(offset=z0 - size.head_h)
-                .center(cx, cy).circle(size.head_d / 2.0).extrude(size.head_h))
-        socket = (cq.Workplane("XY").workplane(offset=z0 - size.head_h)
-                  .polyline(hexagon(cx, cy, size.socket, a)).close()
-                  .extrude(size.socket_depth))
-        bolt = bolt.union(head).cut(socket)
-        body = bolt if body is None else body.union(bolt)
-    return body
+        try:
+            bolt = _cap_screw(size, length, a)
+        except Exception:                   # a kernel that will not cut it
+            bolt = (cq.Workplane("XY").circle(size.d / 2.0).extrude(length)
+                    .union(cq.Workplane("XY").workplane(offset=-size.head_h)
+                           .circle(size.head_d / 2.0).extrude(size.head_h))
+                    .val())
+        shapes.append(bolt.moved(cq.Location(cq.Vector(cx, cy, z0))))
+    return cq.Workplane("XY").add(cq.Compound.makeCompound(shapes))
+
+
+def _thread_profile(size: MetricSize, z_start: float, z_end: float) -> list:
+    """Half a threaded shank, as the (r, z) outline a revolve turns into one.
+
+    Rings rather than a helix: a V-groove every pitch, as deep as an external
+    thread's - which is a thread to the eye and to the volume, and a few dozen
+    conical faces to the kernel where a true helix is a swept surface it has to
+    trim against everything it touches.  Ends in the usual 45-degree point,
+    down to the root.
+    """
+    crest, root = size.d / 2.0, size.d / 2.0 - THREAD_DEPTH * size.pitch
+    points = [(0.0, z_start), (crest, z_start)]
+    z = z_start
+    while z + size.pitch <= z_end - (crest - root) + 1e-9:
+        points += [(root, z + size.pitch / 2.0), (crest, z + size.pitch)]
+        z += size.pitch
+    if z_end - (crest - root) > z + 1e-6:
+        points.append((crest, z_end - (crest - root)))
+    points += [(root, z_end), (0.0, z_end)]
+    return points
+
+
+def _cap_screw(size: MetricSize, length: float, flat: float) -> cq.Shape:
+    """An ISO 4762 socket head cap screw, its head under ``z = 0``.
+
+    The head's free end is broken, the socket is a hexagon ending in the cone
+    its drill left, and the shank is plain to where ISO 4762's reference thread
+    length, ``2d + 12``, begins - threaded from there to the point.
+    """
+    threaded = thread_length(size, length)
+    plain = (cq.Workplane("XY").circle(size.d / 2.0)
+             .extrude(length - threaded).val()) if threaded < length else None
+    thread = (cq.Workplane("XZ")
+              .polyline(_thread_profile(size, length - threaded, length)).close()
+              .revolve(360.0, (0, 0, 0), (0, 1, 0)).val())
+    head = (cq.Workplane("XY").workplane(offset=-size.head_h)
+            .circle(size.head_d / 2.0).extrude(size.head_h)
+            .faces("<Z").edges().chamfer(0.08 * size.head_d).val())
+    corner = size.socket / math.sqrt(3.0)
+    socket = (cq.Workplane("XY").workplane(offset=-size.head_h)
+              .polyline(hexagon(0.0, 0.0, size.socket, flat)).close()
+              .extrude(size.socket_depth).val())
+    drill = cq.Solid.makeCone(corner, 0.0, 0.6 * corner, cq.Vector(
+        0, 0, -size.head_h + size.socket_depth))
+    body = head.fuse(thread) if plain is None else head.fuse(plain, thread)
+    return body.cut(socket.fuse(drill)).clean()
+
+
+def _hex_nut(size: MetricSize, flat: float) -> cq.Shape:
+    """An ISO 4032 nut from ``z = 0`` to its height, bore at the nominal size.
+
+    Both faces chamfered at thirty degrees from just inside the flats, which is
+    what puts the ring on a nut's face: a hexagonal prism cut by a double cone.
+    """
+    corners = size.nut_s / math.sqrt(3.0)
+    face = 0.475 * size.nut_s
+    drop = (corners - face) * math.tan(math.radians(30.0))
+    crown = (cq.Workplane("XZ")
+             .polyline([(0.0, 0.0), (face, 0.0), (corners + 0.01, drop + 0.01),
+                        (corners + 0.01, size.nut_m - drop - 0.01),
+                        (face, size.nut_m), (0.0, size.nut_m)]).close()
+             .revolve(360.0, (0, 0, 0), (0, 1, 0)).val())
+    prism = (cq.Workplane("XY").polyline(hexagon(0.0, 0.0, size.nut_s, flat))
+             .close().extrude(size.nut_m).val())
+    bore = cq.Workplane("XY").circle(size.d / 2.0).extrude(size.nut_m).val()
+    return prism.intersect(crown).cut(bore).clean()
 
 
 def tie_nuts(spec: GearSpec) -> cq.Workplane | None:
@@ -694,15 +902,17 @@ def tie_nuts(spec: GearSpec) -> cq.Workplane | None:
     if size is None:
         return None
     face = spec.barrel_top + spec.plate_thickness
-    body: cq.Workplane | None = None
+    shapes = []
     for cx, cy, a in _bolt_centres(spec):
-        nut = (cq.Workplane("XY").workplane(offset=face)
-               .polyline(hexagon(cx, cy, size.nut_s, a)).close()
-               .extrude(size.nut_m))
-        nut = nut.cut(cq.Workplane("XY").workplane(offset=face).center(cx, cy)
-                      .circle(size.d / 2.0).extrude(size.nut_m))
-        body = nut if body is None else body.union(nut)
-    return body
+        try:
+            nut = _hex_nut(size, a)
+        except Exception:                   # a kernel that will not cut it
+            nut = (cq.Workplane("XY").polyline(hexagon(0.0, 0.0, size.nut_s, a))
+                   .close().extrude(size.nut_m)
+                   .cut(cq.Workplane("XY").circle(size.d / 2.0)
+                        .extrude(size.nut_m)).val())
+        shapes.append(nut.moved(cq.Location(cq.Vector(cx, cy, face))))
+    return cq.Workplane("XY").add(cq.Compound.makeCompound(shapes))
 
 
 def build_assembly(spec: GearSpec) -> cq.Assembly:

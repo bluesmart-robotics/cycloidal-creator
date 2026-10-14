@@ -50,7 +50,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,349 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,353 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -225,7 +225,7 @@ which writes everything or everything but the solids.
 | `disc.svg` | drawings | Same drawing, 1 unit = 1 mm |
 | `dxf/` | drawings | One cutting file per part — each disc on its own, the ring plate, a carrier drilling template drilled for the *press fit* rather than for the disc's running hole, and the two end plates with their tie-bolt circle and motor pattern |
 | `sketch/` | drawings | The same disc outline as **one closed cubic spline** instead of the cutting file's ~1,800 vertices — a curve a CAD package can offset, dimension and build features against. Fitted to the design's own chord tolerance and stamped with the deviation it reached, with the centre marks and bolt circle the disc never had. Not a cutting file: two outlines in one file is a part cut twice |
-| `assembly.step` | solids | Full gearbox: housing and its two end plates, ring pins, phased discs, eccentric shaft, output flange with its bearing boss, every bearing that fits, coloured |
+| `assembly.step` | solids | Full gearbox: housing and its two end plates, ring pins, phased discs, eccentric shaft, output flange with its bearing boss, every bearing that fits, coloured. Bought parts drawn as the parts: a ball bearing as two rings with raceways and a pitch circle of balls, a drawn cup as its cup and needles, the tie bolts threaded with a broken head and a drilled socket, the nuts chamfered. Inside corners where a bearing ring sits are radiused under the ring's own chamfer |
 | `step/` | solids | Each part as its own solid, in its own frame, carrying its own name and colour inside the file — so a part imported into your own assembly arrives as `housing` rather than as whatever the kernel calls it. A disc's flank is the same spline as `sketch/`, not facets: one face per flank, with a vertex on every lobe root and crest to dimension from |
 | `stl/` | solids | Each part separately — STL has no assembly structure. A multi-disc stack gets `disc_1.stl`, `disc_2.stl`, … because **the discs are not the same part** (see below). A printed part — PLA, PETG, ABS, PA12 or resin — comes ready to print: laid on whichever face leaves the least to support, standing on the bed, and on FDM with its bed edge broken back 0.3 mm so the squashed first layer does not stand proud of the profile |
 | `assembly.3mf` | solids | The same meshes in one container, with what STL cannot carry: every part where it assembles, in its own colour, named for its material. Identical discs are one object placed twice; different ones are two objects. Made parts only — the bearings and the bolts are bought |
@@ -608,9 +608,12 @@ suggests it.
   telling a fit from a clash is what the checks are for.
 
   The bearings are in there too, at the size the sizing study picked rather than
-  the size of the space they go in — a ring on the cam inside each disc bore,
-  sleeves over the ring and output pins where a roller was selected, and the two
-  shaft supports where the end plates belong. Where a bearing is not drawn it is
+  the size of the space they go in, and as bearings — rings and balls, or a
+  drawn cup and its needles: one on the cam inside each disc bore, rollers over
+  the ring and output pins where a roller was selected, and the two shaft
+  supports where the end plates belong. Drawn, a bearing is about two thirds
+  steel and a third room, which is the share the mass model weighs it at off
+  published masses; a test holds the two to each other. Where a bearing is not drawn it is
   because the model has nothing for it to sit in, and its note in the schedule
   says which case it is.
 
@@ -692,8 +695,10 @@ suggests it.
 
   It renders on the GPU through VTK — which costs no new dependency, because
   the CAD kernel that writes your STEP files already brings it. Depth buffer,
-  smooth shading off feature-angle normals so the pins are round rather than
-  faceted, screen-space ambient occlusion sized off the drive so a pin sits
+  smooth shading - off feature-angle normals on the quick mesh, and off the
+  solid's own surface normals, as OCCT works them out, on the CAD one, so a
+  flat face is flat to the last digit and reflects as one - screen-space
+  ambient occlusion sized off the drive so a pin sits
   *in* its pocket, and multisampled edges. The shading is physical: every
   material has a finish, a metal is drawn in its own colour — ground 4140 dark,
   polished bearing steel bright, milled aluminium pale — and a printed part
@@ -920,7 +925,7 @@ cycloidgen/
 docs/           the API reference and the README's figures
 tools/          what draws the banner, the icon, the logo assets, the
                 installer's bitmaps and the screenshots
-tests/          1,349 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,353 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -936,7 +941,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,349 tests, about 700 s. Most of that is CadQuery writing solids; the pure
+1,353 tests, about 700 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

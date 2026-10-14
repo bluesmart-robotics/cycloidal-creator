@@ -44,7 +44,7 @@ from ..analysis.bearings import (
     seat_bores,
 )
 from ..core import profile as prof
-from ..core.fasteners import hexagon
+from ..core.fasteners import hexagon, thread_length, thread_mean_diameter
 from ..core.spec import CARRIER_DROP, GearSpec
 
 __all__ = [
@@ -304,6 +304,16 @@ class Mesh:
     #: grounded carrier the disc's centre still walks a circle, but the circle
     #: is walked at a different rate and from a turning frame.
     frame_spin: float = 0.0
+    #: For a mesh tessellated from solids, per part name: points, the solid's
+    #: own surface normal at each, and triangles - every face of the solid on
+    #: points of its own - and then the part's welded triangles, as indices
+    #: into its own vertices.  A renderer shades with the first three rather
+    #: than averaging normals off the triangles: averaged, a vertex where a
+    #: chamfer's corner touches a flat face tilts the face's shading by a
+    #: degree, and on a metal that reflects its surroundings a degree is a
+    #: visible streak.  The last is the closed surface, in one array rather
+    #: than a hundred thousand loops to walk.
+    shading: dict | None = None
 
     @property
     def facet_count(self) -> int:
@@ -981,7 +991,17 @@ def build_mesh(spec: GearSpec,
                     b.cap(socket, (), floor, up=False)
                     b.prism(head, (), floor, z0, cap_bottom=False, cap_top=False)
                     b.ring(head, shank, z0, up=True)
-                    b.prism(shank, (), z0, z0 + length, cap_bottom=False)
+                    # The thread as the cylinder that holds its steel: a step
+                    # down where it starts, so the preview and the solid enclose
+                    # the same bolt without drawing a groove a pitch.
+                    start = z0 + length - thread_length(size, length)
+                    thread = _circle(cx, cy, thread_mean_diameter(size) / 2.0,
+                                     _BOLT_SEGMENTS)
+                    if start > z0 + 1e-9:
+                        b.prism(shank, (), z0, start, cap_bottom=False,
+                                cap_top=False)
+                    b.ring(shank, thread, start, up=True)
+                    b.prism(thread, (), start, z0 + length, cap_bottom=False)
             face = spec.barrel_top + spec.plate_thickness
             with b.part("tie_nuts", "Tie bolt nuts", "fasteners",
                         PART_COLOURS["fasteners"]):

@@ -52,8 +52,12 @@ def test_every_part_is_a_closed_surface_enclosing_its_solid(pair):
         assert (uses == 2).all(), f"{part.name} is not closed"
         volume = np.einsum("ij,ij->i", v[tris[:, 0]],
                            np.cross(v[tris[:, 1]], v[tris[:, 2]])).sum() / 6.0
-        assert volume == pytest.approx(solids[part.name].Volume(), rel=0.005), \
-            part.name
+        # The bought parts are tessellated coarser on purpose - see
+        # `cadmesh.BOUGHT_ANGULAR_TOLERANCE` - and their balls and needles
+        # lose a little more to it.
+        coarse = part.group in cadmesh.BOUGHT_GROUPS
+        assert volume == pytest.approx(solids[part.name].Volume(),
+                                       rel=0.02 if coarse else 0.005), part.name
 
 
 @pytest.mark.parametrize("crank", [0.0, 0.7, 2.9])

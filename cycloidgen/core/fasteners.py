@@ -17,8 +17,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-__all__ = ["SCREW_LENGTHS", "SIZES", "MetricSize", "hexagon", "nut_volume",
-           "screw_length", "screw_volume", "size_for_hole"]
+__all__ = ["SCREW_LENGTHS", "SIZES", "THREAD_DEPTH", "MetricSize", "hexagon",
+           "nut_volume", "screw_length", "screw_volume", "size_for_hole",
+           "thread_length", "thread_mean_diameter"]
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,29 @@ def hexagon(cx: float, cy: float, across_flats: float,
     return [(cx + r * math.cos(flat_towards + math.pi / 6.0 + k * math.pi / 3.0),
              cy + r * math.sin(flat_towards + math.pi / 6.0 + k * math.pi / 3.0))
             for k in range(6)]
+
+
+#: An external thread's depth, in pitches: crest to root, ISO 68-1's h3.
+THREAD_DEPTH = 0.6134
+
+
+def thread_length(size: MetricSize, length: float) -> float:
+    """How much of a screw ``length`` under the head is threaded: ISO 4762's
+    reference length ``2d + 12``, or all of it when it is shorter."""
+    return min(length, 2.0 * size.d + 12.0)
+
+
+def thread_mean_diameter(size: MetricSize) -> float:
+    """The plain cylinder with a V-thread's volume per length.
+
+    The drawn thread is a groove every pitch, its radius running straight from
+    crest to root and back, so the mean of r squared along it is the mean of a
+    linear ramp's square - which is what a drawing that cannot afford the
+    grooves draws instead, and still encloses the same steel.
+    """
+    crest = size.d / 2.0
+    root = crest - THREAD_DEPTH * size.pitch
+    return 2.0 * math.sqrt((crest ** 2 + crest * root + root ** 2) / 3.0)
 
 
 def screw_length(grip: float, size: MetricSize) -> float | None:

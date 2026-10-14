@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from itertools import pairwise
 
+import numpy as np
 import pytest
 
 from cycloidgen.core.fasteners import (
@@ -12,6 +13,7 @@ from cycloidgen.core.fasteners import (
     screw_length,
     screw_volume,
     size_for_hole,
+    thread_mean_diameter,
 )
 
 
@@ -79,3 +81,28 @@ def test_a_longer_screw_is_heavier_by_its_shank_and_no_more():
     m4 = next(s for s in SIZES if s.name == "M4")
     step = screw_volume(m4, 50.0) - screw_volume(m4, 40.0)
     assert step == pytest.approx(10.0 * 3.141592653589793 / 4.0 * 16.0)
+
+
+def test_the_drawn_screw_and_nut_are_the_ones_weighed():
+    """The STEP fasteners have threads, a broken head, a drilled socket and
+    chamfered nuts now; the mass model weighs them off the table.  Two ways of
+    getting the same steel, so they are held to each other."""
+    from cycloidgen.core.spec import preset
+    from cycloidgen.export import solid
+
+    spec = preset(21)
+    size, length = spec.tie_bolt_size, spec.tie_screw_length
+    count = spec.housing_bolt_count
+    bolts, nuts = solid.tie_bolts(spec).val(), solid.tie_nuts(spec).val()
+    assert bolts.isValid() and nuts.isValid()
+    assert bolts.Volume() / count == pytest.approx(screw_volume(size, length), rel=0.05)
+    assert nuts.Volume() / count == pytest.approx(nut_volume(size), rel=0.05)
+
+
+def test_the_thread_preview_holds_the_thread_s_steel():
+    """The quick mesh draws the thread as a plain cylinder: the one whose
+    volume per length is the V-groove's, by integration along a pitch."""
+    m4 = next(s for s in SIZES if s.name == "M4")
+    crest, root = m4.d / 2.0, m4.d / 2.0 - 0.6134 * m4.pitch
+    r = np.concatenate([np.linspace(crest, root, 5001), np.linspace(root, crest, 5001)])
+    assert (thread_mean_diameter(m4) / 2.0) ** 2 == pytest.approx((r ** 2).mean(), rel=1e-4)

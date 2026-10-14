@@ -136,6 +136,10 @@ def closed_polydata(mesh: Mesh, part: Part) -> vtkPolyData:
     vertex, not two vertices that happen to be close, and a tolerance here
     would start welding a thin wall to itself.
     """
+    if mesh.shading and part.name in mesh.shading:
+        # Welded already, and all triangles: straight into VTK from the arrays.
+        return _shaded(mesh.vertices[part.vertices], None,
+                       mesh.shading[part.name][3])
     clean = vtkCleanPolyData()
     clean.SetInputData(_surface(mesh, part))
     clean.PointMergingOn()
@@ -156,7 +160,13 @@ def part_polydata(mesh: Mesh, part: Part) -> vtkPolyData:
     what makes it a shading decision rather than an accident of how the faces
     were emitted.  Anything that needs the topology, rather than the shading,
     wants ``closed_polydata``: this surface is deliberately open again.
+
+    A mesh tessellated from solids brings its own normals - the surface's, at
+    every point - and those are used as they come.
     """
+    if mesh.shading and part.name in mesh.shading:
+        points, normals, triangles, _ = mesh.shading[part.name]
+        return _shaded(points, normals, triangles)
     normals = vtkPolyDataNormals()
     normals.SetInputData(closed_polydata(mesh, part))
     normals.SetFeatureAngle(FEATURE_ANGLE)
@@ -170,6 +180,31 @@ def part_polydata(mesh: Mesh, part: Part) -> vtkPolyData:
     normals.SetOutputPointsPrecision(_DOUBLE)
     normals.Update()
     return normals.GetOutput()
+
+
+def _shaded(points: np.ndarray, normals: np.ndarray | None,
+            triangles: np.ndarray) -> vtkPolyData:
+    """Polydata straight from points, their normals if any, and triangles."""
+    from vtkmodules.util.numpy_support import numpy_to_vtk, numpy_to_vtkIdTypeArray
+
+    surface = vtkPolyData()
+    vtk_points = vtkPoints()
+    vtk_points.SetDataTypeToDouble()
+    vtk_points.SetData(numpy_to_vtk(np.ascontiguousarray(points, dtype=float),
+                                    deep=1))
+    surface.SetPoints(vtk_points)
+    count = len(triangles)
+    cells = vtkCellArray()
+    cells.SetData(numpy_to_vtkIdTypeArray(np.arange(0, 3 * count + 1, 3), deep=1),
+                  numpy_to_vtkIdTypeArray(np.ascontiguousarray(
+                      triangles, dtype=np.int64).ravel(), deep=1))
+    surface.SetPolys(cells)
+    if normals is not None:
+        vtk_normals = numpy_to_vtk(np.ascontiguousarray(normals, dtype=np.float32),
+                                   deep=1)
+        vtk_normals.SetName("Normals")
+        surface.GetPointData().SetNormals(vtk_normals)
+    return surface
 
 
 def feature_edges(polydata):

@@ -42,6 +42,12 @@ LINEAR_TOLERANCE = 0.01
 #: circle, where the linear limit is met by a handful of facets.  About forty
 #: to a pin or a bolt.
 ANGULAR_TOLERANCE = 0.15
+#: Coarser for the bought parts, whose detail is small and many: a bearing's
+#: needles and balls and a bolt's thread grooves are most of the triangles in
+#: the drive at the finer setting, and twenty facets round a 1.5 mm needle is
+#: round at any zoom the view allows.
+BOUGHT_ANGULAR_TOLERANCE = 0.3
+BOUGHT_GROUPS = frozenset({"bearings", "fasteners"})
 
 #: What the solids read off the design that the quick mesh does not, so is not
 #: in its fingerprint: the edge breaks, the shaft's flat, the disc as a spline,
@@ -129,11 +135,58 @@ def _shapes(spec: GearSpec) -> dict:
     return placed
 
 
-def _triangles(shape) -> tuple[np.ndarray, np.ndarray]:
+def _tessellate(shape, angular: float = ANGULAR_TOLERANCE
+                ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Every face of ``shape`` meshed: points, the surface normal at each, and
+    triangles wound outward - each face on points of its own.
+
+    What :meth:`cadquery.Shape.tessellate` does, and the normals besides: OCCT
+    works them out from the surface itself at every node, so a flat face is
+    flat to the last digit and a cylinder is a cylinder between its facets.
+    """
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepLib import BRepLib_ToolTriangulatedShape
+    from OCP.TopAbs import TopAbs_REVERSED
+    from OCP.TopLoc import TopLoc_Location
+
+    shape.mesh(LINEAR_TOLERANCE, angular)
+    points, normals, triangles = [], [], []
+    offset = 0
+    for face in shape.Faces():
+        loc = TopLoc_Location()
+        poly = BRep_Tool.Triangulation_s(face.wrapped, loc)
+        if poly is None:
+            continue
+        if not poly.HasNormals():
+            BRepLib_ToolTriangulatedShape.ComputeNormals_s(face.wrapped, poly)
+        flip = -1.0 if face.wrapped.Orientation() == TopAbs_REVERSED else 1.0
+        # One call a coordinate triple rather than three, and no transform
+        # where there is none to apply: a quarter of a million nodes in a
+        # rollered drive makes the per-node cost the whole of the wait.
+        count = poly.NbNodes()
+        xyz = np.array([poly.Node(i).Coord() for i in range(1, count + 1)])
+        nrm = flip * np.array([poly.Normal(i).Coord() for i in range(1, count + 1)])
+        if not loc.IsIdentity():
+            move = loc.Transformation()
+            turn = np.array([[move.Value(r, c) for c in (1, 2, 3)] for r in (1, 2, 3)])
+            shift = np.array([move.Value(r, 4) for r in (1, 2, 3)])
+            xyz = xyz @ turn.T + shift
+            nrm = nrm @ turn.T
+        points.append(xyz)
+        normals.append(nrm)
+        for t in poly.Triangles():
+            a, b, c = (t.Value(k) + offset - 1 for k in (1, 2, 3))
+            triangles.append((a, c, b) if flip < 0 else (a, b, c))
+        offset += poly.NbNodes()
+    if not points:
+        return np.empty((0, 3)), np.empty((0, 3)), np.empty((0, 3), dtype=np.int64)
+    return (np.vstack(points), np.vstack(normals),
+            np.array(triangles, dtype=np.int64).reshape(-1, 3))
+
+
+def _weld(vertices: np.ndarray, triangles: np.ndarray
+          ) -> tuple[np.ndarray, np.ndarray]:
     """One shape as welded vertices and outward triangles."""
-    points, faces = shape.tessellate(LINEAR_TOLERANCE, ANGULAR_TOLERANCE)
-    vertices = np.array([p.toTuple() for p in points], dtype=float).reshape(-1, 3)
-    triangles = np.array(faces, dtype=np.int64).reshape(-1, 3)
     # Each face of a solid is meshed with its own copy of the nodes on its
     # boundary.  They are the same points - the edge is discretised once and
     # shared - so they are welded back, which is what makes the part one
@@ -165,6 +218,16 @@ def _triangles(shape) -> tuple[np.ndarray, np.ndarray]:
     return welded, triangles
 
 
+def _turn_to_local(vectors: np.ndarray, part: Part) -> np.ndarray:
+    """The rotation half of :func:`_to_local`, for normals: they turn with the
+    part and are not moved by its orbit."""
+    angle = part.spin * part.phase
+    c, s = math.cos(angle), math.sin(angle)
+    out = vectors.copy()
+    out[:, :2] = vectors[:, :2] @ np.array([[c, -s], [s, c]])
+    return out
+
+
 def _to_local(points: np.ndarray, part: Part, eccentricity: float) -> np.ndarray:
     """Undo the part's pose at crank zero: where the assembly put it, back to
     where the quick mesh builds it.  See :meth:`Mesh.world_vertices`."""
@@ -185,6 +248,7 @@ def _build(spec: GearSpec, quick: Mesh) -> Mesh:
     loops: list[tuple[np.ndarray, ...]] = []
     facet_part: list[int] = []
     parts: list[Part] = []
+    shading: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
     n = 0
     for index, part in enumerate(quick.parts):
         shape = shapes.get(part.name)
@@ -196,9 +260,15 @@ def _build(spec: GearSpec, quick: Mesh) -> Mesh:
             part_loops = [tuple(lp + offset for lp in quick.loops[f])
                           for f in range(part.facets.start, part.facets.stop)]
         else:
-            vertices, triangles = _triangles(shape)
+            points, normals, faces = _tessellate(
+                shape, BOUGHT_ANGULAR_TOLERANCE if part.group in BOUGHT_GROUPS
+                else ANGULAR_TOLERANCE)
+            vertices, triangles = _weld(points, faces)
             local = _to_local(vertices, part, quick.eccentricity)
             part_loops = [(tri,) for tri in (triangles + n).astype(np.int32)]
+            shading[part.name] = (_to_local(points, part, quick.eccentricity),
+                                  _turn_to_local(normals, part), faces,
+                                  triangles)
         blocks.append(local)
         f0 = len(loops)
         loops.extend(part_loops)
@@ -224,4 +294,5 @@ def _build(spec: GearSpec, quick: Mesh) -> Mesh:
         eccentricity=quick.eccentricity,
         explode_span=quick.explode_span,
         frame_spin=quick.frame_spin,
+        shading=shading,
     )

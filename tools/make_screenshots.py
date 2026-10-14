@@ -365,6 +365,12 @@ def main() -> int:
     settle(app, 900)
     capture(window, DOCS / "assembly.png", widget=viewport)
 
+    # Pulled apart with everything in it, plates and bolts too: the view that
+    # shows each part for what it is - the threads, the nuts, the bearings'
+    # rings and balls, the seats in the plates - and the one a reader of the
+    # README looks at to see what is in the box.
+    window._view3d._groups["end_plates"].setChecked(True)
+    window._view3d._groups["fasteners"].setChecked(True)
     window._view3d.view.set_explode(0.85)
     window._view3d.view.fit()
     settle(app, 1200)

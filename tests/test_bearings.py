@@ -14,6 +14,7 @@ import pytest
 
 from cycloidgen.analysis import analyse
 from cycloidgen.analysis.bearings import (
+    BY_NAME,
     CATALOGUE,
     placements_for_spec,
     select_bearings,
@@ -1019,3 +1020,27 @@ def test_a_bearing_that_does_not_go_in_is_ordered_but_not_weighed():
     assert a.mass.bearings_mass_g == pytest.approx(sum(
         c.count * c.bearing.mass_g for c in a.bearings
         if c.role != "Eccentric cam bearing" and c.fitted and c.bearing is not None))
+
+
+def test_a_drawn_bearing_is_as_much_steel_as_a_weighed_one():
+    """The STEP bearing is rings and rolling elements now, not an annulus - and
+    the share of its envelope that is steel is the share the published masses
+    put it at, so the bearing the model draws and the one it weighs agree."""
+    from cycloidgen.analysis.bearings import BEARING_FILL, placements_for_spec
+    from cycloidgen.export import solid
+
+    spec = preset(15)
+    spec.ring_pins_are_rollers = True
+    spec.pin_radius = 6.0                        # HK0808s on the ring pins
+    placements = placements_for_spec(spec)
+    drawn = solid.bearing_solids(spec, placements)
+    kinds = set()
+    for p in placements:
+        envelope = sum(np.pi / 4.0 * (p.outer ** 2 - p.bore ** 2) * (r.z1 - r.z0)
+                       for r in p.rings)
+        shape = drawn[p.name].val()
+        assert shape.isValid(), p.name
+        assert shape.Volume() / envelope == pytest.approx(BEARING_FILL, abs=0.04), \
+            p.name
+        kinds.add(BY_NAME[p.catalogue].kind)
+    assert kinds == {"ball", "needle"}

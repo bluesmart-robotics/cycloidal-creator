@@ -683,3 +683,22 @@ def test_the_inertia_is_the_inertia_of_the_exported_solids(ring_output):
     assert m.input_inertia_kg_mm2 == pytest.approx(
         m.shaft_inertia_kg_mm2 + m.reflected_inertia_kg_mm2
         + m.output_inertia_kg_mm2 / spec.ratio ** 2)
+
+
+def test_a_bearing_s_corner_is_radiused_and_a_washer_s_is_not():
+    """Inside corners where a bearing ring sits get the radius a cutter leaves -
+    smaller than any ring's own chamfer, so the ring still sits flat.  The
+    shaft's do not: a sleeve or a millimetre washer stands on every cam face,
+    and neither can carry the chamfer that would clear one."""
+    from cycloidgen.export import solid
+
+    assert solid.INSIDE_RADIUS < 0.3          # the least ring chamfer here
+    parts = solid.parts(preset(21))
+
+    def radii(name):
+        return [f for f in parts[name].val().Faces() if f.geomType() == "TORUS"]
+
+    for name in ("output_flange", "input_end_plate", "output_end_plate"):
+        assert radii(name), name
+        assert parts[name].val().isValid(), name
+    assert not radii("eccentric_shaft")
