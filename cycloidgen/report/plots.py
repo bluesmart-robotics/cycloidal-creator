@@ -347,6 +347,14 @@ class ProfileView:
                             ha="center", va="center", zorder=6))
 
         self._profile = prof.profile_from_spec(spec)
+        # The point the trace follows: the drawn vertex furthest from the disc
+        # centre, which is a lobe crest and on the line the eye is following.
+        # It used to be the outer radius on the disc's x axis - but the profile
+        # has a *root* on that axis, so the marker rode three millimetres
+        # clear of the material, and at crank zero sat inside a ring pin.
+        points = self._profile.points
+        self._rim_point = points[int(np.argmax(np.hypot(points[:, 0],
+                                                        points[:, 1])))]
         self._discs = []
         bore_r = _disc_bore(spec) / 2.0
         hole_r = spec.output_hole_diameter / 2.0
@@ -467,13 +475,14 @@ class ProfileView:
             turns = spec.lobes
             phis = np.linspace(0.0, 2.0 * np.pi * turns,
                                int(np.clip(48 * turns, 720, 6000)))
-            # `to_world` spelled out for the whole sweep at once: the marker
-            # starts at (r, 0) in the disc frame, so its world position is the
-            # disc rotation applied to that plus the eccentric centre.
-            r, E = self._profile.outer_radius, spec.eccentricity
+            # `to_world` spelled out for the whole sweep at once: the disc
+            # rotation applied to the marker, plus the eccentric centre.
+            px, py = self._rim_point
+            E = spec.eccentricity
             delta = phis / spec.lobes
-            x = r * np.cos(delta) + E * np.cos(phis)
-            y = r * np.sin(delta) - E * np.sin(phis)
+            c, s = np.cos(delta), np.sin(delta)
+            x = px * c - py * s + E * np.cos(phis)
+            y = px * s + py * c - E * np.sin(phis)
             # Seen from the ground, which on a ring-output drive is a frame
             # turning under all of this: the locus is a different curve there,
             # and the one drawn has to be the one the eye can follow.
@@ -582,8 +591,7 @@ class ProfileView:
                                  [0.0, self._input_ray_length * np.sin(ray)])
 
         if self._trace_dot is not None:
-            point = to_world(np.array([[self._profile.outer_radius, 0.0]]),
-                             float(phi), E, lobes) @ turn
+            point = to_world(self._rim_point[None, :], float(phi), E, lobes) @ turn
             self._trace_dot.set_data(point[:, 0], point[:, 1])
 
         engaged = self._update_contacts(phi, turn)

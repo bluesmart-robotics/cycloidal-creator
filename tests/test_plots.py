@@ -296,3 +296,23 @@ def test_both_caption_lines_say_what_they_have_always_said():
     assert "ring fixed" in view._speed.get_text()
     assert "rpm" in view._speed.get_text()
     assert "deg" in view._readout.get_text()
+
+
+@pytest.mark.parametrize("member", ["carrier", "ring"])
+def test_the_traced_point_is_on_the_disc_it_is_traced_on(member):
+    """The trace is the path of a point on the rim, so its marker has to be on
+    the rim at every angle.  It was placed at the outer radius on the disc's
+    own x axis, where the profile has a root: three millimetres off the disc,
+    and at crank zero inside a ring pin."""
+    from cycloidgen.core.spec import OutputMember
+
+    spec = preset(21)
+    if member == "ring":
+        spec.output_member = OutputMember.RING
+    view = plots.ProfileView(Figure())
+    view.set_design(spec, overlays=plots.Overlays(trace=True))
+    for crank in (0.0, 37.0, 140.0, 1000.0):
+        view.set_crank(crank)
+        outline = view._discs[0][0].get_xy()
+        dot = np.column_stack(view._trace_dot.get_data())
+        assert np.hypot(*(outline - dot).T).min() < 1e-6, crank
