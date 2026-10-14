@@ -13,19 +13,29 @@ drawing rather than a screenshot.
 
 Geometry is uploaded once per design.  Turning the crank sets one 4x4 per part,
 which is why this runs at the display's refresh rate instead of the timer's.
+
+Twice, in fact, when the CAD kernel is there.  The quick mesh goes up the
+moment a design arrives, so the view follows a slider; once the design has
+stood still for :data:`CAD_SETTLE_MS`, its exported solids are tessellated off
+this thread (:mod:`cycloidgen.viz.cadmesh`) and replace it - the same parts in
+the same places, with the edge breaks, lead-ins and the spline disc the quick
+mesh does not draw.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
+import threading
 import traceback
 
 import numpy as np
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy
 
 from ..core.spec import GearSpec
+from ..viz import cadmesh
 from ..viz.mesh import EDGE_SHADE, Mesh, mesh_for_spec
 from ..viz.scene import Camera
 from . import branding
@@ -62,6 +72,15 @@ _OVERRIDE = "CYCLOIDGEN_VTK"
 #: on macOS and the only way to exercise that path from a machine where the
 #: older one already does.
 _QT_GL_OVERRIDE = "CYCLOIDGEN_VTK_QTGL"
+
+#: ``0`` keeps the view on the quick mesh and never builds the CAD one - for a
+#: machine where a few seconds of a busy core after every edit is too many.
+_CAD_OVERRIDE = "CYCLOIDGEN_CAD_VIEW"
+
+#: How long a design stands still before its solids are built for the view.
+#: Long enough that dragging a spin box does not start a build per step, short
+#: enough that letting go of it is followed by the real part.
+CAD_SETTLE_MS = 600
 
 
 def available() -> bool:
@@ -197,6 +216,9 @@ class VtkAssemblyView(QWidget):
     #: The measurement changed: ``(a, b)`` in world millimetres, ``b`` None
     #: after the first click, or ``None`` when it was cleared.
     measured = Signal(object)
+    #: A CAD mesh came back from its thread: ``(key, mesh)``.  A signal because
+    #: that is how a result crosses into the GUI thread - Qt queues it.
+    _cad_built = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -210,6 +232,19 @@ class VtkAssemblyView(QWidget):
 
         self._spec: GearSpec | None = None
         self._mesh: Mesh | None = None
+        #: The quick mesh for the current design, whichever one is on screen.
+        self._quick: Mesh | None = None
+        self._cad_wanted = os.environ.get(_CAD_OVERRIDE, "").strip() != "0"
+        #: The CAD key of what is on screen, when it is the CAD mesh.
+        self._shown_cad: tuple | None = None
+        self._cad_busy = False
+        self._cad_again = False
+        self._cad_deferred = False
+        self._cad_timer = QTimer(self)
+        self._cad_timer.setSingleShot(True)
+        self._cad_timer.setInterval(CAD_SETTLE_MS)
+        self._cad_timer.timeout.connect(self._start_cad)
+        self._cad_built.connect(self._on_cad_built)
         self._actors: dict[str, dict] = {}
         self._world_plane = vtkPlane()
         self._crank = 0.0
@@ -323,7 +358,8 @@ class VtkAssemblyView(QWidget):
     # ------------------------------------------------------------------ state
     def set_spec(self, spec: GearSpec) -> None:
         try:
-            mesh = mesh_for_spec(spec)
+            quick = mesh_for_spec(spec)
+            key = cadmesh.cad_key(spec) if self._cad_wanted else None
         except Exception:
             logger.error("3D view could not build the assembly\n%s",
                          traceback.format_exc().rstrip())
@@ -331,16 +367,85 @@ class VtkAssemblyView(QWidget):
         first = self._mesh is None
         # `mesh_for_spec` is keyed on the geometry, so an unchanged mesh here is
         # the same object and there is nothing to send to the card: a change of
-        # material or rated torque should not cost an upload.
-        changed = mesh is not self._mesh
-        self._spec, self._mesh = spec, mesh
-        if changed:
+        # material or rated torque should not cost an upload.  The CAD key is
+        # the same idea for the solids, which read a few fields more.
+        if quick is not self._quick:
             self._clear_measure()
+        self._spec, self._quick = spec, quick
+        if key is not None and key == self._shown_cad:
+            mesh = self._mesh                    # the solids, still current
+        else:
+            cad = cadmesh.cached(key) if key is not None else None
+            mesh = cad if cad is not None else quick
+            self._shown_cad = key if cad is not None else None
+            if cad is None and key is not None:
+                self._cad_timer.start()          # restarted by every change
+        if mesh is not self._mesh:
+            self._mesh = mesh
             self._build_actors()
             self.set_crank(self._crank)
         if first:
             self.fit()
         self._render()
+
+    @property
+    def showing_cad(self) -> bool:
+        """Whether the parts on screen are the exported solids."""
+        return self._shown_cad is not None
+
+    def _start_cad(self) -> None:
+        """Build the solids for the design on screen, off this thread.
+
+        One build at a time: OCCT is busy for seconds and two of them would
+        only share the core between a result that will be thrown away and the
+        one that is wanted.  A change that lands mid-build is picked up when it
+        finishes.  Nothing is built while the tab is not being looked at.
+        """
+        if not self._cad_wanted or self._spec is None:
+            return
+        if not self.isVisible():
+            self._cad_deferred = True
+            return
+        if self._cad_busy:
+            self._cad_again = True
+            return
+        key = cadmesh.cad_key(self._spec)
+        if key == self._shown_cad:
+            return
+        self._cad_busy = True
+        spec, quick = self._spec.model_copy(deep=True), self._quick
+        threading.Thread(target=self._build_cad, args=(key, spec, quick),
+                         name="cad-mesh").start()
+
+    def _build_cad(self, key, spec: GearSpec, quick: Mesh) -> None:
+        """The worker: never touches a widget, only hands a result back."""
+        try:
+            mesh = cadmesh.cad_mesh(spec, quick)
+        except ImportError:
+            mesh = ImportError
+        except Exception:
+            logger.warning("3D: the CAD model could not be built; showing the "
+                           "quick one\n%s", traceback.format_exc().rstrip())
+            mesh = None
+        with contextlib.suppress(RuntimeError):  # the view went while we worked
+            self._cad_built.emit((key, mesh))
+
+    def _on_cad_built(self, result) -> None:
+        key, mesh = result
+        self._cad_busy = False
+        if mesh is ImportError:
+            self._cad_wanted = False
+            logger.info("3D: no CAD kernel, so the view stays on the quick mesh")
+            return
+        current = self._spec is not None and cadmesh.cad_key(self._spec) == key
+        if mesh is not None and current:
+            self._mesh, self._shown_cad = mesh, key
+            self._build_actors()
+            self.set_crank(self._crank)
+            self._render()
+        if self._cad_again or not current:
+            self._cad_again = False
+            self._cad_timer.start()
 
     def _build_actors(self) -> None:
         from vtkmodules.vtkCommonDataModel import vtkPlane, vtkPlaneCollection
@@ -901,6 +1006,9 @@ class VtkAssemblyView(QWidget):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self._widget.Render()
+        if self._cad_deferred:
+            self._cad_deferred = False
+            self._cad_timer.start()
 
     def closeEvent(self, event) -> None:
         # The interactor holds the window; letting it go with the widget still

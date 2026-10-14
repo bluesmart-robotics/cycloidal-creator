@@ -118,6 +118,25 @@ def wait_for_analysis(app: QApplication, window: MainWindow,
         raise SystemExit("the analysis never finished; nothing worth capturing")
 
 
+def wait_for_cad(app: QApplication, window: MainWindow,
+                 timeout_ms: int = 60_000) -> None:
+    """Block until the 3D view is showing the exported solids.
+
+    It opens on the quick mesh and swaps the solids in a few seconds after the
+    design settles, off its own thread - so a photograph taken on arrival is
+    of the preview.  A view with no CAD kernel never swaps, and says so.
+    """
+    view = window._view3d.view
+    if not hasattr(view, "showing_cad"):
+        return                                  # the software painter
+    waited = 0
+    while not view.showing_cad and waited < timeout_ms:
+        settle(app, 200)
+        waited += 200
+    if not view.showing_cad:
+        raise SystemExit("the 3D view never showed the CAD model")
+
+
 def select_finding(window: MainWindow, code: str) -> bool:
     """Select a check by code, so the explanation panel has something in it."""
     tree = window.findings
@@ -299,6 +318,8 @@ def main() -> int:
     window._view3d.view.set_standard_view("iso")
     window._view3d.view.fit()
     settle(app, 1500)
+    wait_for_cad(app, window)
+    settle(app, 600)
 
     # Doing what the tab is for rather than sitting on it.  X-ray with the end
     # plates on is the whole gearbox and the stack inside it at once, and a

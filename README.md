@@ -50,7 +50,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,321 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,333 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -82,9 +82,12 @@ the input, one of the output.
 ![assembly](https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/assembly.png)
 
 The 3D view turns on the same crank as the drawing, so the mechanism is the same
-mechanism in both. It is built from the same closed-form profile — not
-tessellated from the exported solids — so it cannot drift from what you get in
-the STEP file, and it still works in a build with the CAD kernel stripped out.
+mechanism in both. It opens on a quick mesh built from the closed-form profile,
+which is what lets it follow a slider; once a design has stood still for a
+moment, the solids the STEP file is made of are tessellated in the background
+and take its place — the same parts in the same places, with the edge breaks,
+the lead-ins and the spline disc the quick mesh does not draw. A build with the
+CAD kernel stripped out keeps the quick mesh.
 
 That second picture is the viewport itself, cropped out of the running window
 rather than redrawn. On a machine with no OpenGL the same scene comes out of a
@@ -715,8 +718,13 @@ suggests it.
   selects that backend either way; `CYCLOIDGEN_VTK=0` drops any machine back to
   the software painter, and is the first thing to try if the 3D tab misbehaves.
 
-  The mesh is verified against the volume of the solid that gets exported, part
-  by part, so the picture and the STEP file are the same gearbox.
+  The quick mesh is verified against the volume of the solid that gets
+  exported, part by part, so the picture and the STEP file are the same
+  gearbox. The CAD mesh that replaces it is those solids, and is held to them
+  the other way: every part closed, enclosing its solid's volume, and at every
+  crank angle exactly where the quick mesh puts it. `CYCLOIDGEN_CAD_VIEW=0`
+  keeps the view on the quick mesh, for a machine where a few seconds of a busy
+  core after each edit is too many.
 
 - **Outputs** — every file an export writes, by name, with what it is for and
   where it will land, *before* anything is written. Sizes fill in afterwards and
@@ -888,7 +896,8 @@ cycloidgen/
 ├── design/     optimise (requirements -> geometry, and the reduction from a
 │               motor), sweep (trade studies), batch (`--vary`: many designs
 │               in, one table out)
-├── viz/        3D geometry and rendering maths, no Qt: mesh, scene (the
+├── viz/        3D geometry and rendering maths, no Qt: mesh, cadmesh (the
+│               exported solids, tessellated for the view), scene (the
 │               software projection), vtkbridge (mesh -> VTK polydata),
 │               clashes (which parts a check is about), tessellate
 ├── export/     manifest (what a bundle contains), dxf, svg, solid (OCCT),
@@ -903,7 +912,7 @@ cycloidgen/
 docs/           the API reference and the README's figures
 tools/          what draws the banner, the icon, the logo assets, the
                 installer's bitmaps and the screenshots
-tests/          1,321 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,333 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -919,7 +928,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,321 tests, about 700 s. Most of that is CadQuery writing solids; the pure
+1,333 tests, about 700 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own
