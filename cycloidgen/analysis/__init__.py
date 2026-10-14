@@ -112,7 +112,7 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # bearings in them: the disc, the plates and the bosses weigh what they
     # weigh once the parts that go in them are known.
     bores = seat_bores(spec, bearings)
-    mass = analyse_mass(spec, bores)
+    mass = analyse_mass(spec, bores, bearings)
     # At the running temperature, not the ambient: the drive heats itself and
     # fatigue strength goes down with it.
     fatigue = analyse_fatigue(spec, mass.web_shear_MPa, mass.min_web_mm,

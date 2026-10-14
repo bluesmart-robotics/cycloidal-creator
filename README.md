@@ -481,7 +481,9 @@ Beyond the geometry checks, every design gets a datasheet:
   and still wear round in an afternoon. Quoted on the projected-area convention
   the published limits use, *not* the Hertzian peak; the two differ by several
   times and are not interchangeable.
-- **Mass, inertia, unbalance.** Off the real lobed section, not a cylinder.
+- **Mass, inertia, unbalance.** Off the real lobed section, not a cylinder,
+  with every bearing in the drive on the scale too — estimated from its
+  envelope, which lands six published bearing masses within 11%.
   Reflected inertia at the input, and the shaking force a single disc throws —
   which goes as the square of speed. Evenly phased discs cancel the force and
   leave a couple.
@@ -732,11 +734,11 @@ suggests it.
   and then gives it back — the `PIN_RADIUS_SUGGESTION` check in closed form —
   while costing mass the whole way and doing essentially nothing for efficiency
   or backlash. The one step in the mass curve is at 6 mm, where a catalogue
-  needle roller first fits over the pin: the pin inside it drops to an 8 mm
-  dowel, and the roller, being bought rather than made, is not weighed. Note the
-  flat panels start at zero. A quantity that moves by a tenth of a percent gets
-  an axis that says so, rather than one scaled to make the noise look like a
-  decision.
+  needle roller first fits over the pin: the solid 12 mm pin becomes an 8 mm
+  dowel in a sleeve, and a sleeve of rollers is lighter than the steel it
+  stands in for. Note the flat panels start at zero. A quantity that moves by a
+  tenth of a percent gets an axis that says so, rather than one scaled to make
+  the noise look like a decision.
 - **Compare** — pin a design, change things, and see exactly what moved and by
   how much. Running the optimiser pins the design it replaced automatically.
 - **Appearance** follows the desktop and can be overridden per user
@@ -839,7 +841,10 @@ drive's own share only — clearance take-up and deflection, both of which it
 solves; pin position error, profile error and runout are the manufacturing half
 and are not modelled, so a real drive measures worse. The thermal model is a single
 lumped body in still air with no conduction into whatever the gearbox is bolted
-to. Bearing catalogue values are nominal metric-series figures. PV limits are
+to. Bearing catalogue values are nominal metric-series figures, and a bearing's
+mass is estimated from its envelope rather than read from a maker's table; the
+unbalance and the reflected inertia count the discs alone, not the cam bearings
+orbiting with them, and the bolts are not weighed at all. PV limits are
 dry-against-steel design-guide values. The lubrication model builds a
 Dowson-Hamrock film for a *line* contact and applies it to the two conforming
 ones as well, where the formula was not derived — their film is capped at the

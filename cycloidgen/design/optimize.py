@@ -667,7 +667,7 @@ def _fast_metrics(spec: GearSpec) -> dict | None:
     bearings = select_bearings(spec, contact.eccentric_bearing_load_N,
                                contact.max_output_force_N,
                                ring_pin_load_N=contact.max_pin_force_N)
-    mass = analyse_mass(spec, seat_bores(spec, bearings))
+    mass = analyse_mass(spec, seat_bores(spec, bearings), bearings)
 
     concentration = max(stiff.load_concentration, 1.0)
     return {

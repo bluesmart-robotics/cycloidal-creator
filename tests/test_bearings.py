@@ -971,3 +971,51 @@ def test_a_seat_without_room_for_a_shoulder_says_so():
     motor.motor_frame = "NEMA 17"
     (found,) = raised(motor)
     assert "spigot lands on it" in found.message and found.value < 0.0
+
+
+# --------------------------------------------------------------------- weighed
+
+
+@pytest.mark.parametrize(("designation", "published_g"), [
+    ("6800", 4.7), ("6804", 18.0), ("6004", 69.0),
+    ("HK0808", 2.54), ("HK1512", 10.2), ("HK2020", 23.5),
+])
+def test_a_bearing_weighs_about_what_its_maker_says(designation, published_g):
+    """The estimate against the six published masses it was measured on.
+
+    Within 12%, which is the spread of the measurement and no tighter: the
+    distributors quoting these disagree with each other by five.
+    """
+    from cycloidgen.analysis.bearings import BY_NAME
+
+    assert BY_NAME[designation].mass_g == pytest.approx(published_g, rel=0.12)
+
+
+def test_the_bearings_in_the_drive_are_on_the_scale():
+    """They were not, and a drive that gained a roller got lighter by the steel
+    the roller's dowel no longer needed - a step down the trade study's mass
+    curve, at the pin radius where the first sleeve fits."""
+    from cycloidgen.export.bom import bom_items
+
+    a = analyse(_spec())
+    expected = sum(c.count * c.bearing.mass_g for c in a.bearings
+                   if c.fitted and c.fits and c.bearing is not None)
+    assert expected > 0.0
+    assert a.mass.bearings_mass_g == pytest.approx(expected)
+    lines = [i for i in bom_items(a) if i.material == "bearing steel"]
+    assert sum(i.mass_total_g for i in lines) == pytest.approx(expected)
+
+    assert analyse(_stripped()).mass.bearings_mass_g == 0.0
+
+
+def test_a_bearing_that_does_not_go_in_is_ordered_but_not_weighed():
+    """It is on the sheet so the problem is; it is not in the gearbox."""
+    from cycloidgen.export.bom import bom_items
+
+    _, spec = _named("cam_bearing", "HK2020")
+    a = analyse(spec)
+    cam = next(i for i in bom_items(a) if i.part == "Eccentric cam bearing")
+    assert cam.mass_each_g == 0.0
+    assert a.mass.bearings_mass_g == pytest.approx(sum(
+        c.count * c.bearing.mass_g for c in a.bearings
+        if c.role != "Eccentric cam bearing" and c.fitted and c.bearing is not None))

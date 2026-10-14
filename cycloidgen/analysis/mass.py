@@ -20,13 +20,14 @@ Three questions get answered:
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
 
 from ..core import profile as prof
 from ..core.spec import GearSpec
-from .bearings import SeatBores, pin_diameters, seat_bores
+from .bearings import BearingChoice, SeatBores, bearing_schedule, pin_diameters, seat_bores
 
 __all__ = ["MassResult", "analyse_mass"]
 
@@ -53,6 +54,11 @@ class MassResult:
     #: The shaft's two locating sleeves and the washers between the discs,
     #: together: small, but made, and on the bill of materials.
     spacers_mass_g: float
+    #: Every bearing the drive is built with, at the count it needs: the cam
+    #: bearings, the shaft supports, the main output bearings and the pin
+    #: rollers.  Bought, but in the gearbox, so on the scale.  Estimated from
+    #: each part's envelope - see :data:`~.bearings.BEARING_FILL`.
+    bearings_mass_g: float
 
     disc_inertia_kg_mm2: float         # about its own centre
     reflected_inertia_kg_mm2: float    # whole stack, seen at the input shaft
@@ -113,14 +119,19 @@ def _lip_volume(bores: SeatBores, host: str) -> float:
                for s in bores.shoulders if s.host == host)
 
 
-def analyse_mass(spec: GearSpec, bores: SeatBores | None = None) -> MassResult:
+def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
+                 bearings: Sequence[BearingChoice] | None = None) -> MassResult:
     """Mass, inertia, unbalance and the disc web stress.
 
-    Every bore is weighed as it is bored, which is to the bearing in it:
-    ``bores`` when the caller has the schedule already, worked out otherwise.
+    Every bore is weighed as it is bored, which is to the bearing in it, and
+    every bearing is weighed in its seat.  ``bores`` and ``bearings`` when the
+    caller has them already - working the schedule out needs the loads, which
+    is most of the cost - and worked out otherwise.
     """
+    if bearings is None:
+        bearings = bearing_schedule(spec)
     if bores is None:
-        bores = seat_bores(spec)
+        bores = seat_bores(spec, bearings)
     area, polar = _disc_section(spec, bores.disc)
     t = spec.disc_thickness
     n = spec.disc_count
@@ -240,8 +251,14 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None) -> MassResult:
         * _MM3_TO_CM3 * (rho_disc if s.name.startswith("washer") else rho_shaft)
         for s in bores.spacers)
 
+    # The parts the seats are bored to, and only those: a bearing switched off,
+    # carried by the motor, or named and too big to go in is not in this
+    # gearbox, which is the same rule the bores and the 3D view follow.
+    bearings_mass = sum(c.count * c.bearing.mass_g for c in bearings
+                        if c.fitted and c.fits and c.bearing is not None)
+
     total = (n * disc_mass + housing_mass + plates_mass + pins_mass
-             + shaft_mass + flange_mass + cap_mass + spacers_mass)
+             + shaft_mass + flange_mass + cap_mass + spacers_mass + bearings_mass)
 
     # ---- inertia ------------------------------------------------------------
     # kg*mm^2:  g/cm^3 * mm^4 * 1e-3 (cm^3/mm^3) / 1e3 (kg/g) = 1e-6
@@ -304,6 +321,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None) -> MassResult:
         flange_mass_g=flange_mass,
         end_cap_mass_g=cap_mass,
         spacers_mass_g=spacers_mass,
+        bearings_mass_g=bearings_mass,
         disc_inertia_kg_mm2=disc_inertia,
         reflected_inertia_kg_mm2=reflected,
         unbalance_force_N=force,

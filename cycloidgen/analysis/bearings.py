@@ -9,10 +9,10 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ..core.spec import AUTOMATIC, CARRIER_DROP, DRY, GearSpec, OutputMember
+from ..core.spec import AUTOMATIC, CARRIER_DROP, DRY, MATERIALS, GearSpec, OutputMember
 from .lubrication import ContactFilm, LubricationResult
 
-__all__ = ["CATALOGUE", "MIN_SHOULDER", "Bearing", "BearingChoice", "BearingPlacement",
+__all__ = ["BEARING_FILL", "CATALOGUE", "MIN_SHOULDER", "Bearing", "BearingChoice", "BearingPlacement",
            "BearingRing", "MissingShoulder", "SeatBores", "Shoulder", "Spacer",
            "bearing_placements", "bearing_schedule", "life_hours",
            "pin_shank_diameter", "placements_for_spec", "seat_bores",
@@ -32,6 +32,37 @@ class Bearing:
     @property
     def life_exponent(self) -> float:
         return 3.0 if self.kind == "ball" else 10.0 / 3.0
+
+    @property
+    def mass_g(self) -> float:
+        """What the part weighs, estimated from its envelope.
+
+        See :data:`BEARING_FILL`.  For a drawn cup the bore is the needles'
+        own inscribed circle, so the envelope is cup and needles together -
+        which is what the published masses it was measured against weigh too.
+        """
+        return (BEARING_FILL * MATERIALS["Bearing steel 100Cr6"].density_g_cm3
+                * math.pi / 4.0 * (self.outer ** 2 - self.bore ** 2)
+                * self.width * 1e-3)
+
+
+#: The share of a bearing's steel envelope - the annulus between its bore and
+#: its outside, over its width - that is actually metal.  Rings, rolling
+#: elements and cage leave the rest as clearance, raceway grooves and space
+#: between the balls.
+#:
+#: One number for both kinds, because measured it is one number: published
+#: masses of 61800 (4.7 g), 61804 (18 g) and 6004 (69 g), and of drawn cups
+#: HK0808 (2.54 g), HK1512 (10.2 g) and HK2020 (23.5 g), put the share between
+#: 0.59 and 0.69 with no split between balls and needles, and 0.65 lands every
+#: one of them within 11%.  `tests/test_bearings.py` holds it to all six.  The
+#: catalogue carries no masses of its own because a manufacturer's figure is
+#: one bearing from one maker; the envelope is every bearing in the list.
+#:
+#: Without it the assembled mass was the made parts and the dowels only, and a
+#: design that gained a bearing got *lighter* by the steel the bearing's seat
+#: no longer needed - a rollered ring pin weighed as the 8 mm dowel inside it.
+BEARING_FILL = 0.65
 
 
 CATALOGUE: list[Bearing] = [

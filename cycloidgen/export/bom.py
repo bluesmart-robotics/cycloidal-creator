@@ -253,10 +253,14 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         b = choice.bearing
         life = ("-" if choice.life_hours == float("inf")
                 else f"L10 {choice.life_hours:,.0f} h")
+        # Weighed where the mass model weighs it, which is where it goes in: a
+        # named part too big for its seat is still ordered, and still listed so
+        # the problem is on the sheet, but it is not in the assembled mass.
+        weighed = choice.fitted and choice.fits
         items.append(BomItem(
             part=choice.role, quantity=choice.count, material="bearing steel",
             size=f"{b.designation} ({b.bore:g}x{b.outer:g}x{b.width:g})",
-            mass_each_g=0.0, source="buy",
+            mass_each_g=b.mass_g if weighed else 0.0, source="buy",
             note=f"{choice.seat}; {choice.load_N:.0f} N at "
                  f"{choice.speed_rpm:.0f} rpm, {life}"))
 
