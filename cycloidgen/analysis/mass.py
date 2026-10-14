@@ -211,9 +211,13 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
     flange_volume = math.pi * plate_r ** 2 * spec.output_flange_thickness
     # Plus the boss the drive turns on, bored through for the shaft, and less
-    # that same bore through the plate.
+    # that same bore through the plate.  As long as it is drawn: through the
+    # end plate *and* standing proud of it, for a coupling to grip or as the
+    # frame's standoff.  It was weighed flush, after the solid had stopped
+    # being - 3.4 cm3 of boss on every preset that only the STEP file had.
     flange_volume += math.pi * ((spec.hub_diameter / 2.0) ** 2
-                                - (bores.hub / 2.0) ** 2) * spec.plate_thickness
+                                - (bores.hub / 2.0) ** 2) * (
+        spec.plate_thickness + spec.output_boss_protrusion)
     flange_volume -= math.pi * (bores.hub / 2.0) ** 2 * spec.output_flange_thickness
     # And, on a ring-output drive, the base on the end of that boss - the plate
     # the whole gearbox is bolted down by.  It is housing-sized and as thick as

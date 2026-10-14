@@ -598,3 +598,49 @@ def test_the_input_end_has_a_flat_for_a_set_screw_where_one_can_reach(output):
     v = mesh.vertices[part.vertices]
     on_end = v[v[:, 2] > z0 + 1e-6]
     assert on_end[:, 0].max() == pytest.approx(r - depth)
+
+
+# ------------------------------------------------- weighed as it is exported
+
+
+@pytest.mark.parametrize("ring_output", [False, True])
+def test_every_made_part_weighs_what_its_solid_encloses(ring_output):
+    """The mass model and the STEP export are two descriptions of one gearbox.
+
+    Held part by part, because a total can agree while two parts are wrong in
+    opposite directions.  The carrier's boss stood proud of its plate in the
+    solid for a release before the mass model heard about it.  The solid
+    carrier carries its pins as one body; the mass model weighs them as the
+    dowels they are bought as, so they are added back here at their own size.
+    Two percent is the edge breaks and the shaft's flat, which only the solid
+    has.
+    """
+    from cycloidgen.analysis.bearings import pin_diameters
+    from cycloidgen.core.spec import OutputMember
+    from cycloidgen.export import solid
+
+    spec = preset(21)
+    if ring_output:
+        spec.output_member = OutputMember.RING
+    m = analyse(spec).mass
+    parts = solid.parts(spec)
+
+    def volume(grams, material):          # mm^3
+        return grams / material.density_g_cm3 * 1000.0
+
+    _, out_d = pin_diameters(spec)
+    out_pins = (spec.output_pin_count * np.pi * (out_d / 2.0) ** 2
+                * spec.output_pin_length)
+    house = spec.housing_mat
+    expected = {
+        ("housing",): volume(m.housing_mass_g, house),
+        ("output_flange",): volume(m.flange_mass_g, house) + out_pins,
+        ("input_end_plate", "output_end_plate"): volume(m.plates_mass_g, house),
+        ("eccentric_shaft",): volume(m.shaft_mass_g, spec.shaft_mat),
+        ("disc_1",): volume(m.disc_mass_g, spec.disc_mat),
+    }
+    if spec.ground_frame_fitted:
+        expected[("end_cap",)] = volume(m.end_cap_mass_g, house)
+    for names, analytic in expected.items():
+        enclosed = sum(parts[n].val().Volume() for n in names)
+        assert analytic == pytest.approx(enclosed, rel=0.02), names
