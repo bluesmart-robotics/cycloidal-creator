@@ -612,6 +612,8 @@ def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
         return holes
     if spec.ground_frame_fitted:
         return holes + output_face_bolt_holes(spec)
+    if spec.coupled:
+        return holes                  # the motor's are on its mount's flange
     return holes + motor_bolt_holes(spec)
 
 
@@ -825,12 +827,30 @@ def build_mesh(spec: GearSpec,
                 if flat is not None and z0 < flat[0] < z1:
                     bored(_circle(0.0, 0.0, shaft_r, 28), z0, flat[0])
                     bored(_d_section(shaft_r, flat[2], 28), flat[0], z1)
+                elif flat is not None and z0 < flat[1] < z1:
+                    # The flat at the low end, on a ring drive's coupling.
+                    bored(_d_section(shaft_r, flat[2], 28), z0, flat[1])
+                    bored(_circle(0.0, 0.0, shaft_r, 28), flat[1], z1)
                 else:
                     bored(_circle(0.0, 0.0, shaft_r, 28), z0, z1)
             for z0, z1, phase in cams:
                 bored(_circle(spec.eccentricity * math.cos(phase),
                               -spec.eccentricity * math.sin(phase), cam_r, 32),
                       z0, z1)
+
+    coupling = spec.coupling
+    if coupling is not None:
+        # Bought, and it turns with the input: on the drive's half its bore is
+        # the input shaft, on the motor's the motor's shaft.
+        lo, hi = spec.coupling_span
+        mid = (lo + hi) / 2.0
+        r_in = spec.input_shaft_diameter / 2.0
+        r_motor = spec.motor_face.shaft_diameter / 2.0
+        runs = ([(lo, mid, r_in), (mid, hi, r_motor)] if spec.motor_side > 0
+                else [(lo, mid, r_motor), (mid, hi, r_in)])
+        with b.part("coupling", f"Shaft coupling ({coupling.name})", "shaft",
+                    PART_COLOURS["shaft"], spin=-1.0):
+            b.bored_prism(_circle(0.0, 0.0, coupling.outer / 2.0, 40), (), runs, 40)
 
     # What locates the shaft against its supports, and keeps the discs apart.
     # They turn with the shaft and come out with it, so they take its motion -
@@ -884,9 +904,9 @@ def build_mesh(spec: GearSpec,
             # Housing-sized, because it is the face of the machine at that end
             # and because a NEMA pattern needs the width.
             base_outer = _circle(0.0, 0.0, spec.housing_outer_radius, 96)
-            motor_holes = motor_bolt_holes(spec)
+            motor_holes = [] if spec.coupled else motor_bolt_holes(spec)
             floor = spec.base_plate_bottom
-            recess = _pilot_recess(spec, bores.hub)
+            recess = 0.0 if spec.coupled else _pilot_recess(spec, bores.hub)
             base_runs = _bore_runs(bore_r, bores.shoulders, "output_flange",
                                    floor + recess, boss_bottom)
             if recess:
@@ -904,7 +924,10 @@ def build_mesh(spec: GearSpec,
                        floor + recess, up=False)
                 floor += recess
             b.bored_prism(base_outer, motor_holes, base_runs, 28,
-                          cap_top=False, cap_bottom=not recess)
+                          cap_top=False, cap_bottom=not recess and not spec.coupled)
+            if spec.coupled:
+                _motor_mount_mesh(b, spec, floor, -1.0, base_outer, motor_holes,
+                                  base_runs[0][2], 28)
             # The base's top: covered by the boss standing on it, and pierced by
             # the motor's bolts, which pass right through and so are open at
             # this end too.
@@ -970,7 +993,9 @@ def build_mesh(spec: GearSpec,
             outer = _circle(0.0, 0.0, spec.housing_outer_radius, 96)
             top = z0 + spec.plate_thickness
             recess = (_pilot_recess(spec, bore)
-                      if motor and not spec.ground_frame_fitted else 0.0)
+                      if motor and not spec.ground_frame_fitted
+                      and not spec.coupled else 0.0)
+            mount = motor and spec.coupled and not spec.ground_frame_fitted
             # The bore, stepped where the lip that holds the bearing in is.
             runs = _bore_runs(max(bore, 1e-3) / 2.0, bores.shoulders, name,
                               z0, top - recess)
@@ -999,7 +1024,9 @@ def build_mesh(spec: GearSpec,
                 b.ring(pilot, _circle(0.0, 0.0, runs[-1][2], 48), top - recess,
                        up=True)
                 top -= recess
-            b.bored_prism(outer, bolts, runs, 48, cap_top=not recess)
+            b.bored_prism(outer, bolts, runs, 48, cap_top=not recess and not mount)
+            if mount:
+                _motor_mount_mesh(b, spec, top, 1.0, outer, bolts, runs[-1][2], 48)
 
     # Bearings last, and each one takes the motion of the part it was placed
     # against rather than restating it.  Two copies of "how does a disc move"
@@ -1075,12 +1102,60 @@ def build_mesh(spec: GearSpec,
     return b.build(spec)
 
 
-def _octagon(width: float, corner: float) -> np.ndarray:
+def octagon(width: float, corner: float) -> np.ndarray:
     """A square ``width`` across with its corners cut ``corner`` back at 45
     degrees - the section of a stepper's body."""
     h, c = width / 2.0, corner
     return np.array([(h, -h + c), (h, h - c), (h - c, h), (-h + c, h),
                      (-h, h - c), (-h, -h + c), (-h + c, -h), (h - c, -h)])
+
+
+def _motor_mount_mesh(b: _Builder, spec: GearSpec, face: float, side: float,
+                      outer: np.ndarray, holes, bore_r: float,
+                      bore_segments: int) -> None:
+    """The plate's face with the motor's mount standing on it.
+
+    Emitted as one body with the plate it is part of: the face around the
+    tube's foot and inside it down to the plate's bore, the tube, and the
+    flange - each step only where it is exposed, so nothing is a wall inside
+    the solid for the section to trip on.  The windows are the solid's alone;
+    the quick view draws the tube whole.
+    """
+    frame = spec.motor_face
+    r_in, r_out, height = spec.motor_mount
+    tube_in = _circle(0.0, 0.0, r_in, 48)
+    tube_out = _circle(0.0, 0.0, r_out, 48)
+    up = side > 0
+    b.cap(outer, (tube_out, *holes), face, up=up)
+    # The plate's bore as the plate drew it, point for point, or the face
+    # and the bore's wall would meet at two different polygons.
+    b.ring(tube_in, _circle(0.0, 0.0, bore_r, bore_segments), face, up=up)
+    near = face + side * height
+    lo, hi = sorted((face, near))
+    b.prism(tube_out, (tube_in,), lo, hi, cap_bottom=False, cap_top=False)
+
+    hole_r = spec.motor_mount_hole / 2.0
+    hole = tube_in if abs(hole_r - r_in) < 1e-9 else _circle(0.0, 0.0, hole_r, 48)
+    plate = octagon(frame.body_width, 0.11 * frame.body_width)
+    bolts = motor_bolt_holes(spec)
+    far = near + side * spec.motor_mount_flange
+    pilot_r = frame.pilot_diameter / 2.0
+    step = far - side * frame.pilot_depth if pilot_r > hole_r + 1e-9 else far
+    # The flange's face towards the plate: outside the tube, and inside it
+    # where the hole is narrower than the tube's bore.
+    b.cap(plate, (tube_out, *bolts), near, up=not up)
+    if hole is not tube_in:
+        b.ring(tube_in, hole, near, up=not up)
+    lo, hi = sorted((near, step))
+    b.prism(plate, (hole, *bolts), lo, hi, cap_bottom=side < 0 and step == far,
+            cap_top=side > 0 and step == far)
+    if step != far:
+        # The spigot's recess in the face the motor lands on.
+        pilot = _circle(0.0, 0.0, pilot_r, 48)
+        lo, hi = sorted((step, far))
+        b.prism(plate, (pilot, *bolts), lo, hi, cap_bottom=side < 0,
+                cap_top=side > 0)
+        b.ring(pilot, hole, step, up=up)
 
 
 def _motor(b: _Builder, spec: GearSpec) -> None:
@@ -1102,7 +1177,7 @@ def _motor(b: _Builder, spec: GearSpec) -> None:
     tip = zf - side * frame.pilot_depth
     with b.part("motor", f"Motor ({frame.name})", "motor", PART_COLOURS["motor"],
                 explode=explode):
-        body = _octagon(frame.body_width, 0.11 * frame.body_width)
+        body = octagon(frame.body_width, 0.11 * frame.body_width)
         far = zf + side * frame.body_length
         lo, hi = sorted((zf, far))
         # The face the spigot stands on is an annulus: the rest of it is the
@@ -1251,7 +1326,8 @@ def mesh_fingerprint(spec: GearSpec,
         # Driven directly, the shaft stops at the motor and is bored for it, and
         # the screws are drawn at their lengths.
         spec.motor_drives_the_shaft, spec.shaft_span, spec.motor_bore,
-        spec.motor_fixing,
+        spec.motor_fixing, spec.motor_face_z, spec.coupling, spec.coupling_span,
+        spec.motor_mount,
         spec.output_bolt_count, spec.output_bolt_diameter,
         tuple(placements),
         # The seats as bored, which follow the bearings for the same reason the

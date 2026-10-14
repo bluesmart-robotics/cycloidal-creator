@@ -117,10 +117,13 @@ def test_driven_directly_the_input_shaft_is_bored_for_the_motor_s():
     codes = _codes(spec)
     assert not {"MOTOR_SHAFT_MISMATCH", "MOTOR_SHAFT_SHORT"} & codes
 
-    # ...and through a coupling there is nothing to bore.
+    # ...and through a coupling there is nothing to bore: the shaft ends inside
+    # the coupling, short of its middle, and the motor stands off on a mount.
     spec.motor_drives_the_shaft = False
     assert spec.motor_bore is None
-    assert spec.shaft_span[1] > spec.motor_face_z
+    c0, c1 = spec.coupling_span
+    assert c0 < spec.shaft_span[1] < (c0 + c1) / 2.0
+    assert spec.motor_face_z > c1
 
 
 def test_an_input_shaft_too_thin_to_bore_is_caught_and_does_not_block():
@@ -171,11 +174,15 @@ def test_a_pattern_that_runs_off_the_plate_is_an_error():
     then the holes are in fresh air - which does make the exported plate wrong."""
     spec = preset(10)
     spec.motor_frame = "NEMA 34"
-    spec.motor_drives_the_shaft = False
     spec.pin_circle_radius = 20.0
     spec.housing_wall = 2.0
     assert "MOTOR_FACE_CLASH" in _codes(spec)
     assert not analyse(spec).report.ok
+
+    # Through a coupling the pattern is on the mount's flange, which is the
+    # motor's own size however small the drive under it.
+    spec.motor_drives_the_shaft = False
+    assert "MOTOR_FACE_CLASH" not in _codes(spec)
 
 
 def test_hanging_the_drive_on_the_motor_is_measured_against_the_motor():
@@ -275,3 +282,135 @@ def test_the_motor_is_on_the_bill_and_weighs_nothing_in_the_drive():
     covered = [n for item in items for n in item.assembly]
     for part in mesh_for_spec(spec).parts:
         assert covered.count(part.name) == 1, part.name
+
+
+# ---------------------------------------------------------- through a coupling
+
+
+def _coupled(frame: str = "NEMA 17", ring: bool = False):
+    from cycloidgen.core.spec import OutputMember
+
+    spec = _spec(frame)
+    spec.motor_drives_the_shaft = False
+    if ring:
+        spec.output_member = OutputMember.RING
+    return spec
+
+
+def test_the_coupling_is_the_smallest_in_the_catalogue_that_takes_both_shafts():
+    from cycloidgen.core.motor import COUPLINGS, coupling_for
+
+    assert coupling_for(5.0, 8.0).name == "D19 x L25"
+    assert coupling_for(8.0, 5.0) == coupling_for(5.0, 8.0)     # either way round
+    assert coupling_for(5.0, 10.0).name == "D25 x L30"
+    for c in COUPLINGS:
+        assert c.min_bore < c.max_bore < c.outer
+    # Too far apart for any of them: a plain sleeve, and it says it is one.
+    sleeve = coupling_for(4.0, 20.0)
+    assert not sleeve.catalogue and sleeve.outer > 20.0
+
+
+@pytest.mark.parametrize("ring", [False, True])
+def test_through_a_coupling_the_motor_stands_on_a_mount(ring):
+    """Off the plate by the coupling and the flange it lands on: the coupling
+    clear of both, and the two shafts meeting in its middle a gap apart."""
+    from cycloidgen.core.motor import COUPLING_GAP
+
+    spec = _coupled(ring=ring)
+    side, face, plate = spec.motor_side, spec.motor_face_z, spec.plate_face_z
+    c0, c1 = spec.coupling_span
+    near, far = (c0, c1) if side > 0 else (c1, c0)
+    assert side * (near - plate) == pytest.approx(COUPLING_GAP)
+    bore, _outer, height = spec.motor_mount
+    assert height + spec.motor_mount_flange == pytest.approx(side * (face - plate))
+    assert side * (plate + side * height - far) >= COUPLING_GAP - 1e-9
+    assert bore > spec.coupling.outer / 2.0                 # room to turn
+
+    end = spec.shaft_span[1] if side > 0 else spec.shaft_span[0]
+    tip = face - side * spec.motor_face.shaft_length
+    assert side * (tip - end) == pytest.approx(COUPLING_GAP)
+    assert spec.motor_engagement == pytest.approx(
+        (spec.coupling.length - COUPLING_GAP) / 2.0)
+    # The input shaft's flat is under the coupling's screw, on its own half.
+    z0, z1, _depth = spec.input_flat
+    assert (z0, z1) == ((c0, end) if side > 0 else (end, c1))
+
+    # Nothing of driving it directly is left.
+    assert spec.motor_bore is None and spec.motor_fixing.recess == 0.0
+    assert not {"MOTOR_SHAFT_SHORT", "MOTOR_SCREW_SEAT",
+                "COUPLING_DOES_NOT_FIT"} & _codes(spec)
+
+
+@pytest.mark.parametrize("name", [n for n in MOTOR_FRAMES if n != NO_MOTOR])
+def test_the_mount_s_flange_is_as_thick_as_the_motor_s_screws_want(name):
+    """Up through a flange into a threaded face, a preferred length fills the
+    motor's threads or falls short of them by as much as two millimetres -
+    most of an M3's - so the flange is the thickness that makes one fill them."""
+    from cycloidgen.core.motor import MOTOR_MOUNT_FLANGE
+
+    spec = _coupled(name)
+    fix = spec.motor_fixing
+    assert spec.motor_mount_flange >= MOTOR_MOUNT_FLANGE
+    assert fix.fits and fix.recess == 0.0
+    if fix.from_drive:
+        assert fix.engaged == pytest.approx(spec.motor_face.fixing_depth - 0.3)
+    assert "MOTOR_SCREW_SEAT" not in _codes(spec)
+
+
+def test_a_coupling_that_does_not_fit_is_a_warning():
+    """A NEMA 11's screws leave less room inside them than the tube round the
+    coupling a 10 mm shaft takes; and some shafts no catalogue coupling joins."""
+    findings = {f.code: f for f in analyse(_coupled("NEMA 11")).report.findings}
+    assert findings["COUPLING_DOES_NOT_FIT"].severity.value == "warning"
+
+    spec = _coupled()
+    spec.input_shaft_diameter = 14.0
+    assert not spec.coupling.catalogue
+    assert "COUPLING_DOES_NOT_FIT" in _codes(spec)
+
+
+def test_a_motor_shaft_the_flange_takes_most_of_is_caught():
+    """A NEMA 8's shaft is ten millimetres; the flange it passes is eight."""
+    spec = _coupled("NEMA 8")
+    assert spec.motor_engagement < 1.5 * spec.motor_face.shaft_diameter
+    assert "MOTOR_SHAFT_SHORT" in _codes(spec)
+
+
+def test_the_coupling_and_its_mount_are_weighed_and_on_the_bill():
+    """The mount is part of the input plate, so the two plates stop being one
+    part twice; the coupling is bought, and turns with the input."""
+    from cycloidgen.export.bom import bom_items
+    from cycloidgen.viz.mesh import mesh_for_spec
+
+    spec = _coupled()
+    a = analyse(spec)
+    m = a.mass
+    assert m.coupling_mass_g > 0.0 and m.mount_mass_g > 0.0
+    plain = analyse(_spec()).mass
+    assert plain.coupling_mass_g == plain.mount_mass_g == 0.0
+
+    items = bom_items(a)
+    parts = {i.part: i for i in items}
+    assert "Housing end plate" not in parts
+    inlet = parts["Input end plate, with motor mount"]
+    outlet = parts["Output end plate"]
+    assert inlet.mass_each_g + outlet.mass_each_g == pytest.approx(m.plates_mass_g)
+    assert inlet.mass_each_g - outlet.mass_each_g == pytest.approx(m.mount_mass_g)
+    coupling = parts["Shaft coupling"]
+    assert coupling.source == "buy" and spec.coupling.name in coupling.size
+    assert coupling.mass_each_g == pytest.approx(m.coupling_mass_g)
+    covered = [n for item in items for n in item.assembly]
+    for part in mesh_for_spec(spec).parts:
+        assert covered.count(part.name) == 1, part.name
+
+
+def test_a_coupling_s_half_is_all_a_motor_shaft_is_asked_to_fill():
+    """One and a half times a NEMA 34's 14 mm shaft is 21 mm, and the coupling
+    that takes it has 19.5 mm a side: its maker sized that for the bore."""
+    from cycloidgen.core.motor import COUPLING_GAP
+
+    spec = _coupled("NEMA 34")
+    assert spec.motor_engagement < 1.5 * spec.motor_face.shaft_diameter
+    assert spec.motor_engagement == pytest.approx(
+        (spec.coupling.length - COUPLING_GAP) / 2.0)
+    assert "MOTOR_SHAFT_SHORT" not in _codes(spec)

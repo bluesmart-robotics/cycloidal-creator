@@ -18,15 +18,20 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 from .duty import DutyCycle
 from .fasteners import MetricSize, screw_length, size_for_hole
 from .motor import (
+    COUPLING_GAP,
     MOTOR_FRAMES,
     MOTOR_HUB_CLEARANCE,
+    MOTOR_MOUNT_WALL,
     NO_MOTOR,
+    Coupling,
     MotorCurve,
     MotorFixing,
     MotorFrame,
     MotorKind,
+    coupling_for,
     curve_from,
     motor_fixing,
+    mount_flange,
 )
 
 
@@ -537,8 +542,9 @@ class GearSpec(BaseModel):
     )
     motor_drives_the_shaft: bool = Field(
         True,
-        description="the motor's own shaft is the input shaft, so the cam is "
-                    "bored to it; off means a separate shaft and a coupling",
+        description="the input shaft is bored for the motor's and slides onto "
+                    "it; off means a coupling between them, the motor on a "
+                    "mount over it",
     )
     # The output end of this topology is a boss on the axis, not a face with a
     # bolt circle on it: what goes on there is a coupling, a pulley or a clamp
@@ -1058,6 +1064,118 @@ class GearSpec(BaseModel):
         return curve_from(self)
 
     @property
+    def coupled(self) -> bool:
+        """Whether a coupling joins the motor's shaft to the drive's: a motor
+        face, and the motor not driving the shaft directly."""
+        return self.has_motor_face and not self.motor_drives_the_shaft
+
+    @property
+    def plate_face_z(self) -> float:
+        """The outside of the plate the motor's end is: the input end plate on
+        a carrier drive, the carrier's base on a ring one."""
+        if self.ground_frame_fitted:
+            return self.base_plate_bottom
+        return self.barrel_top + self.plate_thickness
+
+    @property
+    def coupling(self) -> Coupling | None:
+        """The coupling between the two shafts, or None with no coupling."""
+        if not self.coupled:
+            return None
+        return coupling_for(self.motor_face.shaft_diameter, self.input_shaft_diameter)
+
+    @property
+    def coupling_span(self) -> tuple[float, float] | None:
+        """Where the coupling is along the axis, ``(lo, hi)``: just clear of the
+        plate, towards the motor."""
+        c = self.coupling
+        if c is None:
+            return None
+        start = self.plate_face_z + self.motor_side * COUPLING_GAP
+        end = start + self.motor_side * c.length
+        return (start, end) if start < end else (end, start)
+
+    @property
+    def motor_mount(self) -> tuple[float, float, float] | None:
+        """The tube the motor stands on, through a coupling: ``(bore radius,
+        outer radius, height)``, or None.
+
+        Round the coupling with room to turn, a wall thick, and as tall as the
+        motor stands off the plate less the flange it bolts to - which is the
+        motor's own shaft less what of it the coupling takes, or the coupling
+        and the spigot, whichever is more.
+        """
+        c = self.coupling
+        if c is None:
+            return None
+        bore = c.outer / 2.0 + 1.5
+        return (bore, bore + MOTOR_MOUNT_WALL,
+                abs(self.motor_face_z - self.plate_face_z) - self.motor_mount_flange)
+
+    @property
+    def motor_mount_flange(self) -> float:
+        """How thick the mount's flange is, mm; zero with no mount."""
+        if not self.coupled:
+            return 0.0
+        return mount_flange(self.motor_face)
+
+    @property
+    def motor_mount_hole(self) -> float:
+        """The hole through the mount's flange, diameter: the motor's spigot,
+        which is what centres it, or the tube's bore where that is smaller -
+        then the spigot sits in a recess on top instead.  Zero with no mount."""
+        mount = self.motor_mount
+        if mount is None:
+            return 0.0
+        return min(self.motor_face.pilot_diameter, 2.0 * mount[0])
+
+    @property
+    def window_span(self) -> tuple[float, float] | None:
+        """The windows through the mount's tube, along the axis: the coupling,
+        two millimetres in from each end, which is where its screws are and
+        where a key has to get to them."""
+        span = self.coupling_span
+        if span is None:
+            return None
+        return span[0] + 2.0, span[1] - 2.0
+
+    @property
+    def window_half_width(self) -> float:
+        """Half the width of a window across the tube, mm; zero with no mount."""
+        mount = self.motor_mount
+        if mount is None:
+            return 0.0
+        return min(0.7 * mount[0], 8.0)
+
+    @property
+    def motor_mount_volume(self) -> float:
+        """The mount's own metal, mm^3: tube less its windows, flange less its
+        holes and the spigot's recess.  What the mass model adds to the plate
+        it stands on, off the same numbers the solid is built from."""
+        if not self.coupled:
+            return 0.0
+        frame = self.motor_face
+        bore, outer, height = self.motor_mount
+        half = self.window_half_width
+
+        def under(r: float) -> float:          # area under a circle, |x| < half
+            return half * math.sqrt(r * r - half * half) + r * r * math.asin(half / r)
+
+        w0, w1 = self.window_span
+        tube = (math.pi * (outer ** 2 - bore ** 2) * height
+                - 2.0 * (under(outer) - under(bore)) * (w1 - w0))
+        width = frame.body_width
+        corner = 0.11 * width
+        hole = self.motor_mount_hole
+        flange = (width * width - 2.0 * corner * corner - math.pi * hole * hole / 4.0
+                  - len(self.motor_bolt_centres) * math.pi
+                  * frame.bolt_diameter ** 2 / 4.0) * self.motor_mount_flange
+        if frame.pilot_diameter > hole + 1e-9:
+            flange -= math.pi * (frame.pilot_diameter ** 2 - hole ** 2) / 4.0 \
+                * frame.pilot_depth
+        return tube + flange
+
+    @property
     def direct_drive(self) -> bool:
         """Whether the motor's shaft goes straight into the cam: a motor face,
         and no coupling between them."""
@@ -1075,9 +1193,15 @@ class GearSpec(BaseModel):
         reaches further rather than less.
         """
         lo, hi = -self.shaft_overhang, self.stack_height + self.shaft_overhang
+        end = None
         if self.direct_drive:
             end = self.motor_face_z - self.motor_side * (
                 self.motor_face.pilot_depth + MOTOR_HUB_CLEARANCE)
+        elif self.coupled:
+            # Into the near half of the coupling, short of its middle.
+            c0, c1 = self.coupling_span
+            end = (c0 + c1) / 2.0 - self.motor_side * COUPLING_GAP / 2.0
+        if end is not None:
             if self.motor_side > 0:
                 hi = end
             else:
@@ -1111,7 +1235,14 @@ class GearSpec(BaseModel):
 
     @property
     def motor_engagement(self) -> float:
-        """How much of the motor's shaft is inside the input shaft, mm."""
+        """How much of the motor's shaft is inside what it drives - the input
+        shaft directly, or its half of the coupling - mm."""
+        if self.coupled:
+            frame, side = self.motor_face, self.motor_side
+            tip = self.motor_face_z - side * frame.shaft_length
+            c0, c1 = self.coupling_span
+            near = c1 if side > 0 else c0
+            return max(min(side * (near - tip), self.coupling.length / 2.0), 0.0)
         bore = self.motor_bore
         if bore is None:
             return 0.0
@@ -1130,6 +1261,9 @@ class GearSpec(BaseModel):
         """The screws the motor is held on by, and the recess they need."""
         if not self.has_motor_face:
             return None
+        if self.coupled:
+            return motor_fixing(self.motor_face, self.motor_mount_flange,
+                                recessed=False)
         return motor_fixing(self.motor_face, self.plate_thickness)
 
     @property
@@ -1157,9 +1291,20 @@ class GearSpec(BaseModel):
         The outside of whichever plate carries the motor's pattern: the input
         end plate on a carrier drive, the carrier's base on a ring drive.
         """
-        if self.motor_mounts_on_carrier:
-            return self.base_plate_bottom
-        return self.barrel_top + self.plate_thickness
+        face = self.plate_face_z
+        if not self.coupled:
+            return face
+        # Through a coupling the motor stands off on a mount: far enough that
+        # its shaft reaches the middle of the coupling and no further, and at
+        # least far enough that the flange it lands on clears the coupling -
+        # whose hole is the spigot's, narrower than the coupling turning in it.
+        frame, c, side = self.motor_face, self.coupling, self.motor_side
+        start = face + side * COUPLING_GAP
+        middle = start + side * c.length / 2.0
+        end = start + side * c.length
+        reach = middle + side * (COUPLING_GAP / 2.0 + frame.shaft_length)
+        clear = end + side * (COUPLING_GAP + self.motor_mount_flange)
+        return max(reach, clear) if side > 0 else min(reach, clear)
 
     @property
     def motor_side(self) -> float:
@@ -1226,10 +1371,19 @@ class GearSpec(BaseModel):
         the shaft's driven end is inside the boss, and a set screw has no way
         in; the end that does stand out, past the end cap, drives nothing.
         """
-        if self.ground_frame_fitted or self.direct_drive:
+        if self.direct_drive:
             return None
-        z0 = self.barrel_top + self.plate_thickness + 1.0
-        z1 = self.stack_height + self.shaft_overhang
+        lo, hi = self.shaft_span
+        if self.coupled:
+            # Along the shaft's half of the coupling, at whichever end that
+            # is: down through the base's mount on a ring drive, where the
+            # mount's windows are what a key gets in by.
+            c0, c1 = self.coupling_span
+            z0, z1 = (c0, hi) if self.motor_side > 0 else (lo, c1)
+        elif self.ground_frame_fitted:
+            return None
+        else:
+            z0, z1 = self.barrel_top + self.plate_thickness + 1.0, hi
         if z1 - z0 < 2.0:
             return None
         return z0, z1, 0.1 * self.input_shaft_diameter

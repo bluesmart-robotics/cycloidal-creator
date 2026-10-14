@@ -528,14 +528,31 @@ EXPLANATIONS: dict[str, Explanation] = {
         "drives the shaft' and put a coupling in.",
         unit="mm"),
     "MOTOR_SHAFT_SHORT": Explanation(
-        "Not enough of the motor's shaft is inside the drive's",
-        "motor shaft inside the input shaft  >=  1.5 x its diameter",
-        "The motor is flush on its face, so how far its shaft gets into the "
-        "drive's is its length less the plate and the spigot it passes. That "
+        "Not enough of the motor's shaft is inside what it drives",
+        "motor shaft inside what it drives  >=  1.5 x its diameter, or a "
+        "coupling's whole half where that is less",
+        "Driven directly the motor is flush on its face, so how far its shaft "
+        "gets into the drive's is its length less the plate and the spigot it "
+        "passes. Through a coupling it is what gets past the mount's flange "
+        "into the coupling's half, which its maker sized for the bore. That "
         "length drives the cam through the flat and holds the two in line; a "
-        "stub of it does neither, and the input shaft rocks on it.",
-        "A motor with a longer shaft, a thinner plate, or a coupling between "
-        "them - which also frees the motor's shaft from the crank.",
+        "stub of it does neither, and the input shaft or the coupling rocks on "
+        "it.",
+        "A motor with a longer shaft. Driven directly, a thinner plate or a "
+        "coupling between them; through a coupling, driving it directly.",
+        unit="mm"),
+    "COUPLING_DOES_NOT_FIT": Explanation(
+        "The coupling between the shafts does not fit",
+        "a catalogue coupling takes both shafts, and its tube clears the "
+        "motor's screws",
+        "Through a coupling, the motor stands on a mount: a tube round the "
+        "coupling, and a flange on top that the motor's screws go through. The "
+        "screws' heads or nuts sit under that flange beside the tube, so a "
+        "coupling too big for the motor's pattern puts the tube where they "
+        "have to go. And two shafts too different for any coupling in the "
+        "catalogue are joined here by a plain sleeve, which is a sketch.",
+        "A coupling that takes both shafts - a bigger frame, or an input shaft "
+        "nearer the motor's so a smaller coupling does.",
         unit="mm"),
     "MOTOR_SCREW_SEAT": Explanation(
         "The motor's screws have too little to hold on",

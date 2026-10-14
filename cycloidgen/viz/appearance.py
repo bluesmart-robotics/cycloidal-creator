@@ -75,6 +75,8 @@ def material_of(spec: GearSpec, part: Part) -> str:
         return BEARING_MATERIAL
     if group == "motor":
         return MOTOR_SHAFT_MATERIAL
+    if part.name == "coupling":
+        return "Aluminium 7075-T6"            # as beam couplings are
     if group == "discs" or part.name == "washers":
         return spec.disc_material
     if group == "shaft":

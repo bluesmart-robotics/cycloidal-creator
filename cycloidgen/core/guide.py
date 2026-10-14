@@ -392,7 +392,10 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "input shaft stops short of it and is bored for the motor's shaft, a D "
         "on its D. The input shaft has to be thicker than the motor's by a "
         "wall, and the motor's shaft long enough to get well into it. Off puts "
-        "a coupling between them, for when they will not pair like that.",
+        "a coupling between them, for when they will not pair like that: the "
+        "smallest common size that takes both shafts, in a tube that rises "
+        "from the plate with a window either side for its screws, and the "
+        "motor bolted to a flange on the end of the tube.",
         "Off costs a coupling and length. On pairs the drive to one frame, and "
         "with no shaft bearings it hangs the crank on the motor's own."),
     "motor_kind": ParameterGuide(

@@ -27,7 +27,8 @@ import numpy as np
 
 from ..core import profile as prof
 from ..core.fasteners import nut_volume, screw_volume
-from ..core.spec import GearSpec, OutputMember, d_section_area
+from ..core.motor import COUPLING_SLOT_DEPTH, COUPLING_SLOT_WIDTH, COUPLING_SLOTS
+from ..core.spec import MATERIALS, GearSpec, OutputMember, d_section_area
 from .bearings import BearingChoice, SeatBores, bearing_schedule, pin_diameters, seat_bores
 
 __all__ = ["MassResult", "analyse_mass", "tie_bolt_mass_g"]
@@ -60,6 +61,12 @@ class MassResult:
     #: rollers.  Bought, but in the gearbox, so on the scale.  Estimated from
     #: each part's envelope - see :data:`~.bearings.BEARING_FILL`.
     bearings_mass_g: float
+    #: The shaft coupling, when there is one: aluminium, bought.
+    coupling_mass_g: float
+    #: The motor mount the motor stands on through a coupling: part of the
+    #: input end plate on a carrier drive, of the carrier's base on a ring one,
+    #: and counted in that part's mass - this is its share of it.
+    mount_mass_g: float
     #: The tie bolts and their nuts, in the material the bill orders them in.
     #: Only those: the motor's bolts and the output bolts have no length until
     #: the drive knows what they go into, and a guessed length is a guessed mass.
@@ -288,6 +295,8 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
                               * (frame.bolt_diameter / 2.0) ** 2
                               * spec.plate_thickness)
     flange_volume += _lip_volume(bores, "output_flange")
+    if spec.ground_frame_fitted:
+        flange_volume += spec.motor_mount_volume      # under the base
     flange_mass = max(flange_volume, 0.0) * _MM3_TO_CM3 * rho_house
 
     # The end cap at the far end of the pins: the carrier's mirror image, and
@@ -327,6 +336,12 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
                      ) * spec.plate_thickness
     plates_volume += (_lip_volume(bores, "input_end_plate")
                       + _lip_volume(bores, "output_end_plate"))
+    # Through a coupling, the motor stands on a mount that is part of the
+    # plate at its end of the drive: the input plate, or the carrier's base.
+    mount_volume = spec.motor_mount_volume
+    if not spec.ground_frame_fitted:
+        plates_volume += mount_volume
+    mount_mass = mount_volume * _MM3_TO_CM3 * rho_house
     plates_mass = max(plates_volume, 0.0) * _MM3_TO_CM3 * rho_house
 
     # The sleeves in the shaft's material and the washers in the discs', which
@@ -345,9 +360,32 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     tie_mass = tie_bolt_mass_g(spec) * spec.housing_bolt_count
     fasteners_mass = tie_mass + motor_screw_mass_g(spec) * len(spec.motor_bolt_centres)
 
+    coupling = spec.coupling
+    coupling_polar = 0.0
+    coupling_mass = 0.0
+    if coupling is not None:
+        # Aluminium, as beam couplings are, bored half to each shaft.
+        rho_al = MATERIALS["Aluminium 7075-T6"].density_g_cm3
+        half = coupling.length / 2.0
+        r_o = coupling.outer / 2.0
+        bores_polar = (_polar(spec.input_shaft_diameter / 2.0, 0.0, half)
+                       + _polar(spec.motor_face.shaft_diameter / 2.0, 0.0, half))
+        volume = (math.pi * r_o * r_o * coupling.length
+                  - math.pi * (spec.input_shaft_diameter ** 2
+                               + spec.motor_face.shaft_diameter ** 2) / 4.0 * half)
+        coupling_polar = _polar(r_o, 0.0, coupling.length) - bores_polar
+        if coupling.catalogue:
+            # Less the beam's cuts, as the solid draws them.
+            r_s = r_o - COUPLING_SLOT_DEPTH
+            volume -= (COUPLING_SLOTS * math.pi * (r_o * r_o - r_s * r_s)
+                       * COUPLING_SLOT_WIDTH)
+            coupling_polar -= COUPLING_SLOTS * _polar(r_o, r_s, COUPLING_SLOT_WIDTH)
+        coupling_mass = volume * _MM3_TO_CM3 * rho_al
+        coupling_polar *= rho_al
+
     total = (n * disc_mass + housing_mass + plates_mass + pins_mass
              + shaft_mass + flange_mass + cap_mass + spacers_mass + bearings_mass
-             + fasteners_mass)
+             + fasteners_mass + coupling_mass)
 
     # ---- inertia ------------------------------------------------------------
     # kg*mm^2:  g/cm^3 * mm^4 * 1e-3 (cm^3/mm^3) / 1e3 (kg/g) = 1e-6
@@ -388,7 +426,8 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
         shaft_polar -= _polar(bore[2] / 2.0, 0.0, bore[1] - bore[0])
     sleeves_polar = sum(_polar(s.outer / 2.0, s.bore / 2.0, s.length)
                         for s in bores.spacers if not s.name.startswith("washer"))
-    shaft_inertia = (shaft_polar + sleeves_polar) * rho_shaft * 1e-6
+    shaft_inertia = ((shaft_polar + sleeves_polar) * rho_shaft
+                     + coupling_polar) * 1e-6
 
     # The member that turns at the output, off the same shapes again.  Which
     # one that is is the whole difference between the two topologies, and it
@@ -499,6 +538,8 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
         spacers_mass_g=spacers_mass,
         bearings_mass_g=bearings_mass,
         fasteners_mass_g=fasteners_mass,
+        coupling_mass_g=coupling_mass,
+        mount_mass_g=mount_mass,
         disc_inertia_kg_mm2=disc_inertia,
         reflected_inertia_kg_mm2=reflected,
         shaft_inertia_kg_mm2=shaft_inertia,

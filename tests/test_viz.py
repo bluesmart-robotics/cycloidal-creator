@@ -696,10 +696,11 @@ def test_every_part_is_watertight_once_built_for_vtk(ratio):
     assert not faults, "; ".join(faults)
 
 
-@pytest.mark.parametrize("output,frame", [("ring housing", "None"),
-                                          ("output pin carrier", "NEMA 17"),
-                                          ("ring housing", "NEMA 17")])
-def test_a_stepped_bore_is_still_watertight(output, frame):
+@pytest.mark.parametrize("output,frame,direct", [
+    ("ring housing", "None", True),
+    ("output pin carrier", "NEMA 17", True), ("ring housing", "NEMA 17", True),
+    ("output pin carrier", "NEMA 23", False), ("ring housing", "NEMA 17", False)])
+def test_a_stepped_bore_is_still_watertight(output, frame, direct):
     """The lips that hold the bearings in make every bearing bore two bores.
 
     Each step between them is a face of its own, and the run either side is a
@@ -713,6 +714,7 @@ def test_a_stepped_bore_is_still_watertight(output, frame):
     spec = preset(21)
     spec.output_member = output
     spec.motor_frame = frame
+    spec.motor_drives_the_shaft = direct     # or through a coupling, on a mount
     mesh = build_mesh(spec)
     faults = []
     for part in mesh.parts:
@@ -873,12 +875,16 @@ def test_a_drive_with_a_motor_matches_its_solids(frame, ring, direct):
     mesh = build_mesh(s)
     volumes = _part_volumes(mesh)
     solids = {**solid.parts(s), **solid.motor_screws(s)}
+    if not direct:
+        solids["coupling"] = solid.coupling_solid(s)
     plate = "output_flange" if ring else "input_end_plate"
     names = ["eccentric_shaft", plate, "motor_screws"]
     if frame == "NEMA 23":
         names.append("motor_nuts")
+    if not direct:
+        names.append("coupling")      # the windows and grooves are the solid's
     for i, part in enumerate(mesh.parts):
         if part.name in names:
-            bought = part.name.startswith("motor_")
+            bought = part.name.startswith("motor_") or part.name == "coupling"
             assert volumes[i] == pytest.approx(solids[part.name].val().Volume(),
                                                rel=0.05 if bought else 0.03), part.name

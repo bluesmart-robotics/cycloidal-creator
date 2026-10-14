@@ -178,6 +178,8 @@ def report_dict(a: DesignAnalysis) -> dict:
             "spacers_mass_g": a.mass.spacers_mass_g,
             "bearings_mass_g": a.mass.bearings_mass_g,
             "fasteners_mass_g": a.mass.fasteners_mass_g,
+            "coupling_mass_g": a.mass.coupling_mass_g,
+            "mount_mass_g": a.mass.mount_mass_g,
             "disc_inertia_kg_mm2": a.mass.disc_inertia_kg_mm2,
             "reflected_inertia_kg_mm2": a.mass.reflected_inertia_kg_mm2,
             "shaft_inertia_kg_mm2": a.mass.shaft_inertia_kg_mm2,

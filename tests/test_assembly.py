@@ -603,9 +603,10 @@ def test_the_input_end_has_a_flat_for_a_set_screw_where_one_can_reach(output):
 # ------------------------------------------------- weighed as it is exported
 
 
-@pytest.mark.parametrize("ring_output,motor", [(False, "None"), (True, "None"),
-                                              (False, "NEMA 17"), (True, "NEMA 23")])
-def test_every_made_part_weighs_what_its_solid_encloses(ring_output, motor):
+@pytest.mark.parametrize("ring_output,motor,direct", [
+    (False, "None", True), (True, "None", True), (False, "NEMA 17", True),
+    (True, "NEMA 23", True), (False, "NEMA 17", False), (True, "NEMA 23", False)])
+def test_every_made_part_weighs_what_its_solid_encloses(ring_output, motor, direct):
     """The mass model and the STEP export are two descriptions of one gearbox.
 
     Held part by part, because a total can agree while two parts are wrong in
@@ -622,6 +623,7 @@ def test_every_made_part_weighs_what_its_solid_encloses(ring_output, motor):
 
     spec = preset(21)
     spec.motor_frame = motor              # driven directly: a bored shaft
+    spec.motor_drives_the_shaft = direct  # or a mount on the plate, coupled
     if ring_output:
         spec.output_member = OutputMember.RING
     m = analyse(spec).mass
@@ -648,8 +650,9 @@ def test_every_made_part_weighs_what_its_solid_encloses(ring_output, motor):
         assert analytic == pytest.approx(enclosed, rel=0.02), names
 
 
-@pytest.mark.parametrize("ring_output", [False, True])
-def test_the_inertia_is_the_inertia_of_the_exported_solids(ring_output):
+@pytest.mark.parametrize("ring_output,coupled", [
+    (False, False), (True, False), (False, True), (True, True)])
+def test_the_inertia_is_the_inertia_of_the_exported_solids(ring_output, coupled):
     """The shaft and the turning output member, against what OCCT integrates
     over the solids the STEP file is made of.
 
@@ -657,6 +660,7 @@ def test_the_inertia_is_the_inertia_of_the_exported_solids(ring_output):
     carrier carries its pins as one body and one body has one density.  The
     tie bolts are counted as their mass on their circle, which leaves out
     their own spin - a part in a thousand of the housing they turn with.
+    Through a coupling, the coupling turns with the shaft, in aluminium.
     """
     import cadquery as cq
 
@@ -667,6 +671,9 @@ def test_the_inertia_is_the_inertia_of_the_exported_solids(ring_output):
     spec.pin_material = spec.housing_material
     if ring_output:
         spec.output_member = OutputMember.RING
+    if coupled:
+        spec.motor_frame = "NEMA 17"
+        spec.motor_drives_the_shaft = False
     m = analyse(spec).mass
     parts = {**solid.parts(spec), "tie_bolts": solid.tie_bolts(spec),
              "tie_nuts": solid.tie_nuts(spec)}
@@ -675,9 +682,18 @@ def test_the_inertia_is_the_inertia_of_the_exported_solids(ring_output):
         return sum(cq.Shape.matrixOfInertia(parts[n].val())[2][2] for n in names) \
             * material.density_g_cm3 * 1e-6
 
-    assert m.shaft_inertia_kg_mm2 == pytest.approx(inertia(
-        ["eccentric_shaft", "shaft_spacer_input", "shaft_spacer_output"],
-        spec.shaft_mat), rel=0.02)
+    shaft = inertia(["eccentric_shaft", "shaft_spacer_input", "shaft_spacer_output"],
+                    spec.shaft_mat)
+    if coupled:
+        from cycloidgen.core.spec import MATERIALS
+
+        aluminium = MATERIALS["Aluminium 7075-T6"]
+        parts["coupling"] = solid.coupling_solid(spec)
+        shaft += inertia(["coupling"], aluminium)
+        assert m.coupling_mass_g == pytest.approx(
+            parts["coupling"].val().Volume() * aluminium.density_g_cm3 / 1000.0,
+            rel=0.02)
+    assert m.shaft_inertia_kg_mm2 == pytest.approx(shaft, rel=0.02)
     turning = (["housing", "input_end_plate", "output_end_plate", "ring_pins",
                 "tie_bolts", "tie_nuts"] if ring_output else ["output_flange"])
     assert m.output_inertia_kg_mm2 == pytest.approx(

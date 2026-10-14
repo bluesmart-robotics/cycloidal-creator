@@ -42,7 +42,7 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Sixty-seven checks that explain themselves.** Each says what it tests, what
+- **Sixty-eight checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -50,7 +50,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,376 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,395 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -499,7 +499,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Sixty-seven of them. Errors block export; warnings do not; several are readings
+Sixty-eight of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -529,6 +529,7 @@ rather than tests.
 
 **Mounting** — `HOUSING_BOLT_CLASH` · `OUTPUT_BOLT_CLASH` ·
 `MOTOR_SHAFT_MISMATCH` · `MOTOR_SHAFT_SHORT` · `MOTOR_SCREW_SEAT` ·
+`COUPLING_DOES_NOT_FIT` ·
 `MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD` ·
 `TIE_NUTS_ON_OUTPUT_FACE`
 
@@ -644,11 +645,26 @@ suggests it.
   their heads in counterbores; a NEMA 23 or 34 has a flange, so they go in
   from the motor's side into nuts sitting in hexagonal pockets. Both are ISO
   screws at the longest preferred length that does not bottom out, on the
-  bill and weighed, and a plate too thin to hold them is a finding. The output
-  end of this
-  topology is a boss on the axis rather than a bolt face, so what it needs is
-  somewhere for a coupling to grip; it now stands proud of the plate instead of
-  coming out flush.
+  bill and weighed, and a plate too thin to hold them is a finding.
+
+  Through a coupling - *motor drives the shaft* off - the motor stands on a
+  mount instead: a tube round the coupling, part of the plate it rises from,
+  with a window either side for a key to reach the coupling's screws, and on
+  its end a flange the motor's size carrying its pattern and its spigot. The
+  coupling is the smallest of the common beam sizes that takes both shafts, or
+  a plain sleeve, reported, where none does; the drive's shaft runs into its
+  near half, and the motor stands off far enough for its own shaft to meet it
+  in the middle. Nothing is let into the face the discs run on: the screws'
+  heads or nuts sit under the flange, and on a threaded face the flange is as
+  thick as makes the shortest preferred screw through it fill the motor's
+  threads. The mount is weighed with its plate, the coupling as aluminium and
+  in the input's inertia, and both are on the bill. The checks are that the
+  tube clears the motor's screws and that enough of the motor's shaft gets past
+  the flange into the coupling.
+
+  The output end of this topology is a boss on the axis rather than a bolt
+  face, so what it needs is somewhere for a coupling to grip; it now stands
+  proud of the plate instead of coming out flush.
 
   That is the *picture*. Whether the drive actually has them, and which ones,
   is a design decision, under **Bearings** in the parameter panel. Each seat can
@@ -686,8 +702,10 @@ suggests it.
   Where the shaft stands out of the input plate for a coupling it carries a
   flat, a tenth of its diameter deep - a stepper's own D-cut on a 5 mm shaft is
   half a millimetre - so a set screw drives through a face rather than biting
-  a round shaft and walking. A ring-output drive gets none: its driven end is
-  inside the carrier's boss, where no set screw can reach.
+  a round shaft and walking. A ring-output drive gets none, its driven end
+  being inside the carrier's boss where no set screw can reach - unless a
+  motor is coupled to it, and then the flat is on the end that runs down
+  through the carrier's base into the coupling.
 
   Three of the five load paths can also be built without a bearing at all, and
   plenty of drives are. Switching one
@@ -943,7 +961,7 @@ cycloidgen/
 docs/           the API reference and the README's figures
 tools/          what draws the banner, the icon, the logo assets, the
                 installer's bitmaps and the screenshots
-tests/          1,376 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,395 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -959,7 +977,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,376 tests, about 700 s. Most of that is CadQuery writing solids; the pure
+1,395 tests, about 700 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

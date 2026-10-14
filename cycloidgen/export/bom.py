@@ -89,18 +89,40 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
                 if s.output_member is OutputMember.CARRIER else
                 "this is the output member and it turns")))
 
-    items.append(BomItem(
-        part="Housing end plate", quantity=2, material=s.housing_material,
-        size=f"{2 * s.housing_outer_radius:.1f} dia x {s.plate_thickness:g} mm",
-        mass_each_g=m.plates_mass_g / 2.0, source="make",
-        note=f"input side bored {bores.input_plate:.1f} for the "
-             + ("second output bearing" if s.ground_frame_fitted
-                else "shaft support")
-             + f", output side {bores.output_plate:.1f} for the output bearing "
-             f"- they are not interchangeable"
-             + (f"; the input side also carries the {s.output_bolt_count} "
-                f"output bolts the load hangs on" if s.ground_frame_fitted
-                and s.output_bolt_count else "")))
+    if s.coupled and not s.ground_frame_fitted:
+        # The motor's mount is part of the input plate, so the two plates are
+        # no longer one part twice: a line each, at their own masses.
+        mount = m.mount_mass_g
+        plain = (m.plates_mass_g - mount) / 2.0
+        bore, outer, height = s.motor_mount
+        items.append(BomItem(
+            part="Input end plate, with motor mount", quantity=1,
+            material=s.housing_material,
+            size=f"{2 * s.housing_outer_radius:.1f} dia x {s.plate_thickness:g} mm, "
+                 f"mount {2 * outer:.1f} mm x {height:.1f} mm to a "
+                 f"{s.motor_face.name} flange",
+            mass_each_g=plain + mount, source="make",
+            note=f"bored {bores.input_plate:.1f} for the shaft support; the "
+                 f"mount's tube carries the coupling, with a window either side "
+                 f"for its screws"))
+        items.append(BomItem(
+            part="Output end plate", quantity=1, material=s.housing_material,
+            size=f"{2 * s.housing_outer_radius:.1f} dia x {s.plate_thickness:g} mm",
+            mass_each_g=plain, source="make",
+            note=f"bored {bores.output_plate:.1f} for the output bearing"))
+    else:
+        items.append(BomItem(
+            part="Housing end plate", quantity=2, material=s.housing_material,
+            size=f"{2 * s.housing_outer_radius:.1f} dia x {s.plate_thickness:g} mm",
+            mass_each_g=m.plates_mass_g / 2.0, source="make",
+            note=f"input side bored {bores.input_plate:.1f} for the "
+                 + ("second output bearing" if s.ground_frame_fitted
+                    else "shaft support")
+                 + f", output side {bores.output_plate:.1f} for the output bearing "
+                 f"- they are not interchangeable"
+                 + (f"; the input side also carries the {s.output_bolt_count} "
+                    f"output bolts the load hangs on" if s.ground_frame_fitted
+                    and s.output_bolt_count else "")))
 
     items.append(BomItem(
         part="Output flange / carrier", quantity=1, material=s.housing_material,
@@ -279,9 +301,23 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
                     note=f"in its pocket in the inside of {face}"))
 
     # ---- what drives it -----------------------------------------------------
-    # On the bill because it is on the drawing, and because whoever builds the
-    # drive has to buy one - but weighed at nothing, since the gearbox's mass
-    # is the gearbox's.
+    # The coupling is bought, but it is inside the mount and turns with the
+    # input shaft, so it is weighed with the drive.
+    c = s.coupling
+    if c is not None:
+        items.append(BomItem(
+            part="Shaft coupling", quantity=1, material="Aluminium 7075-T6",
+            size=(f"{c.name} beam coupling" if c.catalogue else
+                  f"plain sleeve, {c.outer:g} mm x {c.length:g} mm")
+                 + f", bores {s.input_shaft_diameter:g} / "
+                   f"{s.motor_face.shaft_diameter:g} mm",
+            mass_each_g=m.coupling_mass_g, source="buy",
+            note="a set screw onto each shaft's flat, reached through the "
+                 "motor mount's windows"))
+
+    # The motor is on the bill because it is on the drawing, and because
+    # whoever builds the drive has to buy one - but weighed at nothing, since
+    # the gearbox's mass is the gearbox's.
     if s.has_motor_face:
         frame = s.motor_face
         items.append(BomItem(
@@ -342,6 +378,9 @@ def _assembly(part: str, spec) -> tuple[str, ...]:
         "Motor": ("motor", "motor_shaft"),
         "Motor bolt": ("motor_screws",),
         "Motor bolt nut": ("motor_nuts",),
+        "Shaft coupling": ("coupling",),
+        "Input end plate, with motor mount": ("input_end_plate",),
+        "Output end plate": ("output_end_plate",),
         "Output pin roller": ("bearing_output_pins",),
     }.get(part, ())
 

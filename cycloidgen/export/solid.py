@@ -413,10 +413,90 @@ def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
     if flat is not None:
         z0, z1, depth = flat
         r = spec.input_shaft_diameter / 2.0
+        # Past whichever end is the shaft's own, so the flat runs out of it.
+        z0 -= 1.0 if z0 <= lo + 1e-6 else 0.0
+        z1 += 1.0 if z1 >= hi - 1e-6 else 0.0
         shaft = shaft.cut(cq.Workplane("XY").box(
-            depth + 1.0, 2.0 * r + 2.0, z1 - z0 + 1.0, centered=False)
+            depth + 1.0, 2.0 * r + 2.0, z1 - z0, centered=False)
             .translate((r - depth, -r - 1.0, z0)))
     return shaft
+
+
+def _motor_mount(spec: GearSpec, host: str, side: float) -> cq.Workplane:
+    """The mount a motor stands on through a coupling, in ``host``'s own frame.
+
+    A tube round the coupling with a window either side for its screws, and on
+    the end of it a flange the motor's size with the motor's pattern through
+    it and its spigot's register in it.  Part of the plate it stands on rather
+    than bolted to it: one fewer joint, and nowhere on that face for screws.
+    """
+    from ..viz.mesh import octagon
+
+    frame = spec.motor_face
+    thick = spec.motor_mount_flange
+    shift = _host_offset(spec, host)
+    face = spec.plate_face_z - shift
+    bore, outer, height = spec.motor_mount
+    near = face + side * height
+    tube = (cq.Workplane("XY").workplane(offset=min(face, near))
+            .circle(outer).circle(bore).extrude(height))
+    far = near + side * thick
+    width = frame.body_width
+    flange = (cq.Workplane("XY").workplane(offset=min(near, far))
+              .polyline([tuple(p) for p in octagon(width, 0.11 * width)]).close()
+              .extrude(thick))
+    flange = flange.cut(cq.Workplane("XY").workplane(offset=min(near, far) - 1.0)
+                        .circle(spec.motor_mount_hole / 2.0)
+                        .extrude(thick + 2.0))
+    for cx, cy in spec.motor_bolt_centres:
+        flange = flange.cut(cq.Workplane("XY").workplane(offset=min(near, far) - 1.0)
+                            .center(cx, cy).circle(frame.bolt_diameter / 2.0)
+                            .extrude(thick + 2.0))
+    if frame.pilot_diameter > spec.motor_mount_hole + 1e-9:
+        # The spigot is wider than the tube: a recess for it in the face.
+        z = far - frame.pilot_depth if side > 0 else far
+        flange = flange.cut(cq.Workplane("XY").workplane(offset=z)
+                            .circle(frame.pilot_diameter / 2.0)
+                            .extrude(frame.pilot_depth))
+    body = tube.union(flange)
+    w0, w1 = (z - shift for z in spec.window_span)
+    half = spec.window_half_width
+    for sy in (1.0, -1.0):
+        body = body.cut(cq.Workplane("XY")
+                        .box(2.0 * half, outer + 1.0, w1 - w0, centered=False)
+                        .translate((-half, 0.0 if sy > 0 else -outer - 1.0, w0)))
+    return body
+
+
+def coupling_solid(spec: GearSpec) -> cq.Workplane | None:
+    """The coupling, where it goes: bored for the input shaft on the drive's
+    half and the motor's on the other, a set screw into each half facing its
+    shaft's flat, and the beam's slots as rings round its middle."""
+    c = spec.coupling
+    if c is None:
+        return None
+    lo, hi = spec.coupling_span
+    mid = (lo + hi) / 2.0
+    drive, motor = ((lo, mid), (mid, hi)) if spec.motor_side > 0 else ((mid, hi), (lo, mid))
+    body = (cq.Workplane("XY").workplane(offset=lo).circle(c.outer / 2.0)
+            .extrude(hi - lo))
+    for (a, b), d in ((drive, spec.input_shaft_diameter),
+                      (motor, spec.motor_face.shaft_diameter)):
+        body = body.cut(cq.Workplane("XY").workplane(offset=a).circle(d / 2.0)
+                        .extrude(b - a))
+        body = body.cut(cq.Workplane("YZ").center(0.0, (a + b) / 2.0)
+                        .circle(min(1.5, (b - a) / 6.0)).extrude(c.outer / 2.0 + 1.0))
+    if c.catalogue:
+        from ..core.motor import COUPLING_SLOT_DEPTH, COUPLING_SLOT_WIDTH, COUPLING_SLOTS
+
+        for k in range(COUPLING_SLOTS):
+            z = mid + (k - (COUPLING_SLOTS - 1) / 2.0) * c.length / 8.0
+            body = body.cut(cq.Workplane("XY")
+                            .workplane(offset=z - COUPLING_SLOT_WIDTH / 2.0)
+                            .circle(c.outer / 2.0 + 1.0)
+                            .circle(c.outer / 2.0 - COUPLING_SLOT_DEPTH)
+                            .extrude(COUPLING_SLOT_WIDTH))
+    return body
 
 
 def _motor_recesses(spec: GearSpec, inside: float, side: float) -> cq.Workplane | None:
@@ -548,7 +628,9 @@ def output_flange(spec: GearSpec,
                 .workplane(offset=spec.base_plate_bottom + CARRIER_DROP)
                 .circle(spec.housing_outer_radius)
                 .extrude(spec.plate_thickness))
-        if spec.has_motor_face:
+        if spec.coupled:
+            base = base.union(_motor_mount(spec, "output_flange", -1.0))
+        elif spec.has_motor_face:
             frame = spec.motor_face
             # The register first, and only where the spigot is wider than the
             # bore already through here - a motor that pilots on 22 mm into a
@@ -677,6 +759,8 @@ def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
                                  math.degrees(spec.output_bolt_phase), 360,
                                  spec.output_bolt_count)
                      .hole(spec.output_bolt_diameter))
+    elif motor_face and spec.coupled:
+        plate = plate.union(_motor_mount(spec, "input_end_plate", 1.0))
     elif motor_face and spec.has_motor_face:
         frame = spec.motor_face
         # The register first: a shallow recess on the outside face that the
@@ -1081,6 +1165,9 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
 
     for name, body in motor_screws(spec).items():
         assy.add(body, name=name, color=_part_colour("tie_bolts"))
+    coupling = coupling_solid(spec)
+    if coupling is not None:
+        assy.add(coupling, name="coupling", color=_part_colour("eccentric_shaft"))
 
     if spec.housing_bolt_count:
         assy.add(tie_bolts(spec), name="tie_bolts", color=_part_colour("tie_bolts"))

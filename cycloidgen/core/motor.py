@@ -85,17 +85,27 @@ from pydantic import BaseModel, Field
 from .fasteners import MetricSize
 
 __all__ = [
+    "COUPLINGS",
+    "COUPLING_GAP",
+    "COUPLING_SLOTS",
+    "COUPLING_SLOT_DEPTH",
+    "COUPLING_SLOT_WIDTH",
     "MOTOR_FIELDS",
     "MOTOR_FRAMES",
     "MOTOR_HUB_CLEARANCE",
     "MOTOR_HUB_WALL",
+    "MOTOR_MOUNT_FLANGE",
+    "MOTOR_MOUNT_WALL",
     "NO_MOTOR",
+    "Coupling",
     "MotorCurve",
     "MotorFixing",
     "MotorFrame",
     "MotorKind",
+    "coupling_for",
     "curve_from",
     "motor_fixing",
+    "mount_flange",
 ]
 
 #: The eight fields a curve is made of, under the names the spec gives them.
@@ -279,19 +289,109 @@ MIN_ENGAGEMENT = 0.8
 MIN_UNDER_RECESS = 1.5
 
 
-def motor_fixing(frame: MotorFrame, plate: float) -> MotorFixing | None:
+@dataclass(frozen=True)
+class Coupling:
+    """A shaft coupling, by its outside and its length.
+
+    The common aluminium beam couplings, at the sizes they are sold in: first-
+    pass figures for room and fit, like the bearing catalogue's.  ``catalogue``
+    is False for one this table could not supply, drawn plain to the shafts it
+    has to join so the drive is still a drive - and reported.
+    """
+
+    name: str
+    outer: float
+    length: float
+    min_bore: float
+    max_bore: float
+    catalogue: bool = True
+
+
+COUPLINGS: tuple[Coupling, ...] = (
+    Coupling("D16 x L23", 16.0, 23.0, 3.0, 6.35),
+    Coupling("D19 x L25", 19.0, 25.0, 4.0, 8.0),
+    Coupling("D25 x L30", 25.0, 30.0, 5.0, 12.0),
+    Coupling("D32 x L40", 32.0, 40.0, 8.0, 16.0),
+    Coupling("D40 x L50", 40.0, 50.0, 10.0, 20.0),
+)
+
+#: Between the two shafts' ends inside a coupling, and between a coupling
+#: and anything it turns past, mm.
+COUPLING_GAP = 1.0
+#: A beam coupling's cuts, drawn as rings round its middle an eighth of its
+#: length apart: how many, how wide and how deep, mm.  The real ones are a
+#: helix; rings take out about as much metal, and the mass model can weigh
+#: what the solid draws.
+COUPLING_SLOTS = 3
+COUPLING_SLOT_WIDTH = 0.8
+COUPLING_SLOT_DEPTH = 1.5
+#: The motor mount's tube wall, and the thinnest the flange the motor bolts
+#: to on top of it is, mm.
+MOTOR_MOUNT_WALL = 3.0
+MOTOR_MOUNT_FLANGE = 6.0
+
+
+def mount_flange(frame: MotorFrame) -> float:
+    """How thick a motor mount's flange is for ``frame``, mm.
+
+    At least :data:`MOTOR_MOUNT_FLANGE`.  On a threaded face the screws come up
+    through it with their heads underneath, and a preferred length either
+    fills the motor's threads or falls short of them by up to a pitch of the
+    length series - two millimetres of an M3's three and a half.  So the
+    flange is the thickness that makes the shortest preferred screw through
+    it fill them exactly.  A flanged motor takes nuts, and any thickness.
+    """
+    from .fasteners import SCREW_LENGTHS
+
+    if frame.fixing != "tapped":
+        return MOTOR_MOUNT_FLANGE
+    thread = frame.fixing_depth - 0.3
+    return next(n - thread for n in SCREW_LENGTHS
+                if n - thread >= MOTOR_MOUNT_FLANGE - 1e-9)
+
+
+def coupling_for(a: float, b: float) -> Coupling:
+    """The smallest catalogue coupling that takes shafts ``a`` and ``b``, or a
+    plain sleeve sized off them when none does."""
+    small, large = sorted((a, b))
+    for c in COUPLINGS:
+        if c.min_bore <= small + 1e-9 and large <= c.max_bore + 1e-9:
+            return c
+    return Coupling(f"sleeve {small:g}/{large:g}", round(2.5 * large, 1),
+                    round(3.0 * large, 1), small, large, catalogue=False)
+
+
+def motor_fixing(frame: MotorFrame, plate: float,
+                 recessed: bool = True) -> MotorFixing | None:
     """How ``frame`` is screwed to a plate ``plate`` thick, or None for a frame
     whose screw this build does not know.
 
     The length is ISO 4762's longest preferred one that does not bottom out:
     in the motor's threads short of their depth, or through the nut short of
     the face the discs run on.  The longest, because thread is what holds.
+
+    Not ``recessed``: the plate is a motor mount's flange, with air under it
+    rather than discs, so a head or a nut simply sits on its underside - and a
+    screw through a nut is the shortest preferred one that comes out of it.
     """
     from .fasteners import SCREW_LENGTHS, size_named
 
     size = size_named(frame.screw)
     if size is None:
         return None
+    if not recessed:
+        if frame.fixing == "tapped":
+            longest = plate + frame.fixing_depth - 0.3
+            length = max((n for n in SCREW_LENGTHS if n <= longest + 1e-9),
+                         default=SCREW_LENGTHS[0])
+            return MotorFixing(size=size, length=length, from_drive=True,
+                               recess=0.0, recess_depth=0.0, plate=plate,
+                               engaged=length - plate)
+        need = frame.fixing_depth + plate + size.nut_m + 2.0 * size.pitch
+        length = next((n for n in SCREW_LENGTHS if n >= need - 1e-9),
+                      SCREW_LENGTHS[-1])
+        return MotorFixing(size=size, length=length, from_drive=False, recess=0.0,
+                           recess_depth=0.0, plate=plate, engaged=size.nut_m)
     if frame.fixing == "tapped":
         depth = size.head_h + 0.3
         under = plate - depth
