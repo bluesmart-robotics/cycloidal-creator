@@ -385,6 +385,8 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     # is what decides the regime and the grade cannot rescue it.
     "LUBRICATION_REGIME": ("surface_roughness_um", "lubricant", "process",
                            "ring_pins_are_rollers"),
+    "MOTOR_SHAFT_TOO_BIG": ("motor_frame", "input_shaft_diameter",
+                            "motor_drives_the_shaft"),
     "MOTOR_SHAFT_MISMATCH": ("motor_frame", "input_shaft_diameter",
                              "motor_drives_the_shaft"),
     "MOTOR_SHAFT_SHORT": ("motor_frame", "end_plate_thickness",

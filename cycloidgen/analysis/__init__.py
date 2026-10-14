@@ -9,7 +9,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from ..core.motor import COUPLING_GAP, MOTOR_HUB_WALL
+from ..core.motor import (
+    COUPLING_GAP,
+    MIN_ENGAGEMENT,
+    MIN_UNDER_RECESS,
+    MOTOR_HUB_WALL,
+)
 from ..core.spec import PROCESS_POSITION_TOLERANCE, GearSpec
 from ..core.validate import Report, Severity, validate
 from .bearings import MIN_SHOULDER, BearingChoice, seat_bores, select_bearings
@@ -477,30 +482,47 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # ---- what it bolts to ---------------------------------------------------
     if spec.has_motor_face:
         frame = spec.motor_face
-        if spec.direct_drive and spec.motor_hub_wall < MOTOR_HUB_WALL:
+        wall = spec.motor_hub_wall
+        if spec.direct_drive and wall <= 0.0:
+            # Bored for the motor's shaft, the input shaft would have nothing
+            # left round the bore.  An error, unlike a thin wall: there is no
+            # part to make, and the shaft the files would draw - whole, since
+            # no modeller can cut a bore wider than its shaft - is not one a
+            # motor goes into.
+            need = spec.motor_bore_diameter + 2 * MOTOR_HUB_WALL
+            rep.add(Severity.ERROR, "MOTOR_SHAFT_TOO_BIG",
+                    f"The {frame.name}'s {frame.shaft_diameter:g} mm shaft is to "
+                    f"go into the {spec.input_shaft_diameter:g} mm input shaft, "
+                    f"bored {spec.motor_bore_diameter:g} mm for it - wider than "
+                    f"the shaft, so there is no shaft round the bore. Make the "
+                    f"input shaft at least {need:g} mm, or turn off 'motor "
+                    f"drives the shaft' and put a coupling in, which joins two "
+                    f"different shafts as a matter of course.",
+                    spec.input_shaft_diameter, spec.motor_bore_diameter)
+        elif spec.direct_drive and wall < MOTOR_HUB_WALL:
             # Driven directly, the input shaft is bored for the motor's and
             # rides on it.  A warning rather than an error: every file is still
             # drawn, and a different motor fixes it as well as a thicker shaft.
             rep.add(Severity.WARNING, "MOTOR_SHAFT_MISMATCH",
                     f"The {frame.name}'s {frame.shaft_diameter:g} mm shaft goes "
                     f"into the {spec.input_shaft_diameter:g} mm input shaft, "
-                    f"which leaves {max(spec.motor_hub_wall, 0.0):.2f} mm of wall "
+                    f"which leaves {wall:.2f} mm of wall "
                     f"round it. Make the input shaft at least "
                     f"{frame.shaft_diameter + spec.hole_clearance + 2 * MOTOR_HUB_WALL:g} mm, "
                     f"or turn off 'motor drives the shaft' and put a coupling in.",
-                    spec.motor_hub_wall, MOTOR_HUB_WALL)
-        if spec.has_motor_face:
-            # Torque goes in through the flat, and the hub is only as straight
-            # on the motor's shaft as the length of shaft inside it - the input
-            # shaft's, or the coupling's half.  Through a coupling the motor
-            # stands off far enough for its shaft to reach the coupling's middle,
-            # unless its shaft is so short that the flange it passes is most of
-            # it - and a coupling's half is what its maker sized for its bore,
-            # so all of that half is all that is asked.
-            engaged, need = spec.motor_engagement, 1.5 * frame.shaft_diameter
-            if spec.coupled:
-                need = min(need, (spec.coupling.length - COUPLING_GAP) / 2.0)
-            if engaged < need - 1e-9 and spec.coupled:
+                    wall, MOTOR_HUB_WALL)
+        # Torque goes in through the flat, and the hub is only as straight on
+        # the motor's shaft as the length of shaft inside it - the input
+        # shaft's, or the coupling's half.  Through a coupling the motor stands
+        # off far enough for its shaft to reach the coupling's middle, unless
+        # its shaft is so short that the flange it passes is most of it - and a
+        # coupling's half is what its maker sized for its bore, so all of that
+        # half is all that is asked.  Not asked of a shaft too thick to bore at
+        # all, which has its own error and nothing inside anything.
+        engaged, need = spec.motor_engagement, 1.5 * frame.shaft_diameter
+        if spec.coupled:
+            need = min(need, (spec.coupling.length - COUPLING_GAP) / 2.0)
+            if engaged < need - 1e-9:
                 rep.add(Severity.WARNING, "MOTOR_SHAFT_SHORT",
                         f"Only {engaged:.1f} mm of the {frame.name}'s "
                         f"{frame.shaft_length:g} mm shaft gets past the "
@@ -509,13 +531,13 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                         f"it. A motor with a longer shaft, or drive the shaft "
                         f"directly.",
                         engaged, need)
-            elif engaged < need:
-                rep.add(Severity.WARNING, "MOTOR_SHAFT_SHORT",
-                        f"Only {engaged:.1f} mm of the {frame.name}'s "
-                        f"{frame.shaft_length:g} mm shaft is inside the input "
-                        f"shaft, against {need:.1f} mm to drive and align it. A "
-                        f"longer motor shaft, a thinner plate, or a coupling.",
-                        engaged, need)
+        elif wall > 0.0 and engaged < need:
+            rep.add(Severity.WARNING, "MOTOR_SHAFT_SHORT",
+                    f"Only {engaged:.1f} mm of the {frame.name}'s "
+                    f"{frame.shaft_length:g} mm shaft is inside the input "
+                    f"shaft, against {need:.1f} mm to drive and align it. A "
+                    f"longer motor shaft, a thinner plate, or a coupling.",
+                    engaged, need)
         if spec.coupled:
             c = spec.coupling
             bore, outer, _height = spec.motor_mount
@@ -544,13 +566,18 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                         2 * outer, 2 * reach)
         fix = spec.motor_fixing
         if fix is not None and not fix.fits:
+            thread = MIN_ENGAGEMENT * (fix.size.d if fix.from_drive
+                                       else fix.size.nut_m)
+            under = fix.plate - fix.recess_depth
+            seat = ((fix.engaged, thread) if fix.engaged < thread
+                    else (under, MIN_UNDER_RECESS))
             rep.add(Severity.WARNING, "MOTOR_SCREW_SEAT",
                     f"The {frame.name}'s {fix.size.name} screws get "
                     f"{fix.engaged:.1f} mm of thread and leave "
                     f"{fix.plate - fix.recess_depth:.1f} mm of plate under their "
                     f"{'counterbores' if fix.from_drive else 'nut pockets'} - too "
                     f"little to hold. A thicker plate.",
-                    fix.plate - fix.recess_depth, fix.size.d)
+                    *seat)
 
         # The bolts have to land in the plate, clear of the bore and inside the
         # rim - a pattern that misses the metal is a motor that cannot be bolted

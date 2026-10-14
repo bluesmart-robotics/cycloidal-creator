@@ -1218,8 +1218,13 @@ class GearSpec(BaseModel):
         the torque goes through the flat rather than through a set screw nobody
         can reach once the motor is on; and bored by the process's own hole
         clearance, which is the fit this process makes.
+
+        None too where the bore would be as wide as the shaft or wider: there
+        is no shaft round it then, and a bore through all of a shaft's end is
+        a cut no solid modeller can make.  The shaft is drawn whole, and
+        ``MOTOR_SHAFT_TOO_BIG`` says why it cannot be built.
         """
-        if not self.direct_drive:
+        if not self.direct_drive or self.motor_hub_wall <= 0.0:
             return None
         frame = self.motor_face
         tip = self.motor_face_z - self.motor_side * frame.shaft_length
@@ -1230,8 +1235,15 @@ class GearSpec(BaseModel):
             z0, z1 = lo, min(hi, tip + MOTOR_HUB_CLEARANCE)
         if z1 <= z0:
             return None
-        return (z0, z1, frame.shaft_diameter + self.hole_clearance,
-                frame.shaft_flat)
+        return (z0, z1, self.motor_bore_diameter, frame.shaft_flat)
+
+    @property
+    def motor_bore_diameter(self) -> float:
+        """What the input shaft is bored to for the motor's, driven directly:
+        the motor's shaft at the process's hole clearance.  Zero otherwise."""
+        if not self.direct_drive:
+            return 0.0
+        return self.motor_face.shaft_diameter + self.hole_clearance
 
     @property
     def motor_engagement(self) -> float:
@@ -1250,11 +1262,11 @@ class GearSpec(BaseModel):
 
     @property
     def motor_hub_wall(self) -> float:
-        """What is left round the motor's shaft, driven directly, mm."""
-        bore = self.motor_bore
-        if bore is None:
+        """What is left round the motor's shaft, driven directly, mm - below
+        zero where the motor's shaft is the thicker, and then nothing is bored."""
+        if not self.direct_drive:
             return float("inf")
-        return (self.input_shaft_diameter - bore[2]) / 2.0
+        return (self.input_shaft_diameter - self.motor_bore_diameter) / 2.0
 
     @property
     def motor_fixing(self) -> MotorFixing | None:

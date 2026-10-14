@@ -42,7 +42,7 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Sixty-eight checks that explain themselves.** Each says what it tests, what
+- **Sixty-nine checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -50,7 +50,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,395 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,401 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -499,7 +499,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Sixty-eight of them. Errors block export; warnings do not; several are readings
+Sixty-nine of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -528,10 +528,9 @@ rather than tests.
 `BEARING_DOES_NOT_FIT` · `BEARINGS_OMITTED` · `SEAT_HAS_NO_SHOULDER`
 
 **Mounting** — `HOUSING_BOLT_CLASH` · `OUTPUT_BOLT_CLASH` ·
-`MOTOR_SHAFT_MISMATCH` · `MOTOR_SHAFT_SHORT` · `MOTOR_SCREW_SEAT` ·
-`COUPLING_DOES_NOT_FIT` ·
-`MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD` ·
-`TIE_NUTS_ON_OUTPUT_FACE`
+`MOTOR_SHAFT_TOO_BIG` · `MOTOR_SHAFT_MISMATCH` · `MOTOR_SHAFT_SHORT` ·
+`MOTOR_SCREW_SEAT` · `COUPLING_DOES_NOT_FIT` · `MOTOR_FACE_CLASH` ·
+`MOTOR_RADIAL_LOAD` · `TIE_NUTS_ON_OUTPUT_FACE`
 
 **The motor** — `MOTOR_OPERATING_POINT` · `MOTOR_TORQUE_SHORT` ·
 `MOTOR_SUPPLY_VOLTAGE`
@@ -638,8 +637,9 @@ suggests it.
   the drive's: the input shaft stops short of the spigot and is bored from that
   end for the motor's shaft, a D on the motor's D, so the torque goes through
   the flat and not through a set screw nobody can reach once the motor is on.
-  The checks are that the input shaft keeps a wall round the bore and that
-  enough of the motor's shaft gets into it. The motor's screws are let into
+  The checks are that the input shaft keeps a wall round the bore - an
+  error where the motor's shaft is the thicker and there is no bore to cut -
+  and that enough of the motor's shaft gets into it. The motor's screws are let into
   the face the discs run against, because that face has nothing to spare: a
   NEMA 8 to 17 is threaded, so its screws go in from the drive's side with
   their heads in counterbores; a NEMA 23 or 34 has a flange, so they go in
@@ -961,7 +961,7 @@ cycloidgen/
 docs/           the API reference and the README's figures
 tools/          what draws the banner, the icon, the logo assets, the
                 installer's bitmaps and the screenshots
-tests/          1,395 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,401 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -977,7 +977,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,395 tests, about 700 s. Most of that is CadQuery writing solids; the pure
+1,401 tests, about 700 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

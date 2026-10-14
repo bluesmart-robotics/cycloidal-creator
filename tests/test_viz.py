@@ -696,11 +696,16 @@ def test_every_part_is_watertight_once_built_for_vtk(ratio):
     assert not faults, "; ".join(faults)
 
 
-@pytest.mark.parametrize("output,frame,direct", [
-    ("ring housing", "None", True),
-    ("output pin carrier", "NEMA 17", True), ("ring housing", "NEMA 17", True),
-    ("output pin carrier", "NEMA 23", False), ("ring housing", "NEMA 17", False)])
-def test_a_stepped_bore_is_still_watertight(output, frame, direct):
+@pytest.mark.parametrize("output,frame,direct,shaft", [
+    ("ring housing", "None", True, None),
+    ("output pin carrier", "NEMA 17", True, None),
+    ("ring housing", "NEMA 17", True, None),
+    ("output pin carrier", "NEMA 23", False, None),
+    ("ring housing", "NEMA 17", False, None),
+    # Bored to a 0.35 mm wall, and too thin to bore at all.
+    ("output pin carrier", "NEMA 17", True, 6.0),
+    ("ring housing", "NEMA 23", True, 6.0)])
+def test_a_stepped_bore_is_still_watertight(output, frame, direct, shaft):
     """The lips that hold the bearings in make every bearing bore two bores.
 
     Each step between them is a face of its own, and the run either side is a
@@ -715,6 +720,8 @@ def test_a_stepped_bore_is_still_watertight(output, frame, direct):
     spec.output_member = output
     spec.motor_frame = frame
     spec.motor_drives_the_shaft = direct     # or through a coupling, on a mount
+    if shaft is not None:
+        spec.input_shaft_diameter = shaft
     mesh = build_mesh(spec)
     faults = []
     for part in mesh.parts:

@@ -127,10 +127,62 @@ def test_driven_directly_the_input_shaft_is_bored_for_the_motor_s():
 
 
 def test_an_input_shaft_too_thin_to_bore_is_caught_and_does_not_block():
-    """The old advice was to make them the same shaft; bored for the motor's,
-    that leaves no wall at all.  A warning: every file is still drawn."""
-    findings = {f.code: f for f in analyse(_spec(shaft=5.0)).report.findings}
+    """Six millimetres bored 5.3 for a NEMA 17 is a sleeve 0.35 mm thick.  A
+    warning, because every file is still drawn - which it was not: the break
+    on the shaft's end was bigger than the wall, and the modeller could not
+    cut it."""
+    from cycloidgen.export import solid
+
+    spec = _spec(shaft=6.0)
+    a = analyse(spec)
+    findings = {f.code: f for f in a.report.findings}
     assert findings["MOTOR_SHAFT_MISMATCH"].severity.value == "warning"
+    assert a.report.ok and spec.motor_bore is not None
+    shaft = solid.eccentric_shaft(spec).val()
+    assert shaft.isValid() and len(shaft.Solids()) == 1
+
+
+@pytest.mark.parametrize("frame,shaft", [
+    ("NEMA 17", 5.0), ("NEMA 23", 6.0), ("NEMA 34", 10.0)])
+def test_a_motor_shaft_too_thick_to_bore_for_is_an_error(frame, shaft):
+    """The same shaft as the motor's - the old advice - or a thinner one: bored
+    for the motor's, there is no input shaft round the bore.  It went through
+    as a warning, and the solid modeller failed on the shaft, so the 3D view
+    and the STEP export failed with it.  Now it blocks export, and the shaft
+    is drawn whole so that everything else still is."""
+    from cycloidgen.export import solid
+    from cycloidgen.viz.mesh import mesh_for_spec
+
+    spec = _spec(frame, shaft)
+    a = analyse(spec)
+    findings = {f.code: f for f in a.report.findings}
+    assert findings["MOTOR_SHAFT_TOO_BIG"].severity.value == "error"
+    assert not a.report.ok
+    assert not {"MOTOR_SHAFT_MISMATCH", "MOTOR_SHAFT_SHORT"} & set(findings)
+    assert spec.motor_bore is None and spec.motor_hub_wall <= 0.0
+    body = solid.eccentric_shaft(spec).val()
+    assert body.isValid() and len(body.Solids()) == 1
+    assert any(p.name == "eccentric_shaft" for p in mesh_for_spec(spec).parts)
+
+    # A coupling takes two different shafts, so through one it is no error.
+    spec.motor_drives_the_shaft = False
+    assert "MOTOR_SHAFT_TOO_BIG" not in _codes(spec)
+
+
+def test_a_shaft_check_s_readout_says_which_side_it_wants_to_be_on():
+    """Wall, engagement and seat are minimums.  Read as limits, a 0.35 mm wall
+    against a millimetre came out "2.86x clear of it"."""
+    from cycloidgen.core.explain import margin
+
+    spec = _spec("NEMA 23")
+    spec.end_plate_thickness = 5.0
+    cases = [(_spec(shaft=5.0), "MOTOR_SHAFT_TOO_BIG"),
+             (_spec(shaft=6.0), "MOTOR_SHAFT_MISMATCH"),
+             (_coupled("NEMA 8"), "MOTOR_SHAFT_SHORT"),
+             (spec, "MOTOR_SCREW_SEAT")]
+    for design, code in cases:
+        finding = next(f for f in analyse(design).report.findings if f.code == code)
+        assert margin(finding) < 1.0, code
 
 
 def test_a_motor_shaft_that_barely_reaches_is_caught(monkeypatch):

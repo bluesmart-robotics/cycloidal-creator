@@ -386,11 +386,6 @@ def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
                .extrude(spec.disc_thickness))
         shaft = shaft.union(cam)
         z += spec.disc_thickness + spec.disc_gap
-    # Both ends, and both ends of every cam - which is a bearing seat or, with
-    # no cam bearing, the journal the disc runs on, and either way wants a
-    # lead-in.  A cam is thinnest on the side it is offset towards the axis,
-    # so that is what its break is held to; where the shaft runs into a cam is
-    # an inside corner and is left alone.
     bore = spec.motor_bore
     if bore is not None:
         z0, z1, d, flat = bore
@@ -402,9 +397,19 @@ def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
                             .center(d / 2.0 - flat + d / 2.0, 0.0)
                             .rect(d, 2.0 * d).extrude(z1 - z0 + 2.0))
         shaft = shaft.cut(hole)
+    # Both ends, and both ends of every cam - which is a bearing seat or, with
+    # no cam bearing, the journal the disc runs on, and either way wants a
+    # lead-in.  A cam is thinnest on the side it is offset towards the axis,
+    # so that is what its break is held to; where the shaft runs into a cam is
+    # an inside corner and is left alone.  A bored end is a ring, and its
+    # break is held to half its wall - a thin one is a warning, not a shaft
+    # the modeller cannot chamfer.
     c = spec.edge_chamfer
     radii = [spec.input_shaft_diameter / 2.0]
-    shaft = _break_edges(shaft, radii, min(c, spec.input_shaft_diameter / 8.0))
+    end = min(c, spec.input_shaft_diameter / 8.0)
+    if bore is not None:
+        end = min(end, spec.motor_hub_wall / 2.0)
+    shaft = _break_edges(shaft, radii, end)
     land = (spec.cam_diameter - spec.input_shaft_diameter) / 2.0 - spec.eccentricity
     shaft = _break_edges(shaft, [spec.cam_diameter / 2.0], min(c, land / 2.0))
     # The flat a coupling's set screw bears on, cut after the breaks so the end

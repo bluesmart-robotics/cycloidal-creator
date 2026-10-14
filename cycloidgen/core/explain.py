@@ -516,6 +516,19 @@ EXPLANATIONS: dict[str, Explanation] = {
         "high-resistance motor is wound for a low-voltage drive and is the "
         "wrong part on a 24 V bus rather than a weak one.",
         keep="above", unit="A"),
+    "MOTOR_SHAFT_TOO_BIG": Explanation(
+        "The motor's shaft is too thick to go into the input shaft",
+        "input shaft  >  motor shaft + hole clearance",
+        "Driven directly, the drive's input shaft is bored from the motor's end "
+        "for the motor's shaft and slides onto it. A motor shaft as thick as "
+        "the input shaft, or thicker, wants a bore wider than the shaft it is "
+        "in: there is no shaft left round it to make, and no solid modeller "
+        "will cut one, so the files would carry a shaft the motor cannot go "
+        "into.",
+        "A thicker input shaft - the motor's plus the clearance and a "
+        "millimetre of wall each side - or turn off 'motor drives the shaft' "
+        "and put a coupling in, which takes two different shafts.",
+        keep="above", unit="mm"),
     "MOTOR_SHAFT_MISMATCH": Explanation(
         "The input shaft is too thin to take the motor's",
         "(input shaft - motor shaft bore) / 2  >=  1 mm of wall",
@@ -526,7 +539,7 @@ EXPLANATIONS: dict[str, Explanation] = {
         "goes with it.",
         "A thicker input shaft, a motor with a thinner one, or turn off 'motor "
         "drives the shaft' and put a coupling in.",
-        unit="mm"),
+        keep="above", unit="mm"),
     "MOTOR_SHAFT_SHORT": Explanation(
         "Not enough of the motor's shaft is inside what it drives",
         "motor shaft inside what it drives  >=  1.5 x its diameter, or a "
@@ -540,7 +553,7 @@ EXPLANATIONS: dict[str, Explanation] = {
         "it.",
         "A motor with a longer shaft. Driven directly, a thinner plate or a "
         "coupling between them; through a coupling, driving it directly.",
-        unit="mm"),
+        keep="above", unit="mm"),
     "COUPLING_DOES_NOT_FIT": Explanation(
         "The coupling between the shafts does not fit",
         "a catalogue coupling takes both shafts, and its tube clears the "
@@ -564,7 +577,7 @@ EXPLANATIONS: dict[str, Explanation] = {
         "to the recess, and a short screw gives its thread to the plate instead "
         "of to the motor.",
         "A thicker end plate, or a motor whose screws are a size smaller.",
-        unit="mm"),
+        keep="above", unit="mm"),
     "HOUSING_BOLT_CLASH": Explanation(
         "The tie bolts do not fit in the wall they run through",
         "tie-bolt diameter  <  housing wall, with metal left either side",

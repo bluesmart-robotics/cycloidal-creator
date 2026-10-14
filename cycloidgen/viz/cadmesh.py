@@ -60,7 +60,7 @@ SOLID_ONLY = (
     "disc_phases", "discs_are_identical", "dxf_chord_tolerance", "edge_chamfer",
     "has_motor_face", "housing_wall", "input_flat", "motor_face",
     "motor_bolt_centres", "motor_side", "coupled", "plate_face_z",
-    "motor_mount_hole", "motor_mount_flange", "window_span",
+    "motor_mount_hole", "motor_mount_flange", "motor_hub_wall", "window_span",
     "window_half_width",
     "output_bolt_phase", "output_face_bolt_radius", "output_hole_diameter",
     "pin_count", "ratio", "ring_pin_length", "stack_height",
