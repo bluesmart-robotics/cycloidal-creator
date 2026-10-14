@@ -366,12 +366,16 @@ def ring_pins(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq
 
 
 def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
-    """Input shaft with one eccentric cam per disc, phased around the axis."""
-    overhang = spec.shaft_overhang
+    """Input shaft with one eccentric cam per disc, phased around the axis.
+
+    Driven directly, it stops short of the motor and is bored from that end
+    for the motor's own shaft - a D where the motor's is a D.
+    """
+    lo, hi = spec.shaft_span
     shaft = (cq.Workplane("XY")
-             .workplane(offset=-overhang)
+             .workplane(offset=lo)
              .circle(spec.input_shaft_diameter / 2.0)
-             .extrude(spec.stack_height + 2 * overhang))
+             .extrude(hi - lo))
     z = 0.0
     for phase in spec.disc_phases:
         cx = spec.eccentricity * math.cos(phase)
@@ -387,9 +391,20 @@ def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
     # lead-in.  A cam is thinnest on the side it is offset towards the axis,
     # so that is what its break is held to; where the shaft runs into a cam is
     # an inside corner and is left alone.
+    bore = spec.motor_bore
+    if bore is not None:
+        z0, z1, d, flat = bore
+        hole = cq.Workplane("XY").workplane(offset=z0).circle(d / 2.0).extrude(z1 - z0)
+        if flat > 0.0:
+            # The motor shaft's flat faces +X at crank zero, as the drawn one
+            # does; the bore keeps the metal there, so it drives through it.
+            hole = hole.cut(cq.Workplane("XY").workplane(offset=z0 - 1.0)
+                            .center(d / 2.0 - flat + d / 2.0, 0.0)
+                            .rect(d, 2.0 * d).extrude(z1 - z0 + 2.0))
+        shaft = shaft.cut(hole)
     c = spec.edge_chamfer
-    shaft = _break_edges(shaft, [spec.input_shaft_diameter / 2.0],
-                         min(c, spec.input_shaft_diameter / 8.0))
+    radii = [spec.input_shaft_diameter / 2.0]
+    shaft = _break_edges(shaft, radii, min(c, spec.input_shaft_diameter / 8.0))
     land = (spec.cam_diameter - spec.input_shaft_diameter) / 2.0 - spec.eccentricity
     shaft = _break_edges(shaft, [spec.cam_diameter / 2.0], min(c, land / 2.0))
     # The flat a coupling's set screw bears on, cut after the breaks so the end
@@ -402,6 +417,69 @@ def eccentric_shaft(spec: GearSpec) -> cq.Workplane:
             depth + 1.0, 2.0 * r + 2.0, z1 - z0 + 1.0, centered=False)
             .translate((r - depth, -r - 1.0, z0)))
     return shaft
+
+
+def _motor_recesses(spec: GearSpec, inside: float, side: float) -> cq.Workplane | None:
+    """What the motor's screws need cut into the face the discs run on: a
+    counterbore for a head, or a hexagonal pocket for a nut, from ``inside``
+    towards the motor.  None with no motor, or a screw this build cannot name.
+    """
+    fix = spec.motor_fixing
+    if fix is None:
+        return None
+    z0 = inside if side > 0 else inside - fix.recess_depth
+    shapes = []
+    for cx, cy in spec.motor_bolt_centres:
+        sketch = cq.Workplane("XY").workplane(offset=z0)
+        if fix.from_drive:
+            sketch = sketch.center(cx, cy).circle(fix.recess / 2.0)
+        else:
+            sketch = sketch.polyline(hexagon(cx, cy, fix.recess, 0.0)).close()
+        shapes.append(sketch.extrude(fix.recess_depth).val())
+    return cq.Workplane("XY").add(cq.Compound.makeCompound(shapes))
+
+
+def motor_screws(spec: GearSpec) -> dict[str, cq.Workplane]:
+    """The motor's screws, and their nuts where it takes them, where they go."""
+    from ..viz.mesh import motor_screw_layout
+
+    fix = spec.motor_fixing
+    if fix is None:
+        return {}
+    size = fix.size
+    layout = motor_screw_layout(spec)
+    screws, nuts = [], []
+    for cx, cy in spec.motor_bolt_centres:
+        head = next((z0, z1) for what, z0, z1 in layout if what == "head")
+        shank = next((z0, z1) for what, z0, z1 in layout if what == "shank")
+        try:
+            screw = _cap_screw(size, shank[1] - shank[0], 0.0)
+            # Built head-down at the origin, shank up; turned over when the
+            # head is on the upper end, then put where its head goes.
+            if (head[0] + head[1]) / 2.0 > (shank[0] + shank[1]) / 2.0:
+                screw = screw.rotate(cq.Vector(0, 0, 0), cq.Vector(1, 0, 0), 180.0)
+                screw = screw.moved(cq.Location(cq.Vector(cx, cy, head[0])))
+            else:
+                screw = screw.moved(cq.Location(cq.Vector(cx, cy, head[1])))
+        except Exception:                   # a kernel that will not cut it
+            screw = (cq.Workplane("XY").workplane(offset=shank[0]).center(cx, cy)
+                     .circle(size.d / 2.0).extrude(shank[1] - shank[0])
+                     .union(cq.Workplane("XY").workplane(offset=head[0])
+                            .center(cx, cy).circle(size.head_d / 2.0)
+                            .extrude(head[1] - head[0])).val())
+        screws.append(screw)
+        for what, z0, _z1 in layout:
+            if what == "nut":
+                try:
+                    nut = _hex_nut(size, 0.0)
+                except Exception:
+                    nut = (cq.Workplane("XY").polyline(hexagon(0.0, 0.0, size.nut_s, 0.0))
+                           .close().extrude(size.nut_m).val())
+                nuts.append(nut.moved(cq.Location(cq.Vector(cx, cy, z0))))
+    out = {"motor_screws": cq.Workplane("XY").add(cq.Compound.makeCompound(screws))}
+    if nuts:
+        out["motor_nuts"] = cq.Workplane("XY").add(cq.Compound.makeCompound(nuts))
+    return out
 
 
 def _motor_pattern(wp: cq.Workplane, spec: GearSpec) -> cq.Workplane:
@@ -481,6 +559,11 @@ def output_flange(spec: GearSpec,
                         .cutBlind(-min(frame.pilot_depth,
                                        spec.plate_thickness / 2.0)))
             base = _motor_pattern(base.faces("<Z").workplane(), spec)
+            recesses = _motor_recesses(
+                spec, spec.base_plate_bottom + CARRIER_DROP + spec.plate_thickness,
+                -1.0)
+            if recesses is not None:
+                base = base.cut(recesses)
         body = body.union(base)
 
     # Bored through the lot in one go, from the far face: the shaft passes
@@ -605,6 +688,10 @@ def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
                      .circle(frame.pilot_diameter / 2.0)
                      .cutBlind(-frame.pilot_depth))
         plate = _motor_pattern(plate.faces(">Z").workplane(), spec)
+        # The inside face is local zero, and the discs run on it.
+        recesses = _motor_recesses(spec, 0.0, 1.0)
+        if recesses is not None:
+            plate = plate.cut(recesses)
     # The lip on the outside face that holds the bearing's outer ring in.
     # ``shoulders`` is every seat's; this plate takes the ones cut in it.
     host = "input_end_plate" if motor_face else "output_end_plate"
@@ -991,6 +1078,9 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     for name, body in bearing_solids(spec, placements).items():
         host = next(p.host for p in placements if p.name == name)
         assy.add(body, name=name, loc=planar[host], color=_part_colour(name))
+
+    for name, body in motor_screws(spec).items():
+        assy.add(body, name=name, color=_part_colour("tie_bolts"))
 
     if spec.housing_bolt_count:
         assy.add(tie_bolts(spec), name="tie_bolts", color=_part_colour("tie_bolts"))

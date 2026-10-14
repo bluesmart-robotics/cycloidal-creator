@@ -517,14 +517,36 @@ EXPLANATIONS: dict[str, Explanation] = {
         "wrong part on a 24 V bus rather than a weak one.",
         keep="above", unit="A"),
     "MOTOR_SHAFT_MISMATCH": Explanation(
-        "The motor's shaft is not the shaft this drive was built around",
-        "motor shaft diameter == input shaft diameter",
-        "With the motor driving the cam directly there is only one shaft, and it "
-        "is the motor's. A NEMA 17 turns 5 mm; a drive drawn around a 10 mm "
-        "shaft has a cam bored 10 mm and nothing to put it on.",
-        "Set the input shaft to the frame's shaft diameter, or turn off 'motor "
-        "drives the shaft' and drive it through a coupling - which is a real "
-        "answer, and needs the shaft bearings fitted.",
+        "The input shaft is too thin to take the motor's",
+        "(input shaft - motor shaft bore) / 2  >=  1 mm of wall",
+        "Driven directly, the drive's input shaft is bored from the motor's end "
+        "and slides onto the motor's shaft - a D on the motor's D - so it has "
+        "to be thicker than the motor's shaft by a wall. Below a millimetre it "
+        "is a sleeve: it splits pressing on, and the flat it drives through "
+        "goes with it.",
+        "A thicker input shaft, a motor with a thinner one, or turn off 'motor "
+        "drives the shaft' and put a coupling in.",
+        unit="mm"),
+    "MOTOR_SHAFT_SHORT": Explanation(
+        "Not enough of the motor's shaft is inside the drive's",
+        "motor shaft inside the input shaft  >=  1.5 x its diameter",
+        "The motor is flush on its face, so how far its shaft gets into the "
+        "drive's is its length less the plate and the spigot it passes. That "
+        "length drives the cam through the flat and holds the two in line; a "
+        "stub of it does neither, and the input shaft rocks on it.",
+        "A motor with a longer shaft, a thinner plate, or a coupling between "
+        "them - which also frees the motor's shaft from the crank.",
+        unit="mm"),
+    "MOTOR_SCREW_SEAT": Explanation(
+        "The motor's screws have too little to hold on",
+        "thread engaged  >=  0.8 x d (0.8 x the nut, in a nut), and  >= 1.5 mm "
+        "of plate under the recess",
+        "The face the motor bolts to is also the face the discs run against, so "
+        "nothing can stand proud of its inside: a screw head sits in a "
+        "counterbore, a nut in a pocket. A thin plate gives what is left of it "
+        "to the recess, and a short screw gives its thread to the plate instead "
+        "of to the motor.",
+        "A thicker end plate, or a motor whose screws are a size smaller.",
         unit="mm"),
     "HOUSING_BOLT_CLASH": Explanation(
         "The tie bolts do not fit in the wall they run through",

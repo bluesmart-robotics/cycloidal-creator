@@ -59,6 +59,7 @@ SOLID_ONLY = (
     "barrel_bottom", "barrel_height", "base_plate_bottom", "disc_hole_phases",
     "disc_phases", "discs_are_identical", "dxf_chord_tolerance", "edge_chamfer",
     "has_motor_face", "housing_wall", "input_flat", "motor_face",
+    "motor_bolt_centres", "motor_side",
     "output_bolt_phase", "output_face_bolt_radius", "output_hole_diameter",
     "pin_count", "ratio", "ring_pin_length", "stack_height",
     "stl_linear_tolerance", "tie_bolt_bottom", "tie_bolt_length",

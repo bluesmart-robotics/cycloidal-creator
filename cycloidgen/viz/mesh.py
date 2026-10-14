@@ -680,7 +680,6 @@ def build_mesh(spec: GearSpec,
         placements = tuple(bearing_placements(spec, choices))
         bores = seat_bores(spec, choices)
     b = _Builder()
-    stack = spec.stack_height
     # Ring pins are small and there are a lot of them, so the segment count is
     # spent where it shows: a twelve-sided pin still reads as round, and a
     # ten-sided one is visibly a nut.  The floor is what stops a 200:1 drive
@@ -764,24 +763,74 @@ def build_mesh(spec: GearSpec,
     # real geometry, so the test has to be made and not assumed.
     shaft_r = spec.input_shaft_diameter / 2.0
     cam_r = spec.cam_diameter / 2.0
-    spans = [(-spec.shaft_overhang, stack + spec.shaft_overhang)]
+    spans = [spec.shaft_span]
     if cam_r >= shaft_r + spec.eccentricity:
         spans = _subtract_spans(spans, [(z0, z1) for z0, z1, _ in cams])
+    # Driven directly, the motor's shaft goes into it: a D-shaped blind bore
+    # from the motor's end, through whatever of the shaft and the cams it
+    # reaches.  Every piece it passes through is cut where it passes.
+    bore = spec.motor_bore
+    hole = None
+    if bore is not None:
+        hole = (_d_section(bore[2] / 2.0, bore[3], 28) if bore[3] > 0.0
+                else _circle(0.0, 0.0, bore[2] / 2.0, 28))
+
+    def bored(outer: np.ndarray, z0: float, z1: float) -> None:
+        cuts = [] if bore is None else [(max(z0, bore[0]), min(z1, bore[1]))]
+        cuts = [c for c in cuts if c[1] > c[0] + 1e-9]
+        for a, c in _subtract_spans([(z0, z1)], cuts):
+            b.prism(outer, (), a, c)
+        for a, c in cuts:
+            b.prism(outer, (hole,), a, c)
 
     # The flat on the input end is a shell of its own, as each cam is: a D
     # where the set screw bears, on the end of the round shaft.
     flat = spec.input_flat
     with b.part("eccentric_shaft", "Eccentric shaft", "shaft",
                 PART_COLOURS["shaft"], spin=-1.0):
-        for z0, z1 in spans:
-            if flat is not None and z0 < flat[0] < z1:
-                b.cylinder(0.0, 0.0, shaft_r, z0, flat[0], 28)
-                b.prism(_d_section(shaft_r, flat[2], 28), (), flat[0], z1)
-            else:
-                b.cylinder(0.0, 0.0, shaft_r, z0, z1, 28)
-        for z0, z1, phase in cams:
-            b.cylinder(spec.eccentricity * math.cos(phase),
-                       -spec.eccentricity * math.sin(phase), cam_r, z0, z1, 32)
+        if bore is not None and cam_r >= shaft_r + spec.eccentricity:
+            # Bored, it is one body down the axis rather than touching ones:
+            # shaft and cams in order, the bore's wall unbroken through all of
+            # them, and at each step only what is exposed - the part of a cam's
+            # face the shaft does not cover, and the bottom of the bore.  Two
+            # bodies each with the bore through it would meet on the same bore
+            # edge four times over, which is a surface the section cannot cap.
+            shaft_loop = _circle(0.0, 0.0, shaft_r, 28)
+            pieces = [(z0, z1, shaft_loop) for z0, z1 in spans]
+            pieces += [(z0, z1, _circle(spec.eccentricity * math.cos(phase),
+                                        -spec.eccentricity * math.sin(phase),
+                                        cam_r, 32)) for z0, z1, phase in cams]
+            pieces.sort(key=lambda p: p[0])
+            cuts = sorted({bore[0], bore[1]})
+            slices = []
+            for z0, z1, loop in pieces:
+                edges = [z0, *[c for c in cuts if z0 + 1e-9 < c < z1 - 1e-9], z1]
+                for a, c in pairwise(edges):
+                    slices.append((a, c, loop, bore[0] - 1e-9 <= a and c <= bore[1] + 1e-9))
+            last = len(slices) - 1
+            for i, (z0, z1, loop, holed) in enumerate(slices):
+                b.prism(loop, (hole,) if holed else (), z0, z1,
+                        cap_bottom=i == 0, cap_top=i == last)
+            for below, above in pairwise(slices):
+                z = below[1]
+                if below[2] is not above[2]:
+                    # A cam meets the shaft: the cam is the wider, every time.
+                    up = below[2] is not shaft_loop
+                    wide = below[2] if up else above[2]
+                    b.cap(wide, (shaft_loop,), z, up=up)
+                if below[3] != above[3]:
+                    b.cap(hole, (), z, up=above[3])
+        else:
+            for z0, z1 in spans:
+                if flat is not None and z0 < flat[0] < z1:
+                    bored(_circle(0.0, 0.0, shaft_r, 28), z0, flat[0])
+                    bored(_d_section(shaft_r, flat[2], 28), flat[0], z1)
+                else:
+                    bored(_circle(0.0, 0.0, shaft_r, 28), z0, z1)
+            for z0, z1, phase in cams:
+                bored(_circle(spec.eccentricity * math.cos(phase),
+                              -spec.eccentricity * math.sin(phase), cam_r, 32),
+                      z0, z1)
 
     # What locates the shaft against its supports, and keeps the discs apart.
     # They turn with the shaft and come out with it, so they take its motion -
@@ -942,8 +991,13 @@ def build_mesh(spec: GearSpec,
                 pilot = _circle(0.0, 0.0, spec.motor_face.pilot_diameter / 2.0, 48)
                 b.prism(outer, (pilot, *bolts), top - recess, top,
                         cap_bottom=False)
+                # Facing the motor, which is up: the recess is cut from the
+                # outer face.  It was wound down - the carrier's base, which
+                # this mirrors, faces its motor below - and a face turned
+                # inside out drew dark and took two thirds of z times its area
+                # off the plate's volume: 13% of it under a NEMA 23.
                 b.ring(pilot, _circle(0.0, 0.0, runs[-1][2], 48), top - recess,
-                       up=False)
+                       up=True)
                 top -= recess
             b.bored_prism(outer, bolts, runs, 48, cap_top=not recess)
 
@@ -1057,6 +1111,7 @@ def _motor(b: _Builder, spec: GearSpec) -> None:
         b.cap(body, (spigot,), zf, up=side < 0)
         lo, hi = sorted((zf, tip))
         b.prism(spigot, (), lo, hi, cap_bottom=side > 0, cap_top=side < 0)
+    _motor_screws(b, spec, explode)
     r = frame.shaft_diameter / 2.0
     section = (_d_section(r, frame.shaft_flat, 40) if frame.shaft_flat > 0.0
                else _circle(0.0, 0.0, r, 40))
@@ -1064,6 +1119,88 @@ def _motor(b: _Builder, spec: GearSpec) -> None:
                 PART_COLOURS["shaft"], spin=-1.0, explode=explode):
         lo, hi = sorted((tip, zf - side * frame.shaft_length))
         b.prism(section, (), lo, hi)
+
+
+def motor_screw_layout(spec: GearSpec) -> list[tuple[str, float, float]]:
+    """The motor's screws and nuts along the axis: ``(what, z from, z to)``.
+
+    Measured from the plate's inside face - the one the discs run on - towards
+    the motor, then put where that face is.  A screw from the drive's side has
+    its head in a counterbore in that face and its shank through the plate
+    into the motor's threads.  One from the motor's side has its head on the
+    motor's flange and runs through flange and plate into a nut let into the
+    same inside face.  The counterbore or pocket is what keeps either clear of
+    the discs.
+    """
+    fix = spec.motor_fixing
+    if fix is None:
+        return []
+    side = spec.motor_side
+    inside = spec.motor_face_z - side * fix.plate
+    size = fix.size
+
+    def z(u: float) -> float:
+        return inside + side * u
+
+    if fix.from_drive:
+        head = (fix.recess_depth - size.head_h, fix.recess_depth)
+        shank = (fix.recess_depth, fix.recess_depth + fix.length)
+        parts = [("head", *head), ("shank", *shank)]
+    else:
+        outer = fix.plate + spec.motor_face.fixing_depth
+        parts = [("head", outer, outer + size.head_h),
+                 ("shank", outer - fix.length, outer),
+                 ("nut", fix.recess_depth - size.nut_m, fix.recess_depth)]
+    return [(what, *sorted((z(a), z(c)))) for what, a, c in parts]
+
+
+def _motor_screws(b: _Builder, spec: GearSpec, explode: float) -> None:
+    """The screws the motor is held on by, and their nuts if it takes them."""
+    fix = spec.motor_fixing
+    if fix is None:
+        return
+    size = fix.size
+    layout = motor_screw_layout(spec)
+    with b.part("motor_screws", "Motor screws", "motor",
+                PART_COLOURS["fasteners"], explode=explode):
+        shank_mid = next(sum(z) / 2.0 for what, *z in layout if what == "shank")
+        for cx, cy in spec.motor_bolt_centres:
+            for what, z0, z1 in layout:
+                if what == "head":
+                    # A socket in the head's free end, as the tie bolts have.
+                    head = _circle(cx, cy, size.head_d / 2.0, _BOLT_SEGMENTS)
+                    socket = np.array(hexagon(cx, cy, size.socket, 0.0))
+                    if (z0 + z1) / 2.0 < shank_mid:          # free end down
+                        floor = z0 + size.socket_depth
+                        b.prism(head, (socket,), z0, floor, cap_top=False)
+                        b.cap(socket, (), floor, up=False)
+                        b.prism(head, (), floor, z1, cap_bottom=False)
+                    else:
+                        floor = z1 - size.socket_depth
+                        b.prism(head, (), z0, floor, cap_top=False)
+                        b.cap(socket, (), floor, up=True)
+                        b.prism(head, (socket,), floor, z1, cap_bottom=False)
+                elif what == "shank":
+                    # The threaded end as the cylinder that holds its steel,
+                    # as the tie bolts' is; the plain shank at the size.
+                    threaded = thread_length(size, z1 - z0)
+                    tip_low = (fix.from_drive and spec.motor_side < 0) or (
+                        not fix.from_drive and spec.motor_side > 0)
+                    t0, t1 = ((z0, z0 + threaded) if tip_low else (z1 - threaded, z1))
+                    if t0 > z0 + 1e-9:
+                        b.cylinder(cx, cy, size.d / 2.0, z0, t0, _BOLT_SEGMENTS)
+                    if t1 < z1 - 1e-9:
+                        b.cylinder(cx, cy, size.d / 2.0, t1, z1, _BOLT_SEGMENTS)
+                    b.cylinder(cx, cy, thread_mean_diameter(size) / 2.0, t0, t1,
+                               _BOLT_SEGMENTS)
+    nuts = [(z0, z1) for what, z0, z1 in layout if what == "nut"]
+    if nuts:
+        with b.part("motor_nuts", "Motor screw nuts", "motor",
+                    PART_COLOURS["fasteners"], explode=explode):
+            for cx, cy in spec.motor_bolt_centres:
+                for z0, z1 in nuts:
+                    b.prism(np.array(hexagon(cx, cy, size.nut_s, 0.0)),
+                            (_circle(cx, cy, size.d / 2.0, _BOLT_SEGMENTS),), z0, z1)
 
 
 def mesh_fingerprint(spec: GearSpec,
@@ -1111,6 +1248,10 @@ def mesh_fingerprint(spec: GearSpec,
         # another, grows the carrier a base, and sets the whole assembly
         # spinning the other way - so it changes the mesh three times over.
         spec.output_member, spec.frame_spin, spec.ground_frame_fitted,
+        # Driven directly, the shaft stops at the motor and is bored for it, and
+        # the screws are drawn at their lengths.
+        spec.motor_drives_the_shaft, spec.shaft_span, spec.motor_bore,
+        spec.motor_fixing,
         spec.output_bolt_count, spec.output_bolt_diameter,
         tuple(placements),
         # The seats as bored, which follow the bearings for the same reason the

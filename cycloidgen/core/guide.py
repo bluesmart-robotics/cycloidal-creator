@@ -386,13 +386,15 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "the pattern then runs off the plate. That is an error rather than a "
         "warning, because the plate would be wrong."),
     "motor_drives_the_shaft": ParameterGuide(
-        "Whether the motor's own shaft *is* the input shaft, so the cam is "
-        "bored to it, or whether there is a separate shaft and a coupling.",
-        "On is the compact answer and it constrains the input shaft to the "
-        "motor's. Off is the honest one whenever they differ - and it needs the "
-        "shaft bearings fitted, because then the drive carries its own input.",
-        "Off costs a coupling and length. On costs the freedom to size the "
-        "shaft, and pairs the drive to one frame."),
+        "Whether the motor's shaft goes straight into the drive's, or through "
+        "a coupling.",
+        "On is the compact answer: the motor sits flush on the plate, and the "
+        "input shaft stops short of it and is bored for the motor's shaft, a D "
+        "on its D. The input shaft has to be thicker than the motor's by a "
+        "wall, and the motor's shaft long enough to get well into it. Off puts "
+        "a coupling between them, for when they will not pair like that.",
+        "Off costs a coupling and length. On pairs the drive to one frame, and "
+        "with no shaft bearings it hangs the crank on the motor's own."),
     "motor_kind": ParameterGuide(
         "Which torque-speed curve the thing on the input shaft follows. The "
         "frame above is the face it bolts by; this is what comes out of it.",

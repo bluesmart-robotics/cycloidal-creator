@@ -102,23 +102,68 @@ def test_the_tie_bolts_miss_the_pins_they_are_holding_the_plate_over():
 # ------------------------------------------------------------------- the checks
 
 
-def test_a_motor_whose_shaft_is_not_the_drive_s_shaft_is_caught():
-    """A NEMA 17 turns 5 mm.  A drive drawn around a 10 mm shaft has a cam bored
-    10 mm and nothing to put it on."""
-    assert "MOTOR_SHAFT_MISMATCH" in _codes(_spec())
-    assert "MOTOR_SHAFT_MISMATCH" not in _codes(_spec(shaft=5.0))
-
-    # ...and a coupling is a real answer, so saying so clears it.
+def test_driven_directly_the_input_shaft_is_bored_for_the_motor_s():
+    """The drive's shaft slides onto the motor's - a D on its D - and stops
+    short of the motor, which sits flush on the plate.  It used to run on out
+    of the plate for a coupling to grip, into the space the motor is in."""
     spec = _spec()
+    frame = spec.motor_face
+    _lo, hi = spec.shaft_span
+    assert hi < spec.motor_face_z - frame.pilot_depth            # clear of it
+    _z0, z1, d, flat = spec.motor_bore
+    assert z1 == hi and d > frame.shaft_diameter and flat == frame.shaft_flat
+    assert spec.motor_engagement >= 1.5 * frame.shaft_diameter
+    assert spec.input_flat is None                  # nothing left to grip
+    codes = _codes(spec)
+    assert not {"MOTOR_SHAFT_MISMATCH", "MOTOR_SHAFT_SHORT"} & codes
+
+    # ...and through a coupling there is nothing to bore.
     spec.motor_drives_the_shaft = False
-    assert "MOTOR_SHAFT_MISMATCH" not in _codes(spec)
+    assert spec.motor_bore is None
+    assert spec.shaft_span[1] > spec.motor_face_z
 
 
-def test_the_mismatch_does_not_block_the_export():
-    """Every file is still right - the cam is bored to the shaft the design
-    states.  What is wrong is which motor you bought."""
-    findings = {f.code: f for f in analyse(_spec()).report.findings}
+def test_an_input_shaft_too_thin_to_bore_is_caught_and_does_not_block():
+    """The old advice was to make them the same shaft; bored for the motor's,
+    that leaves no wall at all.  A warning: every file is still drawn."""
+    findings = {f.code: f for f in analyse(_spec(shaft=5.0)).report.findings}
     assert findings["MOTOR_SHAFT_MISMATCH"].severity.value == "warning"
+
+
+def test_a_motor_shaft_that_barely_reaches_is_caught(monkeypatch):
+    """The input shaft runs right up to the spigot, so what decides how much
+    of the motor's is inside it is the motor's shaft - a stub on a short one."""
+    from cycloidgen.core import motor
+
+    stub = motor.MOTOR_FRAMES["NEMA 17"].model_copy(update={"shaft_length": 8.0})
+    monkeypatch.setitem(motor.MOTOR_FRAMES, "NEMA 17", stub)
+    spec = _spec()
+    assert spec.motor_engagement < 1.5 * stub.shaft_diameter
+    assert "MOTOR_SHAFT_SHORT" in _codes(spec)
+
+
+@pytest.mark.parametrize("frame", ["NEMA 17", "NEMA 23"])
+def test_the_motor_s_screws_are_let_into_the_face_the_discs_run_on(frame):
+    """The inside of the plate runs against the discs with nothing to spare, so
+    a head or a nut there has to be below its surface: a NEMA 17's threaded
+    face takes screws from the drive's side, heads in counterbores; a NEMA
+    23's flange takes them from its own side, into nuts in pockets."""
+    from cycloidgen.viz.mesh import motor_screw_layout
+
+    spec = _spec(frame)
+    fix = spec.motor_fixing
+    assert fix.from_drive == (frame == "NEMA 17")
+    assert fix.fits and "MOTOR_SCREW_SEAT" not in _codes(spec)
+    inside = spec.motor_face_z - spec.motor_side * fix.plate
+    for _what, z0, _z1 in motor_screw_layout(spec):
+        assert z0 >= inside - 1e-9                  # nothing stands into the discs
+    assert spec.motor_face_z + fix.engaged > spec.motor_face_z
+
+
+def test_a_plate_too_thin_for_its_screws_is_caught():
+    spec = _spec("NEMA 23")
+    spec.end_plate_thickness = 5.0
+    assert "MOTOR_SCREW_SEAT" in _codes(spec)
 
 
 def test_a_pattern_that_runs_off_the_plate_is_an_error():
@@ -136,7 +181,7 @@ def test_a_pattern_that_runs_off_the_plate_is_an_error():
 def test_hanging_the_drive_on_the_motor_is_measured_against_the_motor():
     """'Check its rating' was the best this could say before there was a frame
     to check against."""
-    spec = _spec(shaft=5.0)
+    spec = _spec()
     spec.shaft_bearings_fitted = False
     spec.output_torque_Nm = 15.0
     assert "MOTOR_RADIAL_LOAD" in _codes(spec)

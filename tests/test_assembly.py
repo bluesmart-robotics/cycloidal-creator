@@ -603,8 +603,9 @@ def test_the_input_end_has_a_flat_for_a_set_screw_where_one_can_reach(output):
 # ------------------------------------------------- weighed as it is exported
 
 
-@pytest.mark.parametrize("ring_output", [False, True])
-def test_every_made_part_weighs_what_its_solid_encloses(ring_output):
+@pytest.mark.parametrize("ring_output,motor", [(False, "None"), (True, "None"),
+                                              (False, "NEMA 17"), (True, "NEMA 23")])
+def test_every_made_part_weighs_what_its_solid_encloses(ring_output, motor):
     """The mass model and the STEP export are two descriptions of one gearbox.
 
     Held part by part, because a total can agree while two parts are wrong in
@@ -620,6 +621,7 @@ def test_every_made_part_weighs_what_its_solid_encloses(ring_output):
     from cycloidgen.export import solid
 
     spec = preset(21)
+    spec.motor_frame = motor              # driven directly: a bored shaft
     if ring_output:
         spec.output_member = OutputMember.RING
     m = analyse(spec).mass

@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from ..core.motor import MOTOR_HUB_WALL
 from ..core.spec import PROCESS_POSITION_TOLERANCE, GearSpec
 from ..core.validate import Report, Severity, validate
 from .bearings import MIN_SHOULDER, BearingChoice, seat_bores, select_bearings
@@ -476,20 +477,38 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # ---- what it bolts to ---------------------------------------------------
     if spec.has_motor_face:
         frame = spec.motor_face
-        if spec.motor_drives_the_shaft and \
-                abs(frame.shaft_diameter - spec.input_shaft_diameter) > 1e-6:
-            # A warning rather than an error: every file this exports is still
-            # right - the cam is bored to the shaft the design states.  What is
-            # wrong is the pairing, and that is fixed by buying a different
-            # motor as easily as by redrawing anything.
+        if spec.direct_drive and spec.motor_hub_wall < MOTOR_HUB_WALL:
+            # Driven directly, the input shaft is bored for the motor's and
+            # rides on it.  A warning rather than an error: every file is still
+            # drawn, and a different motor fixes it as well as a thicker shaft.
             rep.add(Severity.WARNING, "MOTOR_SHAFT_MISMATCH",
-                    f"The {frame.name} turns a {frame.shaft_diameter:g} mm shaft "
-                    f"and this drive is built around a "
-                    f"{spec.input_shaft_diameter:g} mm one. With the motor "
-                    f"driving the cam directly they have to be the same shaft: "
-                    f"set the input shaft to {frame.shaft_diameter:g} mm, or turn "
-                    f"off 'motor drives the shaft' and put a coupling in.",
-                    spec.input_shaft_diameter, frame.shaft_diameter)
+                    f"The {frame.name}'s {frame.shaft_diameter:g} mm shaft goes "
+                    f"into the {spec.input_shaft_diameter:g} mm input shaft, "
+                    f"which leaves {max(spec.motor_hub_wall, 0.0):.2f} mm of wall "
+                    f"round it. Make the input shaft at least "
+                    f"{frame.shaft_diameter + spec.hole_clearance + 2 * MOTOR_HUB_WALL:g} mm, "
+                    f"or turn off 'motor drives the shaft' and put a coupling in.",
+                    spec.motor_hub_wall, MOTOR_HUB_WALL)
+        if spec.direct_drive:
+            # Torque goes in through the flat, and the hub is only as straight
+            # on the motor's shaft as the length of shaft inside it.
+            engaged, need = spec.motor_engagement, 1.5 * frame.shaft_diameter
+            if engaged < need:
+                rep.add(Severity.WARNING, "MOTOR_SHAFT_SHORT",
+                        f"Only {engaged:.1f} mm of the {frame.name}'s "
+                        f"{frame.shaft_length:g} mm shaft is inside the input "
+                        f"shaft, against {need:.1f} mm to drive and align it. A "
+                        f"longer motor shaft, a thinner plate, or a coupling.",
+                        engaged, need)
+        fix = spec.motor_fixing
+        if fix is not None and not fix.fits:
+            rep.add(Severity.WARNING, "MOTOR_SCREW_SEAT",
+                    f"The {frame.name}'s {fix.size.name} screws get "
+                    f"{fix.engaged:.1f} mm of thread and leave "
+                    f"{fix.plate - fix.recess_depth:.1f} mm of plate under their "
+                    f"{'counterbores' if fix.from_drive else 'nut pockets'} - too "
+                    f"little to hold. A thicker plate.",
+                    fix.plate - fix.recess_depth, fix.size.d)
 
         # The bolts have to land in the plate, clear of the bore and inside the
         # rim - a pattern that misses the metal is a motor that cannot be bolted

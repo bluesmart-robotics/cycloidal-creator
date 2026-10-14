@@ -5,6 +5,7 @@ all angles radians unless a name says otherwise.
 """
 from __future__ import annotations
 
+import math
 from enum import Enum
 from typing import Literal
 
@@ -18,11 +19,14 @@ from .duty import DutyCycle
 from .fasteners import MetricSize, screw_length, size_for_hole
 from .motor import (
     MOTOR_FRAMES,
+    MOTOR_HUB_CLEARANCE,
     NO_MOTOR,
     MotorCurve,
+    MotorFixing,
     MotorFrame,
     MotorKind,
     curve_from,
+    motor_fixing,
 )
 
 
@@ -286,6 +290,15 @@ class OutputMember(str, Enum):
     #: printed micro drives do, because the turning part is then the outside of
     #: the gearbox and a pulley or a wheel goes straight on it.
     RING = "ring housing"
+
+
+def d_section_area(r: float, flat: float) -> float:
+    """A circle of radius ``r`` with a flat ``flat`` deep across it, mm^2."""
+    if flat <= 0.0:
+        return math.pi * r * r
+    a = r - flat
+    segment = r * r * math.acos(a / r) - a * math.sqrt(max(r * r - a * a, 0.0))
+    return math.pi * r * r - segment
 
 
 class Process(str, Enum):
@@ -1045,6 +1058,99 @@ class GearSpec(BaseModel):
         return curve_from(self)
 
     @property
+    def direct_drive(self) -> bool:
+        """Whether the motor's shaft goes straight into the cam: a motor face,
+        and no coupling between them."""
+        return self.has_motor_face and self.motor_drives_the_shaft
+
+    @property
+    def shaft_span(self) -> tuple[float, float]:
+        """Where the input shaft runs along the axis, as built: ``(lo, hi)``.
+
+        Past the disc stack at both ends by :attr:`shaft_overhang` - except,
+        driven directly, at the motor's end.  There it stops just short of the
+        motor's spigot, because the motor is flush on its face: the shaft that
+        stood out of the plate for a coupling to grip was standing where the
+        motor is.  On a ring drive that end is the far side of the base, so it
+        reaches further rather than less.
+        """
+        lo, hi = -self.shaft_overhang, self.stack_height + self.shaft_overhang
+        if self.direct_drive:
+            end = self.motor_face_z - self.motor_side * (
+                self.motor_face.pilot_depth + MOTOR_HUB_CLEARANCE)
+            if self.motor_side > 0:
+                hi = end
+            else:
+                lo = end
+        return lo, hi
+
+    @property
+    def motor_bore(self) -> tuple[float, float, float, float] | None:
+        """The blind bore the motor's shaft goes into: ``(z from, z to,
+        diameter, flat)``, or None when the motor does not drive the shaft.
+
+        From the shaft's motor end in as far as the motor's shaft reaches, and
+        half a millimetre past its tip.  A D where the motor's shaft has a D, so
+        the torque goes through the flat rather than through a set screw nobody
+        can reach once the motor is on; and bored by the process's own hole
+        clearance, which is the fit this process makes.
+        """
+        if not self.direct_drive:
+            return None
+        frame = self.motor_face
+        tip = self.motor_face_z - self.motor_side * frame.shaft_length
+        lo, hi = self.shaft_span
+        if self.motor_side > 0:
+            z0, z1 = max(lo, tip - MOTOR_HUB_CLEARANCE), hi
+        else:
+            z0, z1 = lo, min(hi, tip + MOTOR_HUB_CLEARANCE)
+        if z1 <= z0:
+            return None
+        return (z0, z1, frame.shaft_diameter + self.hole_clearance,
+                frame.shaft_flat)
+
+    @property
+    def motor_engagement(self) -> float:
+        """How much of the motor's shaft is inside the input shaft, mm."""
+        bore = self.motor_bore
+        if bore is None:
+            return 0.0
+        return max(bore[1] - bore[0] - MOTOR_HUB_CLEARANCE, 0.0)
+
+    @property
+    def motor_hub_wall(self) -> float:
+        """What is left round the motor's shaft, driven directly, mm."""
+        bore = self.motor_bore
+        if bore is None:
+            return float("inf")
+        return (self.input_shaft_diameter - bore[2]) / 2.0
+
+    @property
+    def motor_fixing(self) -> MotorFixing | None:
+        """The screws the motor is held on by, and the recess they need."""
+        if not self.has_motor_face:
+            return None
+        return motor_fixing(self.motor_face, self.plate_thickness)
+
+    @property
+    def motor_bolt_centres(self) -> list[tuple[float, float]]:
+        """Where the motor's screws go through its face, in the plane.
+
+        NEMA patterns are a *square*.  Drawing them on a circle of the same size
+        puts all four holes somewhere the motor has nothing.
+        """
+        if not self.has_motor_face:
+            return []
+        frame = self.motor_face
+        if frame.square:
+            half = frame.bolt_span / 2.0
+            return [(sx * half, sy * half) for sx in (-1.0, 1.0) for sy in (-1.0, 1.0)]
+        r = frame.bolt_span / 2.0
+        n = max(frame.bolt_count, 1)
+        return [(r * math.cos(2.0 * math.pi * k / n), r * math.sin(2.0 * math.pi * k / n))
+                for k in range(n)]
+
+    @property
     def motor_face_z(self) -> float:
         """Where the motor's mounting face sits along the axis, assembled.
 
@@ -1120,7 +1226,7 @@ class GearSpec(BaseModel):
         the shaft's driven end is inside the boss, and a set screw has no way
         in; the end that does stand out, past the end cap, drives nothing.
         """
-        if self.ground_frame_fitted:
+        if self.ground_frame_fitted or self.direct_drive:
             return None
         z0 = self.barrel_top + self.plate_thickness + 1.0
         z1 = self.stack_height + self.shaft_overhang

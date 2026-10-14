@@ -27,7 +27,7 @@ import numpy as np
 
 from ..core import profile as prof
 from ..core.fasteners import nut_volume, screw_volume
-from ..core.spec import GearSpec, OutputMember
+from ..core.spec import GearSpec, OutputMember, d_section_area
 from .bearings import BearingChoice, SeatBores, bearing_schedule, pin_diameters, seat_bores
 
 __all__ = ["MassResult", "analyse_mass", "tie_bolt_mass_g"]
@@ -171,6 +171,17 @@ def _rollers_on_circle(bearings: Sequence[BearingChoice], role: str,
     return kg * (circle ** 2 + (part.outer ** 2 + part.bore ** 2) / 8.0)
 
 
+def motor_screw_mass_g(spec: GearSpec) -> float:
+    """One of the motor's screws, with its nut where it takes one, grams."""
+    fix = spec.motor_fixing
+    if fix is None:
+        return 0.0
+    volume = screw_volume(fix.size, fix.length)
+    if not fix.from_drive:
+        volume += nut_volume(fix.size)
+    return volume * _MM3_TO_CM3 * spec.pin_mat.density_g_cm3
+
+
 def tie_bolt_mass_g(spec: GearSpec) -> float:
     """One tie bolt and its nut, grams; zero where the drive cannot name them.
 
@@ -210,7 +221,6 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     disc_mass = disc_volume * _MM3_TO_CM3 * rho_disc          # g
 
     # ---- the rest of the parts ---------------------------------------------
-    h = spec.stack_height
     ring_area = math.pi * (spec.housing_outer_radius ** 2 - spec.pin_circle_radius ** 2)
     pocket_area = spec.pin_count * 0.5 * math.pi * spec.pin_radius ** 2
     # Every hole through the barrel, not just the ones the pins sit in: the tie
@@ -243,10 +253,16 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
                     * spec.output_pin_length)
     pins_mass = pins_volume * _MM3_TO_CM3 * rho_pin
 
-    shaft_volume = math.pi * (spec.input_shaft_diameter / 2.0) ** 2 * (h + 2 * spec.shaft_overhang)
+    span_lo, span_hi = spec.shaft_span
+    shaft_volume = math.pi * (spec.input_shaft_diameter / 2.0) ** 2 * (span_hi - span_lo)
     cam_extra = n * math.pi * ((spec.cam_diameter / 2.0) ** 2
                                - (spec.input_shaft_diameter / 2.0) ** 2) * t
-    shaft_mass = (shaft_volume + max(cam_extra, 0.0)) * _MM3_TO_CM3 * rho_shaft
+    # Less the motor's bore, driven directly: a D through shaft and cams alike.
+    bore = spec.motor_bore
+    bore_volume = (0.0 if bore is None else
+                   d_section_area(bore[2] / 2.0, bore[3]) * (bore[1] - bore[0]))
+    shaft_mass = ((shaft_volume + max(cam_extra, 0.0) - bore_volume)
+                  * _MM3_TO_CM3 * rho_shaft)
 
     plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
     flange_volume = math.pi * plate_r ** 2 * spec.output_flange_thickness
@@ -326,7 +342,8 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     bearings_mass = sum(c.count * c.bearing.mass_g for c in bearings
                         if c.fitted and c.fits and c.bearing is not None)
 
-    fasteners_mass = tie_bolt_mass_g(spec) * spec.housing_bolt_count
+    tie_mass = tie_bolt_mass_g(spec) * spec.housing_bolt_count
+    fasteners_mass = tie_mass + motor_screw_mass_g(spec) * len(spec.motor_bolt_centres)
 
     total = (n * disc_mass + housing_mass + plates_mass + pins_mass
              + shaft_mass + flange_mass + cap_mass + spacers_mass + bearings_mass
@@ -363,10 +380,12 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     # centred at E less the rod's section it already counted, and the sleeves
     # that turn with it.  Its phases do not matter here; a radius is a radius.
     rs = spec.input_shaft_diameter / 2.0
-    shaft_polar = (_polar(rs, 0.0, h + 2.0 * spec.shaft_overhang)
+    shaft_polar = (_polar(rs, 0.0, span_hi - span_lo)
                    + n * (_polar_off_axis(spec.cam_diameter / 2.0,
                                           spec.eccentricity, t)
                           - _polar(rs, 0.0, t)))
+    if bore is not None:          # the flat's sliver is a part in a thousand
+        shaft_polar -= _polar(bore[2] / 2.0, 0.0, bore[1] - bore[0])
     sleeves_polar = sum(_polar(s.outer / 2.0, s.bore / 2.0, s.length)
                         for s in bores.spacers if not s.name.startswith("washer"))
     shaft_inertia = (shaft_polar + sleeves_polar) * rho_shaft * 1e-6
@@ -415,8 +434,10 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
                       * _polar_off_axis(ring_pin_d / 2.0, R, spec.ring_pin_length))
         output_inertia = (((barrel_polar + plates_polar) * rho_house
                            + pins_polar * rho_pin) * 1e-6
-                          # the tie bolts, as their mass on their circle
-                          + fasteners_mass / 1000.0 * spec.housing_bolt_radius ** 2
+                          # the tie bolts, as their mass on their circle - and
+                          # only they: the motor's screws are in the base, which
+                          # is what stands still on this drive
+                          + tie_mass / 1000.0 * spec.housing_bolt_radius ** 2
                           + _rollers_on_circle(bearings, "Ring pin roller", R))
     input_inertia = shaft_inertia + reflected + output_inertia / spec.ratio ** 2
 

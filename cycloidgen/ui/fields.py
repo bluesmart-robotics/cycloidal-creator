@@ -386,6 +386,9 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
                            "ring_pins_are_rollers"),
     "MOTOR_SHAFT_MISMATCH": ("motor_frame", "input_shaft_diameter",
                              "motor_drives_the_shaft"),
+    "MOTOR_SHAFT_SHORT": ("motor_frame", "end_plate_thickness",
+                          "motor_drives_the_shaft"),
+    "MOTOR_SCREW_SEAT": ("end_plate_thickness", "motor_frame"),
     # The duty fields are in here as well as the motor's own, and deliberately:
     # a motor short of torque is as often a ratio that is too low or a speed
     # that is too high as it is the wrong motor, and the panel should light up

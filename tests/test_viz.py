@@ -850,3 +850,35 @@ def test_an_integral_pin_cannot_roll_however_the_spec_was_built():
     sliding = analyse(spec)
     assert sliding.efficiency.efficiency < rolling.efficiency.efficiency
     assert sliding.thermal.pv_ring_MPa_m_s > rolling.thermal.pv_ring_MPa_m_s
+
+
+@pytest.mark.parametrize("frame", ["NEMA 17", "NEMA 23"])
+@pytest.mark.parametrize("ring", [False, True])
+@pytest.mark.parametrize("direct", [True, False])
+def test_a_drive_with_a_motor_matches_its_solids(frame, ring, direct):
+    """The shaft bored for the motor's, the plate cut for its screws, and the
+    screws and nuts themselves: the preview and the STEP file agree on all of
+    them, at either end of the drive.  The plate is the one the motor's
+    register is cut in, and its floor was once drawn facing the wrong way -
+    13% off the plate under a NEMA 23, and nothing tested a plate with a motor
+    on it.  The screws to 5%: an M3 x 8 is mostly head, and the preview does
+    not draw a head's chamfer or a socket's drill point."""
+    from cycloidgen.core.spec import OutputMember
+
+    s = preset(21)
+    s.motor_frame = frame
+    s.motor_drives_the_shaft = direct
+    if ring:
+        s.output_member = OutputMember.RING
+    mesh = build_mesh(s)
+    volumes = _part_volumes(mesh)
+    solids = {**solid.parts(s), **solid.motor_screws(s)}
+    plate = "output_flange" if ring else "input_end_plate"
+    names = ["eccentric_shaft", plate, "motor_screws"]
+    if frame == "NEMA 23":
+        names.append("motor_nuts")
+    for i, part in enumerate(mesh.parts):
+        if part.name in names:
+            bought = part.name.startswith("motor_")
+            assert volumes[i] == pytest.approx(solids[part.name].val().Volume(),
+                                               rel=0.05 if bought else 0.03), part.name

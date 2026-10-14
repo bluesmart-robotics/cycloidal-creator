@@ -82,14 +82,20 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from .fasteners import MetricSize
+
 __all__ = [
     "MOTOR_FIELDS",
     "MOTOR_FRAMES",
+    "MOTOR_HUB_CLEARANCE",
+    "MOTOR_HUB_WALL",
     "NO_MOTOR",
     "MotorCurve",
+    "MotorFixing",
     "MotorFrame",
     "MotorKind",
     "curve_from",
+    "motor_fixing",
 ]
 
 #: The eight fields a curve is made of, under the names the spec gives them.
@@ -225,6 +231,83 @@ MOTOR_FRAMES: dict[str, MotorFrame] = {
 
 #: The frame name that means "no motor interface on this plate".
 NO_MOTOR = "None"
+
+#: How far the input shaft stops short of the motor's spigot, and the bore
+#: runs past the motor shaft's tip, mm: room to assemble, nothing more.
+MOTOR_HUB_CLEARANCE = 0.5
+#: The least wall the input shaft keeps round the motor's shaft when it is
+#: bored to take it, mm.  Below this it is a sleeve, not a shaft.
+MOTOR_HUB_WALL = 1.0
+
+
+@dataclass(frozen=True)
+class MotorFixing:
+    """The screws a motor is held to its plate by.
+
+    ``from_drive``: the motor's face is threaded, so the screws go in from the
+    drive's side, through the plate, and their heads sit in counterbores in
+    the plate's *inside* face - flush or below it, because that face runs
+    against the discs with nothing to spare.  Otherwise they go in from the
+    motor's side through its flange, and a nut sits in a hexagonal pocket in
+    the same inside face.  Either way something is let into the face the
+    discs run on, and ``recess`` and ``recess_depth`` are what is cut for it:
+    a counterbore's diameter, or a pocket's width across flats.
+    """
+
+    size: MetricSize
+    length: float
+    from_drive: bool
+    recess: float
+    recess_depth: float
+    plate: float
+    #: How much thread holds: in the motor's face, or in the nut.
+    engaged: float
+
+    @property
+    def fits(self) -> bool:
+        """Whether a preferred length holds with enough thread, and the plate
+        keeps enough of itself under the recess to clamp."""
+        thread = self.size.d if self.from_drive else self.size.nut_m
+        return (self.engaged >= MIN_ENGAGEMENT * thread
+                and self.plate - self.recess_depth >= MIN_UNDER_RECESS)
+
+
+#: Thread engaged below which a screw is a pin with ambitions: a share of its
+#: diameter in the motor's own threads, or of the nut's height in a nut.
+MIN_ENGAGEMENT = 0.8
+#: Plate left under a counterbore or pocket, mm, for the screw to clamp on.
+MIN_UNDER_RECESS = 1.5
+
+
+def motor_fixing(frame: MotorFrame, plate: float) -> MotorFixing | None:
+    """How ``frame`` is screwed to a plate ``plate`` thick, or None for a frame
+    whose screw this build does not know.
+
+    The length is ISO 4762's longest preferred one that does not bottom out:
+    in the motor's threads short of their depth, or through the nut short of
+    the face the discs run on.  The longest, because thread is what holds.
+    """
+    from .fasteners import SCREW_LENGTHS, size_named
+
+    size = size_named(frame.screw)
+    if size is None:
+        return None
+    if frame.fixing == "tapped":
+        depth = size.head_h + 0.3
+        under = plate - depth
+        longest = under + frame.fixing_depth - 0.3
+        length = max((n for n in SCREW_LENGTHS if n <= longest + 1e-9),
+                     default=SCREW_LENGTHS[0])
+        return MotorFixing(size=size, length=length, from_drive=True,
+                           recess=size.head_d + 0.6, recess_depth=depth,
+                           plate=plate, engaged=length - under)
+    depth = size.nut_m + 0.2
+    through = frame.fixing_depth + plate
+    length = max((n for n in SCREW_LENGTHS if n <= through - 0.2 + 1e-9),
+                 default=SCREW_LENGTHS[0])
+    return MotorFixing(size=size, length=length, from_drive=False,
+                       recess=size.nut_s + 0.4, recess_depth=depth, plate=plate,
+                       engaged=min(length - (through - depth), size.nut_m))
 
 
 class MotorKind(str, Enum):

@@ -125,6 +125,7 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
                  f"input-side output bearing. It goes inside the barrel, so it "
                  f"is fitted before the housing"))
 
+    bore = s.motor_bore
     items.append(BomItem(
         part="Eccentric input shaft", quantity=1, material=s.shaft_material,
         size=f"{s.input_shaft_diameter:g} mm dia, {s.disc_count} cam(s) "
@@ -134,7 +135,10 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
              + ", ".join(f"{math.degrees(p):.0f}" for p in s.disc_phases) + " deg"
              + (f"; a {s.input_flat[2]:g} mm deep flat on the input end, "
                 f"{s.input_flat[1] - s.input_flat[0]:g} mm long, for a "
-                f"coupling's set screw" if s.input_flat else "")))
+                f"coupling's set screw" if s.input_flat else "")
+             + (f"; bored {bore[2]:g} mm{' D' if bore[3] > 0 else ''}, "
+                f"{bore[1] - bore[0]:.1f} mm deep from the motor's end, onto the "
+                f"{s.motor_face.name}'s shaft" if bore is not None else "")))
 
     # ---- what locates the shaft, and keeps the discs apart -------------------
     # Made rather than bought: a sleeve a millimetre and a half long to a given
@@ -246,11 +250,33 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
                    else f"{frame.bolt_span:g} mm circle")
         face = ("the carrier's base" if s.motor_mounts_on_carrier
                 else "the input end plate")
-        items.append(BomItem(
-            part="Motor bolt", quantity=frame.bolt_count, material=s.pin_material,
-            size=f"{frame.bolt_diameter:g} mm clearance",
-            mass_each_g=0.0, source="buy",
-            note=f"{frame.name} pattern, {pattern}, into {face}"))
+        fix = s.motor_fixing
+        count = len(s.motor_bolt_centres)
+        if fix is None:
+            items.append(BomItem(
+                part="Motor bolt", quantity=count, material=s.pin_material,
+                size=f"{frame.bolt_diameter:g} mm clearance",
+                mass_each_g=0.0, source="buy",
+                note=f"{frame.name} pattern, {pattern}, into {face}"))
+        else:
+            density = s.pin_mat.density_g_cm3 / 1000.0
+            how = (f"in from the drive's side into the motor's threads, heads in "
+                   f"{fix.recess:.1f} mm counterbores {fix.recess_depth:.1f} mm deep "
+                   f"in the inside of {face}" if fix.from_drive else
+                   f"in from the motor's side through its flange, into nuts in "
+                   f"hexagonal pockets in the inside of {face}")
+            items.append(BomItem(
+                part="Motor bolt", quantity=count, material=s.pin_material,
+                size=f"{fix.size.name} x {fix.length:g} socket head cap screw, "
+                     f"ISO 4762",
+                mass_each_g=screw_volume(fix.size, fix.length) * density,
+                source="buy", note=f"{frame.name} pattern, {pattern}; {how}"))
+            if not fix.from_drive:
+                items.append(BomItem(
+                    part="Motor bolt nut", quantity=count, material=s.pin_material,
+                    size=f"{fix.size.name} hexagon nut, ISO 4032",
+                    mass_each_g=nut_volume(fix.size) * density, source="buy",
+                    note=f"in its pocket in the inside of {face}"))
 
     # ---- what drives it -----------------------------------------------------
     # On the bill because it is on the drawing, and because whoever builds the
@@ -314,6 +340,8 @@ def _assembly(part: str, spec) -> tuple[str, ...]:
         "Main output bearing": ("bearing_output_main", "bearing_output_input"),
         "Ring pin roller": ("bearing_ring_pins",),
         "Motor": ("motor", "motor_shaft"),
+        "Motor bolt": ("motor_screws",),
+        "Motor bolt nut": ("motor_nuts",),
         "Output pin roller": ("bearing_output_pins",),
     }.get(part, ())
 
