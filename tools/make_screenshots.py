@@ -299,7 +299,25 @@ def main() -> int:
     window._view3d.view.set_standard_view("iso")
     window._view3d.view.fit()
     settle(app, 1500)
+
+    # Doing what the tab is for rather than sitting on it.  X-ray with the end
+    # plates on is the whole gearbox and the stack inside it at once, and a
+    # picked disc fills the strip under the viewport with its line off the bill
+    # of materials - which for this part says it is not interchangeable with
+    # its neighbour.  Without these the picture is the same as before the
+    # tab could do any of it.
+    panel = window._view3d
+    panel._groups["end_plates"].setChecked(True)
+    panel._xray.setChecked(True)
+    panel._picked("disc_1")
+    settle(app, 1200)
     capture(window, DOCS / "app-3d.png")
+
+    # ...and back, because the two crops below are the plain assembly.
+    panel._picked(None)
+    panel._xray.setChecked(False)
+    panel._groups["end_plates"].setChecked(False)
+    settle(app, 600)
 
     # The gearbox on its own, assembled and pulled apart, cropped out of the
     # same viewport.  The README puts these next to the window shots, so they

@@ -1,15 +1,6 @@
 <p align="center">
-  <a href="https://medinstech.com">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/medinstech/cycloidgen/main/cycloidgen/ui/assets/wordmark-white.png">
-      <img alt="Medinstech" src="https://raw.githubusercontent.com/medinstech/cycloidgen/main/cycloidgen/ui/assets/wordmark-blue.png" height="96">
-    </picture>
-  </a>
+  <img alt="cycloidgen - parametric cycloidal drive design. A 15:1 cycloidal drive turning: the disc orbits on its eccentric and rolls round the ring pins." src="https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/banner.svg" width="100%">
 </p>
-
-<h1 align="center">cycloidgen</h1>
-
-<p align="center"><b>Parametric cycloidal drive design</b></p>
 
 <p align="center">
   A desktop app that takes a handful of parameters — or a set of requirements —<br>
@@ -59,7 +50,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,212 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,296 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -82,6 +73,11 @@ point on the disc rim travels over a full output revolution. Twenty-one turns of
 the input, one of the output.
 
 ![the 3D tab](https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/app-3d.png)
+
+<p align="center">
+  X-ray on and a disc picked: the housing and its end plates go translucent, and<br>
+  the strip under the viewport reads the disc's line off the bill of materials.
+</p>
 
 ![assembly](https://raw.githubusercontent.com/medinstech/cycloidgen/main/docs/assembly.png)
 
@@ -216,7 +212,8 @@ list is not.
 ## What it produces
 
 Four groups, chosen together or separately — in the app's **Outputs** tab, on
-the command line with `--only`, or with the two quick export buttons.
+the command line with `--only`, or from the **Export ▾** menu in the header,
+which writes everything or everything but the solids.
 
 | File | Group | Contents |
 |---|---|---|
@@ -734,9 +731,12 @@ suggests it.
   Read off that chart: pin radius buys torque capacity up to a genuine optimum
   and then gives it back — the `PIN_RADIUS_SUGGESTION` check in closed form —
   while costing mass the whole way and doing essentially nothing for efficiency
-  or backlash. Note the flat panels start at zero. A quantity that moves by a
-  tenth of a percent gets an axis that says so, rather than one scaled to make
-  the noise look like a decision.
+  or backlash. The one step in the mass curve is at 6 mm, where a catalogue
+  needle roller first fits over the pin: the pin inside it drops to an 8 mm
+  dowel, and the roller, being bought rather than made, is not weighed. Note the
+  flat panels start at zero. A quantity that moves by a tenth of a percent gets
+  an axis that says so, rather than one scaled to make the noise look like a
+  decision.
 - **Compare** — pin a design, change things, and see exactly what moved and by
   how much. Running the optimiser pins the design it replaced automatically.
 - **Appearance** follows the desktop and can be overridden per user
@@ -859,28 +859,39 @@ cycloidgen/
 ├── units.py    what lengths are *shown* in; everything inside is millimetres
 ├── update.py   whether a newer release exists and how this copy would get it;
 │               no Qt, so the comparison is testable without a display
+├── notice.py   what this tool does not claim, in one place
 ├── core/       spec (the one source of truth), profile, kinematics, validate,
 │               motor (the face it bolts to and the torque it makes),
-│               explain (what each check tests, why, and what to change),
-│               guide (what each parameter is and how to choose it)
+│               duty (what the drive is asked to do, over time), fasteners
+│               (the ISO bolts and nuts it is held together with), designfile
+│               (a saved design, and which build saved it), explain (what each
+│               check tests, why, and what to change), guide (what each
+│               parameter is and how to choose it)
 ├── analysis/   mechanics (Hertz), stiffness (contacts, backlash, transmission
 │               error), compliance (the parts around the mesh, as springs),
 │               tolerance (where the pins actually are), lubrication (the
-│               film, and the friction it earns), thermal, mass, efficiency,
-│               bearings, motor (what is asked of it against what it has)
+│               film, and the friction it earns), fatigue, thermal, mass,
+│               efficiency, bearings, motor (what is asked of it against what
+│               it has), duty (the design against a whole cycle)
 ├── design/     optimise (requirements -> geometry, and the reduction from a
-│               motor), sweep (trade studies)
+│               motor), sweep (trade studies), batch (`--vary`: many designs
+│               in, one table out)
 ├── viz/        3D geometry and rendering maths, no Qt: mesh, scene (the
-│               software projection), vtkbridge (mesh -> VTK polydata)
+│               software projection), vtkbridge (mesh -> VTK polydata),
+│               clashes (which parts a check is about), tessellate
 ├── export/     manifest (what a bundle contains), dxf, svg, solid (OCCT),
-│               bom, animation (the looping GIF)
+│               threemf (the coloured assembly), printing (the face a part
+│               prints on, and its bed edge), bom, animation (the looping GIF)
 ├── report/     plots (shared by UI and PDF), build
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
-                optimiser dialog, trade-study tab, undo/redo history, log panel,
-                branding (palette and stylesheet), plotbar (the trimmed
-                matplotlib toolbar), updates (the check, and asking before it
-                runs)
-tests/          1,212 tests; the envelope, pin-in-hole, clearance-sign,
+                folding parameter groups, optimiser and duty-cycle dialogs,
+                trade-study tab, undo/redo history, log panel, branding
+                (palette and stylesheet), plotbar (the trimmed matplotlib
+                toolbar), updates (the check, and asking before it runs)
+docs/           the API reference and the README's figures
+tools/          what draws the banner, the icon, the logo assets, the
+                installer's bitmaps and the screenshots
+tests/          1,296 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -896,7 +907,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,212 tests, about 520 s. Most of that is CadQuery writing solids; the pure
+1,296 tests, about 680 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own
@@ -938,13 +949,24 @@ real desktop session rather than the offscreen platform the tests use — twice
 over. Offscreen Qt has no fonts, so every label renders as tofu; and the 3D
 tab's viewport is a native OpenGL surface that `QWidget.grab` composites *around*,
 leaving a black hole where the gearbox was. So the window is opened, driven —
-hero design, overlays on, a check selected, the camera set — and photographed
-through `PrintWindow` with `PW_RENDERFULLCONTENT`, which asks Windows for the
-window's own rendering including native children and does not care what is
-stacked on top of it:
+hero design, overlays on, a check selected, the camera set, X-ray on and a
+disc picked — and photographed through `PrintWindow` with
+`PW_RENDERFULLCONTENT`, which asks Windows for the window's own rendering
+including native children and does not care what is stacked on top of it:
 
 ```powershell
 .venv\Scripts\python tools\make_screenshots.py
+```
+
+The banner at the top is drawn by a third. Its disc is fitted by the routine
+that fits the STEP export's spline and converted exactly into SVG curves, and
+its motion is the pose law the drawing turns on, written as three steady
+rotations — each loops on its own, so the banner plays as one unending output
+revolution with no seam, in CSS and without a script, which is all GitHub and
+PyPI will run:
+
+```bash
+.venv\Scripts\python tools\make_banner.py
 ```
 
 ## Performance
@@ -1109,8 +1131,8 @@ importable analysis and the [documented API](https://github.com/medinstech/cyclo
 After that, in rough order: bearing life under combined load
 and misalignment; and more kinds of drive — compound and multi-stage, RV-type,
 a pinwheel output. On the output side, dimensioned drawing sheets with
-tolerances and a title block, which is what a shop actually wants; 3MF with
-per-part colour; STEP AP242 with PMI. [Open an issue](https://github.com/medinstech/cycloidgen/issues) if one of
+tolerances and a title block, which is what a shop actually wants, and STEP
+AP242 with PMI. [Open an issue](https://github.com/medinstech/cycloidgen/issues) if one of
 those is what stands between you and using it — that moves it up the list.
 
 ## Contributing
@@ -1141,3 +1163,12 @@ The numbers this produces are preliminary sizing estimates, not a certification 
 see *How far to trust the analysis* above. Apache-2.0 disclaims warranty for a
 reason, and that disclaimer is meant literally here: validate against a physical
 prototype before anything load-bearing depends on it.
+
+<p align="center">
+  <a href="https://medinstech.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/medinstech/cycloidgen/main/cycloidgen/ui/assets/wordmark-white.png">
+      <img alt="Medinstech" src="https://raw.githubusercontent.com/medinstech/cycloidgen/main/cycloidgen/ui/assets/wordmark-blue.png" height="64">
+    </picture>
+  </a>
+</p>
