@@ -1157,8 +1157,9 @@ Also: [CHANGELOG.md](https://github.com/medinstech/cycloidgen/blob/main/CHANGELO
 
 Apache-2.0. Copyright 2026 Medinstech. See [LICENSE](https://github.com/medinstech/cycloidgen/blob/main/LICENSE).
 
-The Medinstech name and logos under `cycloidgen/ui/assets/` are trademarks and
-are **not** covered by that licence — see [NOTICE](https://github.com/medinstech/cycloidgen/blob/main/NOTICE). They are declared in a
+The Medinstech name and logos under `cycloidgen/ui/assets/`, and the wordmark
+the banner at the top is drawn with, are trademarks and are **not** covered by
+that licence — see [NOTICE](https://github.com/medinstech/cycloidgen/blob/main/NOTICE). They are declared in a
 single module (`cycloidgen/ui/branding.py`) so that replacing them in a fork is
 one obvious change. The application icon is not one of them: it is a cycloidal
 disc drawn from the profile equations by `tools/make_icon.py`, it is Apache-2.0

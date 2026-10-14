@@ -33,17 +33,20 @@ one: a banner on GitHub is read in Segoe UI on Windows and in San Francisco on
 a Mac, and it should look like it belongs in either.  Everything that has to
 line up with it is therefore centred on it rather than measured against it.
 
-The company name and colour come from :mod:`cycloidgen.ui.branding`, like
-everywhere else, so a fork that rebrands there gets its own banner on the next
-run rather than ours.
+The company's wordmark, name and colour come from :mod:`cycloidgen.ui.branding`
+and the assets it loads, like everywhere else, so a fork that rebrands there
+gets its own banner on the next run rather than ours.
 """
 from __future__ import annotations
 
+import base64
+import io
 import math
 import sys
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:                    # runnable without installing
@@ -55,7 +58,7 @@ from cycloidgen.core.kinematics import disc_pose  # noqa: E402
 from cycloidgen.core.profile import disc_profile, profile_spline  # noqa: E402
 from cycloidgen.core.spec import GearSpec, preset  # noqa: E402
 from cycloidgen.report import plots  # noqa: E402
-from cycloidgen.ui.branding import BRAND_BLUE, COMPANY, lighten, mix  # noqa: E402
+from cycloidgen.ui.branding import BRAND_BLUE, COMPANY, asset, lighten, mix  # noqa: E402
 
 OUT = ROOT / "docs" / "banner.svg"
 
@@ -71,6 +74,30 @@ SANS = ("'Segoe UI Variable Display','Segoe UI',system-ui,-apple-system,"
         "BlinkMacSystemFont,'Helvetica Neue',Helvetica,Arial,sans-serif")
 MONO = ("'Cascadia Mono',Consolas,'SF Mono',Menlo,'DejaVu Sans Mono',"
         "'Liberation Mono',monospace")
+
+
+#: The company wordmark, as tall as it is drawn.  The white one: the banner is
+#: a dark card on either GitHub theme.
+LOGO_PX = 58.0
+#: Where its top edge sits.
+LOGO_TOP = 64.0
+
+
+def logo_uri(height: float) -> tuple[str, float]:
+    """The wordmark as a data URI, at twice the height it is drawn, and its width.
+
+    Inlined because a README banner is loaded as an image, and an image may not
+    fetch anything else - a linked logo would be a broken one.  Twice the height
+    so it stays sharp on a high-density screen, and no more, because the whole
+    of it is carried in the file on every view of the page.
+    """
+    image = Image.open(asset("wordmark-white.png")).convert("RGBA")
+    width = height * image.width / image.height
+    image = image.resize((round(2 * width), round(2 * height)), Image.LANCZOS)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    return ("data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode(),
+            width)
 
 
 def drive() -> GearSpec:
@@ -222,6 +249,8 @@ def build(spec: GearSpec) -> str:
     top, bottom = CY - HOUSING_PX, CY + HOUSING_PX
 
     ink_soft = mix("#ffffff", BRAND_BLUE, 0.22)
+    logo, logo_w = logo_uri(LOGO_PX)
+    rule_x = 72.0 + logo_w + 20.0
     accent = lighten(BRAND_BLUE, 0.42)
     disc_hi = lighten(blue, 0.30)
     # Shaded about the disc's own centre.  A linear gradient turns with the disc,
@@ -298,10 +327,12 @@ def build(spec: GearSpec) -> str:
 </g>
 <text x="{f(CX)}" y="{f(bottom + 30)}" class="mono" font-size="13" fill="#fff" fill-opacity=".5" text-anchor="middle">{spec.ratio}:1  &#183;  {lobes} lobes / {spec.pin_count} pins  &#183;  ring fixed</text>
 
-<text x="72" y="116" class="sans" font-size="13" font-weight="600" letter-spacing="3.6" fill="{accent}">{COMPANY.upper()}  &#183;  OPEN SOURCE</text>
-<text x="68" y="198" class="sans" font-size="86" font-weight="700" letter-spacing="-2" fill="#fff">cycloidgen</text>
-<text x="72" y="242" class="sans" font-size="26" fill="{ink_soft}">Parametric cycloidal drive design</text>
-{chips(["2D + 3D, live", f"{len(EXPLANATIONS)} checks", "DXF · STEP · STL · 3MF", "PDF dossier"], 72.0, 278.0)}
+<image href="{logo}" x="72" y="{f(LOGO_TOP)}" width="{f(logo_w)}" height="{f(LOGO_PX)}"><title>{COMPANY}</title></image>
+<path d="M{f(rule_x)} {f(LOGO_TOP + 10)}V{f(LOGO_TOP + LOGO_PX - 10)}" stroke="#fff" stroke-opacity=".28"/>
+<text x="{f(rule_x + 20)}" y="{f(LOGO_TOP + LOGO_PX / 2 + 4.5)}" class="sans" font-size="13" font-weight="600" letter-spacing="3.6" fill="{accent}">OPEN SOURCE</text>
+<text x="68" y="212" class="sans" font-size="86" font-weight="700" letter-spacing="-2" fill="#fff">cycloidgen</text>
+<text x="72" y="256" class="sans" font-size="26" fill="{ink_soft}">Parametric cycloidal drive design</text>
+{chips(["2D + 3D, live", f"{len(EXPLANATIONS)} checks", "DXF · STEP · STL · 3MF", "PDF dossier"], 72.0, 292.0)}
 </g>
 <rect x=".5" y=".5" width="{W - 1}" height="{H - 1}" rx="19.5" fill="none" stroke="#fff" stroke-opacity=".08"/>
 </svg>

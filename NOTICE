@@ -12,6 +12,9 @@ trademarks, service marks, or product names of the licensor (section 6).
 The Medinstech name, the Medinstech logo, the puzzle-piece mark and the
 associated wordmarks under cycloidgen/ui/assets/ are trademarks of Medinstech.
 They are included so the application and its reports can identify their origin.
+The README banner, docs/banner.svg, carries the wordmark too; it is drawn from
+those assets by tools/make_banner.py, so it is replaced by re-running that tool
+once they are.
 They are NOT licensed under Apache-2.0 and may not be used to identify a
 modified version of this software, or to imply endorsement of, or association
 with, any derived work.
