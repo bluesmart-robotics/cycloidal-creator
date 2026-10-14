@@ -182,6 +182,7 @@ def report_dict(a: DesignAnalysis) -> dict:
             "reflected_inertia_kg_mm2": a.mass.reflected_inertia_kg_mm2,
             "unbalance_force_N": a.mass.unbalance_force_N,
             "unbalance_couple_Nmm": a.mass.unbalance_couple_Nmm,
+            "orbiting_mass_g": a.mass.orbiting_mass_g,
             "web_shear_MPa": a.mass.web_shear_MPa,
             "web_shear_allow_MPa": a.mass.web_shear_allow_MPa,
             "min_web_mm": a.mass.min_web_mm,

@@ -50,7 +50,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,306 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,317 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -486,8 +486,9 @@ Beyond the geometry checks, every design gets a datasheet:
   envelope, and the tie bolts and nuts, from their ISO dimensions — each held
   to published masses in the tests.
   Reflected inertia at the input, and the shaking force a single disc throws —
-  which goes as the square of speed. Evenly phased discs cancel the force and
-  leave a couple.
+  the disc, the cam it rides and the bearing between them, all orbiting
+  together — rising as the square of speed. Evenly phased discs cancel the
+  force and leave a couple.
 - **Disc web stress.** The ligament beside the output holes is the thinnest
   structural member in the drive and nothing else was looking at it.
 
@@ -843,11 +844,11 @@ solves; pin position error, profile error and runout are the manufacturing half
 and are not modelled, so a real drive measures worse. The thermal model is a single
 lumped body in still air with no conduction into whatever the gearbox is bolted
 to. Bearing catalogue values are nominal metric-series figures, and a bearing's
-mass is estimated from its envelope rather than read from a maker's table; the
-unbalance and the reflected inertia count the discs alone, not the cam bearings
-orbiting with them, and of the bolts only the tie bolts are weighed: the
-motor's and the output's have no length until the drive knows what they go
-into. PV limits are
+mass is estimated from its envelope rather than read from a maker's table. Of
+the bolts only the tie bolts are weighed: the motor's and the output's have no
+length until the drive knows what they go into. The reflected inertia is what
+moves with the discs, and leaves out the input shaft the motor turns directly.
+PV limits are
 dry-against-steel design-guide values. The lubrication model builds a
 Dowson-Hamrock film for a *line* contact and applies it to the two conforming
 ones as well, where the formula was not derived — their film is capped at the
@@ -899,7 +900,7 @@ cycloidgen/
 docs/           the API reference and the README's figures
 tools/          what draws the banner, the icon, the logo assets, the
                 installer's bitmaps and the screenshots
-tests/          1,306 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,317 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -915,7 +916,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,306 tests, about 700 s. Most of that is CadQuery writing solids; the pure
+1,317 tests, about 700 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

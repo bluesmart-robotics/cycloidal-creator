@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 
 from cycloidgen.analysis.mass import analyse_mass
@@ -151,16 +152,52 @@ def test_radius_of_gyration_sits_inside_the_disc():
     assert 0.0 < k < preset(15).disc_outer_radius
 
 
+def _cam_bearing(spec):
+    """One disc's cam bearing: its mass in kg and its inertia in kg mm^2."""
+    from cycloidgen.analysis.bearings import bearing_schedule
+
+    cam = next(c for c in bearing_schedule(spec) if c.role == "Eccentric cam bearing")
+    part = cam.bearing
+    kg = cam.count * part.mass_g / spec.disc_count / 1000.0
+    return kg, kg * (part.outer ** 2 + part.bore ** 2) / 8.0
+
+
 def test_reflected_inertia_combines_the_orbit_and_the_spin():
     """The disc orbits at input speed and spins at output speed, so the input
     sees ``m*E^2 + J/ratio^2`` per disc.  Neither term is negligible: the orbit
-    radius is small but the disc's own inertia is large."""
+    radius is small but the disc's own inertia is large.  The cam bearing
+    pressed into the disc does both with it, so it is in both terms."""
     spec = preset(15)
     m = analyse_mass(spec)
-    orbit = (m.disc_mass_g / 1000.0) * spec.eccentricity ** 2
-    spin = m.disc_inertia_kg_mm2 / spec.ratio ** 2
+    bearing_kg, bearing_inertia = _cam_bearing(spec)
+    assert bearing_kg > 0.0
+    orbit = (m.disc_mass_g / 1000.0 + bearing_kg) * spec.eccentricity ** 2
+    spin = (m.disc_inertia_kg_mm2 + bearing_inertia) / spec.ratio ** 2
     assert m.reflected_inertia_kg_mm2 == pytest.approx(
         spec.disc_count * (orbit + spin), rel=1e-9)
+
+
+def test_what_orbits_is_the_disc_its_bearing_and_its_cam():
+    """Each disc's plane throws the disc, the bearing in its bore and the cam
+    that bearing runs on.  The cam is the shaft's, but a circle centred at E
+    with the shaft's section inside it has all of its first moment at E."""
+    spec = preset(15)
+    m = analyse_mass(spec)
+    bearing_kg, _ = _cam_bearing(spec)
+    cam_g = (math.pi * (spec.cam_diameter / 2.0) ** 2 * spec.disc_thickness
+             * 1e-3 * spec.shaft_mat.density_g_cm3)
+    assert m.orbiting_mass_g == pytest.approx(
+        m.disc_mass_g + 1000.0 * bearing_kg + cam_g, rel=1e-9)
+
+    # The first-moment claim itself, counted over a grid of the cam's plane:
+    # shaft and cam together, against the cam alone at E.
+    r_cam, r_shaft = spec.cam_diameter / 2.0, spec.input_shaft_diameter / 2.0
+    E = spec.eccentricity
+    assert r_shaft + E < r_cam                     # the shaft is inside the cam
+    x, y = np.meshgrid(*(np.linspace(-r_cam - E, r_cam + E, 1201),) * 2)
+    cam_only = (x - E) ** 2 + y ** 2 <= r_cam ** 2
+    material = cam_only | (x ** 2 + y ** 2 <= r_shaft ** 2)
+    assert x[material].sum() == pytest.approx(E * cam_only.sum(), rel=1e-3)
 
 
 def test_a_longer_crank_throw_costs_reflected_inertia():
@@ -197,7 +234,7 @@ def test_the_couple_uses_the_real_disc_pitch():
     spec = preset(15)
     spec.disc_count = 2
     m = analyse_mass(spec)
-    single = ((m.disc_mass_g / 1000.0) * (spec.eccentricity / 1000.0)
+    single = ((m.orbiting_mass_g / 1000.0) * (spec.eccentricity / 1000.0)
               * (spec.input_rpm * 2 * math.pi / 60.0) ** 2)
     arm = spec.disc_thickness + spec.disc_gap
     assert m.unbalance_couple_Nmm == pytest.approx(single * arm, rel=1e-6)

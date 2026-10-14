@@ -397,7 +397,8 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     if mass.unbalance_force_N > 0.5 * spec.output_torque_Nm * 1000.0 / max(
             spec.output_bolt_circle_radius, 1e-9):
         rep.add(Severity.WARNING, "UNBALANCE_FORCE",
-                f"The orbiting disc throws {mass.unbalance_force_N:.0f} N at "
+                f"What orbits on the crank - the disc, its cam and its bearing - "
+                f"throws {mass.unbalance_force_N:.0f} N at "
                 f"{spec.input_rpm:g} rpm, comparable to the working load. Add a "
                 f"counterweight or a second disc at 180 degrees.",
                 mass.unbalance_force_N, 0.0)

@@ -66,10 +66,17 @@ class MassResult:
     fasteners_mass_g: float
 
     disc_inertia_kg_mm2: float         # about its own centre
-    reflected_inertia_kg_mm2: float    # whole stack, seen at the input shaft
+    #: Everything that moves the way a disc moves - the discs and the cam
+    #: bearings pressed into them - seen at the input shaft.  Not the shaft
+    #: itself, which the motor turns directly rather than through anything.
+    reflected_inertia_kg_mm2: float
 
-    unbalance_force_N: float           # residual, at the rated input speed
+    #: Residual, at the rated input speed, of everything orbiting at E in each
+    #: disc's plane: the disc, its cam bearing and the cam it runs on.
+    unbalance_force_N: float
     unbalance_couple_Nmm: float
+    #: That orbiting mass, one disc's plane of it, grams.
+    orbiting_mass_g: float
     balanced: bool
 
     web_shear_MPa: float
@@ -291,12 +298,34 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     # is 1/N off the carrier and *zero* off the ring, where the disc does not
     # rotate in the ground frame at all: a ring-output drive reflects only the
     # orbiting mass back to the motor.
-    reflected = n * (m_disc_kg * spec.eccentricity ** 2
-                     + disc_inertia * spec.disc_speed_ratio ** 2)
+    #
+    # The cam bearing goes with it.  Its cup is pressed into the disc bore and
+    # its rollers' centres ride the cam, so it orbits and spins exactly as the
+    # disc does - which is also why it is weighed in the same plane below.
+    cam = next((c for c in bearings if c.role == "Eccentric cam bearing"
+                and c.fitted and c.fits and c.bearing is not None and c.count), None)
+    if cam is not None:
+        part = cam.bearing
+        m_cam_bearing_kg = cam.count * part.mass_g / n / 1000.0
+        cam_bearing_inertia = (m_cam_bearing_kg
+                               * (part.outer ** 2 + part.bore ** 2) / 8.0)
+    else:
+        m_cam_bearing_kg = cam_bearing_inertia = 0.0
+    reflected = n * ((m_disc_kg + m_cam_bearing_kg) * spec.eccentricity ** 2
+                     + (disc_inertia + cam_bearing_inertia)
+                     * spec.disc_speed_ratio ** 2)
 
     # ---- unbalance ----------------------------------------------------------
+    # Everything in a disc's plane whose centre is at E: the disc, its cam
+    # bearing, and the cam itself.  The cam is part of the shaft, but a circle
+    # centred at E with the shaft's own section inside it puts its *whole*
+    # area's first moment at E - the shaft's share sits on the axis and adds
+    # nothing - so it throws the same force a loose disc of its size would.
+    m_cam_kg = (math.pi * (spec.cam_diameter / 2.0) ** 2 * t
+                * _MM3_TO_CM3 * rho_shaft / 1000.0)
+    orbiting_kg = m_disc_kg + m_cam_bearing_kg + m_cam_kg
     omega = spec.input_rpm * 2.0 * math.pi / 60.0
-    single = m_disc_kg * (spec.eccentricity / 1000.0) * omega ** 2   # N, one disc
+    single = orbiting_kg * (spec.eccentricity / 1000.0) * omega ** 2  # N, one plane
     phases = np.asarray(spec.disc_phases)
     resultant = float(np.hypot(np.cos(phases).sum(), np.sin(phases).sum()))
     force = single * resultant
@@ -348,6 +377,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
         reflected_inertia_kg_mm2=reflected,
         unbalance_force_N=force,
         unbalance_couple_Nmm=couple,
+        orbiting_mass_g=orbiting_kg * 1000.0,
         balanced=resultant < 1e-9,
         web_shear_MPa=web_shear,
         web_shear_allow_MPa=spec.disc_mat.shear_allow_MPa,
