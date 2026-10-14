@@ -252,6 +252,19 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
             mass_each_g=0.0, source="buy",
             note=f"{frame.name} pattern, {pattern}, into {face}"))
 
+    # ---- what drives it -----------------------------------------------------
+    # On the bill because it is on the drawing, and because whoever builds the
+    # drive has to buy one - but weighed at nothing, since the gearbox's mass
+    # is the gearbox's.
+    if s.has_motor_face:
+        frame = s.motor_face
+        items.append(BomItem(
+            part="Motor", quantity=1, material="-",
+            size=f"{frame.name}, {frame.shaft_diameter:g} mm shaft",
+            mass_each_g=0.0, source="buy",
+            note="not part of the drive: drawn to check that it fits, chosen by "
+                 "whoever runs it"))
+
     # ---- bearings -----------------------------------------------------------
     for choice in a.bearings:
         if choice.bearing is None or not choice.count:
@@ -300,6 +313,7 @@ def _assembly(part: str, spec) -> tuple[str, ...]:
         "Input shaft support": ("bearing_shaft_input", "bearing_shaft_output"),
         "Main output bearing": ("bearing_output_main", "bearing_output_input"),
         "Ring pin roller": ("bearing_ring_pins",),
+        "Motor": ("motor", "motor_shaft"),
         "Output pin roller": ("bearing_output_pins",),
     }.get(part, ())
 

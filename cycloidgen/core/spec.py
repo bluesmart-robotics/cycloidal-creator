@@ -1045,6 +1045,22 @@ class GearSpec(BaseModel):
         return curve_from(self)
 
     @property
+    def motor_face_z(self) -> float:
+        """Where the motor's mounting face sits along the axis, assembled.
+
+        The outside of whichever plate carries the motor's pattern: the input
+        end plate on a carrier drive, the carrier's base on a ring drive.
+        """
+        if self.motor_mounts_on_carrier:
+            return self.base_plate_bottom
+        return self.barrel_top + self.plate_thickness
+
+    @property
+    def motor_side(self) -> float:
+        """Which way the motor stands off its face: +1 up the axis, -1 down."""
+        return -1.0 if self.motor_mounts_on_carrier else 1.0
+
+    @property
     def motor_mounts_on_carrier(self) -> bool:
         """Whether the motor face is cut into the carrier's base instead of the
         input end plate.  It goes on whichever member does not turn."""

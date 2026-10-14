@@ -142,6 +142,30 @@ class MotorFrame(BaseModel):
     shaft_diameter: float = Field(gt=0)
     max_radial_N: float = Field(gt=0, description="typical, at the shaft end")
 
+    # ---- the rest of the motor, as far as fitting it goes ---------------------
+    #
+    # What the drive has to make room for and fasten into.  The face above says
+    # where the holes go; these say what the motor is behind them - which is
+    # what decides whether its shaft reaches the cam, where the screws can go
+    # in from, and what it looks like bolted on.  Typical for the frame, as the
+    # radial rating is: lengths in particular vary by stack height, and a
+    # datasheet beats all of them.
+    body_width: float = Field(0.0, ge=0, description="square body, across flats")
+    body_length: float = Field(0.0, ge=0, description="behind the mounting face")
+    shaft_length: float = Field(0.0, ge=0,
+                                description="past the mounting face, spigot included")
+    shaft_flat: float = Field(0.0, ge=0,
+                              description="depth of the D-cut; 0 for a round shaft")
+    #: ``tapped``: threads in the motor's face, so the screws go in from the
+    #: drive's side.  ``through``: clearance holes through the motor's flange,
+    #: so they go in from the motor's side and need something to bite on.
+    fixing: str = Field("tapped")
+    #: The screw size the face takes, by its metric name.
+    screw: str = Field("")
+    #: Tapped: how deep the motor's threads go.  Through: the flange thickness
+    #: the screws pass.
+    fixing_depth: float = Field(0.0, ge=0)
+
     @property
     def bolt_circle_diameter(self) -> float:
         """Where the bolts actually land, whichever way the pattern is stated.
@@ -162,24 +186,40 @@ MOTOR_FRAMES: dict[str, MotorFrame] = {
         MotorFrame(name="None", bolt_span=1.0, bolt_diameter=1.0,
                    pilot_diameter=1.0, pilot_depth=0.1, shaft_diameter=1.0,
                    max_radial_N=1.0),
+        # The small frames thread their face and the large ones put clearance
+        # holes through a flange, which decides which side a screw goes in
+        # from.  Shafts: a D-cut half a millimetre deep on the small ones, a
+        # keyway rather than a flat on a NEMA 34.
         MotorFrame(name="NEMA 8", bolt_span=15.4, bolt_diameter=2.2,
                    pilot_diameter=15.0, pilot_depth=1.6, shaft_diameter=4.0,
-                   max_radial_N=10.0),
+                   max_radial_N=10.0, body_width=20.3, body_length=30.0,
+                   shaft_length=10.0, shaft_flat=0.0, fixing="tapped",
+                   screw="M2", fixing_depth=2.5),
         MotorFrame(name="NEMA 11", bolt_span=23.0, bolt_diameter=2.7,
                    pilot_diameter=22.0, pilot_depth=2.0, shaft_diameter=5.0,
-                   max_radial_N=15.0),
+                   max_radial_N=15.0, body_width=28.2, body_length=32.0,
+                   shaft_length=20.0, shaft_flat=0.5, fixing="tapped",
+                   screw="M2.5", fixing_depth=2.5),
         MotorFrame(name="NEMA 14", bolt_span=26.0, bolt_diameter=3.2,
                    pilot_diameter=22.0, pilot_depth=2.0, shaft_diameter=5.0,
-                   max_radial_N=20.0),
+                   max_radial_N=20.0, body_width=35.2, body_length=34.0,
+                   shaft_length=20.0, shaft_flat=0.5, fixing="tapped",
+                   screw="M3", fixing_depth=3.5),
         MotorFrame(name="NEMA 17", bolt_span=31.0, bolt_diameter=3.4,
                    pilot_diameter=22.0, pilot_depth=2.0, shaft_diameter=5.0,
-                   max_radial_N=28.0),
+                   max_radial_N=28.0, body_width=42.3, body_length=40.0,
+                   shaft_length=24.0, shaft_flat=0.5, fixing="tapped",
+                   screw="M3", fixing_depth=4.5),
         MotorFrame(name="NEMA 23", bolt_span=47.14, bolt_diameter=5.5,
                    pilot_diameter=38.1, pilot_depth=1.6, shaft_diameter=6.35,
-                   max_radial_N=75.0),
+                   max_radial_N=75.0, body_width=56.4, body_length=56.0,
+                   shaft_length=21.0, shaft_flat=0.5, fixing="through",
+                   screw="M5", fixing_depth=5.0),
         MotorFrame(name="NEMA 34", bolt_span=69.58, bolt_diameter=5.5,
                    pilot_diameter=73.03, pilot_depth=2.0, shaft_diameter=14.0,
-                   max_radial_N=220.0),
+                   max_radial_N=220.0, body_width=86.0, body_length=80.0,
+                   shaft_length=32.0, shaft_flat=0.0, fixing="through",
+                   screw="M5", fixing_depth=10.0),
     ]
 }
 

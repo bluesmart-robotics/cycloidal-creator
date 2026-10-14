@@ -171,3 +171,62 @@ def test_the_output_boss_stands_out_far_enough_to_grip():
     plate = next(p for p in mesh.parts if p.name == "output_end_plate")
     assert (mesh.vertices[carrier.vertices][:, 2].min()
             < mesh.vertices[plate.vertices][:, 2].min() - 1e-9)
+
+
+# ------------------------------------------------------------ the motor itself
+
+
+@pytest.mark.parametrize("name", [n for n in MOTOR_FRAMES if n != NO_MOTOR])
+def test_a_frame_says_enough_about_its_motor_to_fit_one(name):
+    """Body, shaft and fixing - what decides whether the motor can be put where
+    the drive says, and which side its screws go in from."""
+    from cycloidgen.core.fasteners import size_named
+
+    frame = MOTOR_FRAMES[name]
+    assert frame.bolt_span < frame.body_width            # the holes are in it
+    assert frame.pilot_diameter < frame.body_width
+    assert frame.shaft_length > frame.pilot_depth
+    assert 0.0 <= frame.shaft_flat < frame.shaft_diameter / 4.0
+    assert frame.fixing in ("tapped", "through")
+    screw = size_named(frame.screw)
+    assert screw is not None, frame.screw
+    assert screw.d < frame.bolt_diameter                 # and goes through them
+    assert frame.fixing_depth > 0.0
+
+
+@pytest.mark.parametrize("ring", [False, True])
+def test_the_motor_is_drawn_standing_off_its_face(ring):
+    """Up off a carrier drive's input plate, down off a ring drive's base, its
+    spigot in the register and its shaft pointing into the drive."""
+    from cycloidgen.core.spec import OutputMember
+    from cycloidgen.viz.mesh import mesh_for_spec
+
+    spec = _spec()
+    if ring:
+        spec.output_member = OutputMember.RING
+    frame, zf, side = spec.motor_face, spec.motor_face_z, spec.motor_side
+    assert side == (-1.0 if ring else 1.0)
+    parts = {p.name: p for p in mesh_for_spec(spec).parts}
+    body = mesh_for_spec(spec).vertices[parts["motor"].vertices]
+    shaft = mesh_for_spec(spec).vertices[parts["motor_shaft"].vertices]
+    far = (body[:, 2] * side).max() * side
+    assert far == pytest.approx(zf + side * frame.body_length)
+    spigot = (body[:, 2] * -side).max() * -side
+    assert spigot == pytest.approx(zf - side * frame.pilot_depth)
+    assert (shaft[:, 2] * -side).max() * -side == pytest.approx(
+        zf - side * frame.shaft_length)
+    assert parts["motor_shaft"].spin == -1.0          # it is what turns the input
+
+
+def test_the_motor_is_on_the_bill_and_weighs_nothing_in_the_drive():
+    from cycloidgen.export.bom import bom_items
+    from cycloidgen.viz.mesh import mesh_for_spec
+
+    spec = _spec()
+    a = analyse(spec)
+    items = bom_items(a)
+    motor = next(i for i in items if i.part == "Motor")
+    assert motor.mass_each_g == 0.0 and motor.source == "buy"
+    covered = [n for item in items for n in item.assembly]
+    for part in mesh_for_spec(spec).parts:
+        assert covered.count(part.name) == 1, part.name

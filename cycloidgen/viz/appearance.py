@@ -24,8 +24,8 @@ import numpy as np
 from ..core.spec import GearSpec
 from .mesh import Part
 
-__all__ = ["BEARING_MATERIAL", "FINISHES", "Finish", "finish", "material_of",
-           "studio"]
+__all__ = ["BEARING_MATERIAL", "FINISHES", "MOTOR_FINISH", "Finish", "finish",
+           "material_of", "studio"]
 
 
 @dataclass(frozen=True)
@@ -62,12 +62,19 @@ FINISHES: dict[str, Finish] = {
 #: What a bearing is made of, whatever the drive's own materials are.
 BEARING_MATERIAL = "Bearing steel 100Cr6"
 
+#: A stepper's body: black paint over the stack, which is not one of the
+#: drive's materials and so is not in the table.  Its shaft is steel.
+MOTOR_FINISH = Finish((44, 46, 50), 0.0, 0.42)
+MOTOR_SHAFT_MATERIAL = "Steel 1045"
+
 
 def material_of(spec: GearSpec, part: Part) -> str:
     """The material a part is made of - the same choice the bill orders it in."""
     group = part.group
     if group == "bearings":
         return BEARING_MATERIAL
+    if group == "motor":
+        return MOTOR_SHAFT_MATERIAL
     if group == "discs" or part.name == "washers":
         return spec.disc_material
     if group == "shaft":
@@ -81,6 +88,8 @@ def material_of(spec: GearSpec, part: Part) -> str:
 
 def finish(spec: GearSpec, part: Part) -> tuple[tuple[int, int, int], Finish]:
     """The colour to shade ``part`` in, and its finish."""
+    if part.name == "motor":
+        return MOTOR_FINISH.colour, MOTOR_FINISH
     surface = FINISHES[material_of(spec, part)]
     return (surface.colour or part.colour), surface
 

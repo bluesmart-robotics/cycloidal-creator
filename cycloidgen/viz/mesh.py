@@ -74,6 +74,7 @@ PART_COLOURS: dict[str, tuple[int, int, int]] = {
     "bearings": (150, 128, 200),
     "end_plates": (140, 140, 156),
     "fasteners": (92, 92, 102),
+    "motor": (58, 60, 66),
 }
 
 #: How dark a part's drawn edges are, as a fraction of the part's own colour.
@@ -111,6 +112,7 @@ PART_GROUPS: tuple[tuple[str, str], ...] = (
     ("carrier", "Carrier"),
     ("bearings", "Bearings"),
     ("fasteners", "Tie bolts"),
+    ("motor", "Motor"),
 )
 
 #: How far each group travels in an exploded view, as a multiple of the explode
@@ -124,7 +126,10 @@ PART_GROUPS: tuple[tuple[str, str], ...] = (
 _EXPLODE = {"carrier": -1.0, "housing": 0.0, "ring_pins": 0.62,
             "discs": 1.25, "shaft": 2.6, "bearings": 0.0, "end_plates": 0.0,
             # Out along their own axis, which is how a drawing pulls a bolt.
-            "fasteners": 3.2}
+            "fasteners": 3.2,
+            # Off its face and away, on whichever end it bolts to - the sign is
+            # set per drive, since a ring drive's motor hangs under it.
+            "motor": 4.4}
 _EXPLODE_PER_DISC = 0.45
 
 #: Segments on a bearing ring.  The floor matters more than it looks: both loops
@@ -1010,7 +1015,55 @@ def build_mesh(spec: GearSpec,
                             (_circle(cx, cy, size.d / 2.0, _BOLT_SEGMENTS),),
                             face, face + size.nut_m)
 
+    if spec.has_motor_face:
+        _motor(b, spec)
+
     return b.build(spec)
+
+
+def _octagon(width: float, corner: float) -> np.ndarray:
+    """A square ``width`` across with its corners cut ``corner`` back at 45
+    degrees - the section of a stepper's body."""
+    h, c = width / 2.0, corner
+    return np.array([(h, -h + c), (h, h - c), (h - c, h), (-h + c, h),
+                     (-h, h - c), (-h, -h + c), (-h + c, -h), (h - c, -h)])
+
+
+def _motor(b: _Builder, spec: GearSpec) -> None:
+    """The motor on its face: drawn for the fit, not part of the drive.
+
+    A body the frame's size, its spigot in the register, and its shaft as a
+    part of its own that turns with the input.  Standing off the face the way
+    the face points - up off a carrier drive's input plate, down off a ring
+    drive's base.  What it is drawn for is what nothing else in the model
+    shows: whether the thing that drives the gearbox can be put where the
+    gearbox says it goes.
+    """
+    frame = spec.motor_face
+    if frame.body_width <= 0.0:
+        return
+    zf, side = spec.motor_face_z, spec.motor_side
+    explode = side * _EXPLODE["motor"]
+    spigot = _circle(0.0, 0.0, frame.pilot_diameter / 2.0, 48)
+    tip = zf - side * frame.pilot_depth
+    with b.part("motor", f"Motor ({frame.name})", "motor", PART_COLOURS["motor"],
+                explode=explode):
+        body = _octagon(frame.body_width, 0.11 * frame.body_width)
+        far = zf + side * frame.body_length
+        lo, hi = sorted((zf, far))
+        # The face the spigot stands on is an annulus: the rest of it is the
+        # spigot's own end, and a cap across it would be a wall inside.
+        b.prism(body, (), lo, hi, cap_bottom=side < 0, cap_top=side > 0)
+        b.cap(body, (spigot,), zf, up=side < 0)
+        lo, hi = sorted((zf, tip))
+        b.prism(spigot, (), lo, hi, cap_bottom=side > 0, cap_top=side < 0)
+    r = frame.shaft_diameter / 2.0
+    section = (_d_section(r, frame.shaft_flat, 40) if frame.shaft_flat > 0.0
+               else _circle(0.0, 0.0, r, 40))
+    with b.part("motor_shaft", f"Motor shaft ({frame.name})", "motor",
+                PART_COLOURS["shaft"], spin=-1.0, explode=explode):
+        lo, hi = sorted((tip, zf - side * frame.shaft_length))
+        b.prism(section, (), lo, hi)
 
 
 def mesh_fingerprint(spec: GearSpec,

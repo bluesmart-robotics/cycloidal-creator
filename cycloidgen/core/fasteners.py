@@ -17,9 +17,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-__all__ = ["SCREW_LENGTHS", "SIZES", "THREAD_DEPTH", "MetricSize", "hexagon",
+__all__ = ["M2", "SCREW_LENGTHS", "SIZES", "THREAD_DEPTH", "MetricSize", "hexagon",
            "nut_volume", "screw_length", "screw_volume", "size_for_hole",
-           "thread_length", "thread_mean_diameter"]
+           "size_named", "thread_length", "thread_mean_diameter"]
 
 
 @dataclass(frozen=True)
@@ -60,6 +60,17 @@ SIZES: tuple[MetricSize, ...] = (
 SCREW_LENGTHS: tuple[float, ...] = (
     6, 8, 10, 12, 16, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 80, 90,
     100, 110, 120, 130, 140, 150, 160, 180, 200)
+
+
+#: Smaller than any hole the drive's own bolts are read off, so not in
+#: :data:`SIZES` - a 2.6 mm tie-bolt hole is still drawn by the hole - but a
+#: NEMA 8's face is threaded for it, and that screw has to be named.
+M2 = MetricSize("M2", 2.0, 0.4, 2.4, 3.8, 2.0, 1.5, 1.0, 4.0, 1.6)
+
+
+def size_named(name: str) -> MetricSize | None:
+    """A size by its metric name, ``M2`` included; ``None`` for one not here."""
+    return next((s for s in (M2, *SIZES) if s.name == name), None)
 
 
 def size_for_hole(hole: float) -> MetricSize | None:
