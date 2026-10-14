@@ -50,7 +50,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,333 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,349 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -693,11 +693,18 @@ suggests it.
   It renders on the GPU through VTK — which costs no new dependency, because
   the CAD kernel that writes your STEP files already brings it. Depth buffer,
   smooth shading off feature-angle normals so the pins are round rather than
-  faceted, a three-point light rig, screen-space ambient occlusion sized off the
-  drive so a pin sits *in* its pocket, and multisampled edges. Geometry is
-  uploaded once per design; turning the crank sets one transform per part, so a
-  frame is bounded by the display's refresh rate and a 59:1 drive with sixty
-  pins costs exactly what a 15:1 one does.
+  faceted, screen-space ambient occlusion sized off the drive so a pin sits
+  *in* its pocket, and multisampled edges. The shading is physical: every
+  material has a finish, a metal is drawn in its own colour — ground 4140 dark,
+  polished bearing steel bright, milled aluminium pale — and a printed part
+  keeps its diagram colour with its material's surface, PA12 chalky and PETG
+  glossy. A metal looks like metal only by what it reflects, so the view lights
+  it with a photographic studio — a key, a fill and a rim strip — generated in
+  code rather than shipped as a picture. `CYCLOIDGEN_VTK_PBR=0` goes back to
+  plain Phong shading in diagram colours. Geometry is uploaded once per
+  design; turning the crank sets one transform per part, so a frame is bounded
+  by the display's refresh rate and a 59:1 drive with sixty pins costs exactly
+  what a 15:1 one does.
 
   There is a **software fallback** — the same scene, back-face culled and
   painted back to front with `QPainter` — for a build with the kernel stripped
@@ -897,7 +904,8 @@ cycloidgen/
 │               motor), sweep (trade studies), batch (`--vary`: many designs
 │               in, one table out)
 ├── viz/        3D geometry and rendering maths, no Qt: mesh, cadmesh (the
-│               exported solids, tessellated for the view), scene (the
+│               exported solids, tessellated for the view), appearance
+│               (each material's finish, and the studio), scene (the
 │               software projection), vtkbridge (mesh -> VTK polydata),
 │               clashes (which parts a check is about), tessellate
 ├── export/     manifest (what a bundle contains), dxf, svg, solid (OCCT),
@@ -912,7 +920,7 @@ cycloidgen/
 docs/           the API reference and the README's figures
 tools/          what draws the banner, the icon, the logo assets, the
                 installer's bitmaps and the screenshots
-tests/          1,333 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,349 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -928,7 +936,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,333 tests, about 700 s. Most of that is CadQuery writing solids; the pure
+1,349 tests, about 700 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

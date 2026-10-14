@@ -35,7 +35,7 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 from vtkmodules.util.numpy_support import numpy_to_vtk, vtk_to_numpy
 
 from ..core.spec import GearSpec
-from ..viz import cadmesh
+from ..viz import appearance, cadmesh
 from ..viz.mesh import EDGE_SHADE, Mesh, mesh_for_spec
 from ..viz.scene import Camera
 from . import branding
@@ -81,6 +81,16 @@ _CAD_OVERRIDE = "CYCLOIDGEN_CAD_VIEW"
 #: Long enough that dragging a spin box does not start a build per step, short
 #: enough that letting go of it is followed by the real part.
 CAD_SETTLE_MS = 600
+
+#: ``0`` shades the old way - Phong, every part in its diagram colour - for a
+#: driver whose physically based shaders misbehave.
+_PBR_OVERRIDE = "CYCLOIDGEN_VTK_PBR"
+
+#: How bright the studio is.  Tuned by eye against both themes' backgrounds:
+#: high enough that a steel part reads as steel rather than as a dark hole,
+#: low enough that a polished face catching the key light does not clip to
+#: white - there is no tone mapping between the shader and the screen.
+ENVIRONMENT_GAIN = 0.8
 
 
 def available() -> bool:
@@ -294,11 +304,17 @@ class VtkAssemblyView(QWidget):
         self._renderer.SetMaximumNumberOfPeels(8)
         self._renderer.SetOcclusionRatio(0.05)
 
+        # Shaded physically where the driver can: metals look like metal only
+        # by what they reflect, so they are given a studio to reflect - see
+        # `appearance.studio` - and the lights below become accents on it.
+        self._pbr = (os.environ.get(_PBR_OVERRIDE, "").strip() != "0"
+                     and self._light_the_studio())
+
         # A three-point kit rather than the single head-on light VTK starts
         # with: a flat frontal light on a machined part removes exactly the
         # shading that tells you it is round.
         kit = v["vtkLightKit"]()
-        kit.SetKeyLightIntensity(0.9)
+        kit.SetKeyLightIntensity(0.22 if self._pbr else 0.9)
         kit.SetKeyToFillRatio(2.6)
         kit.SetKeyToHeadRatio(3.2)
         kit.SetKeyToBackRatio(3.0)
@@ -384,9 +400,63 @@ class VtkAssemblyView(QWidget):
             self._mesh = mesh
             self._build_actors()
             self.set_crank(self._crank)
+        else:
+            # A material is not geometry, so it does not rebuild anything - but
+            # it is what the part looks like, so it is applied every time.
+            self._apply_finishes()
         if first:
             self.fit()
         self._render()
+
+    def _finish(self, part):
+        """The colour and finish ``part`` is shaded with: its material's, when
+        the shading is physical, and its diagram colour when it is not."""
+        rgb, surface = appearance.finish(self._spec, part)
+        return (rgb if self._pbr else part.colour), surface
+
+    def _apply_finishes(self) -> None:
+        for record in self._actors.values():
+            rgb, surface = self._finish(record["part"])
+            record["colour"] = rgb
+            if self._pbr:
+                prop = record["actor"].GetProperty()
+                prop.SetMetallic(surface.metallic)
+                prop.SetRoughness(surface.roughness)
+        self._apply_highlight()
+        self._apply_edges()
+
+    def _light_the_studio(self) -> bool:
+        """Image-based lighting off :func:`appearance.studio`.  False where the
+        VTK in hand cannot do it, which leaves the view on Phong."""
+        try:
+            from vtkmodules.vtkCommonCore import VTK_FLOAT
+            from vtkmodules.vtkCommonDataModel import vtkImageData
+            from vtkmodules.vtkRenderingCore import vtkProperty, vtkTexture
+
+            if not hasattr(vtkProperty, "SetInterpolationToPBR"):
+                return False
+            probe = appearance.studio(1024, 512) * ENVIRONMENT_GAIN
+            image = vtkImageData()
+            image.SetDimensions(probe.shape[1], probe.shape[0], 1)
+            # Rows bottom-up, as an image is stored; the probe is top-down.
+            image.GetPointData().SetScalars(numpy_to_vtk(
+                np.ascontiguousarray(probe[::-1].reshape(-1, 3)), deep=1,
+                array_type=VTK_FLOAT))
+            texture = vtkTexture()
+            texture.SetInputData(image)
+            texture.SetColorModeToDirectScalars()
+            texture.MipmapOn()
+            texture.InterpolateOn()
+            self._renderer.UseImageBasedLightingOn()
+            self._renderer.SetEnvironmentTexture(texture, False)
+            self._renderer.SetEnvironmentUp(0.0, 0.0, 1.0)
+            self._renderer.SetEnvironmentRight(1.0, 0.0, 0.0)
+            self._environment = texture
+        except Exception:
+            logger.info("3D: no image-based lighting, shading with Phong\n%s",
+                        traceback.format_exc().rstrip())
+            return False
+        return True
 
     @property
     def showing_cad(self) -> bool:
@@ -461,7 +531,8 @@ class VtkAssemblyView(QWidget):
         self._actors.clear()
 
         for part in mesh.parts:
-            colour = [c / 255.0 for c in part.colour]
+            rgb, surface = self._finish(part)
+            colour = [c / 255.0 for c in rgb]
             polydata = part_polydata(mesh, part)
             # The clipper and the edge finder both want topology, not shading:
             # the shaded surface has its points split along every crease, which
@@ -499,14 +570,19 @@ class VtkAssemblyView(QWidget):
             actor.SetMapper(mapper)
             prop = actor.GetProperty()
             prop.SetColor(*colour)
-            prop.SetInterpolationToPhong()
-            prop.SetAmbient(0.16)
-            prop.SetDiffuse(0.82)
-            # A little specular so the metals read as metal.  Not much: this is
-            # a drawing tool, and a mirror finish hides the geometry it is
-            # supposed to be showing.
-            prop.SetSpecular(0.30)
-            prop.SetSpecularPower(28)
+            if self._pbr:
+                prop.SetInterpolationToPBR()
+                prop.SetMetallic(surface.metallic)
+                prop.SetRoughness(surface.roughness)
+            else:
+                prop.SetInterpolationToPhong()
+                prop.SetAmbient(0.16)
+                prop.SetDiffuse(0.82)
+                # A little specular so the metals read as metal.  Not much:
+                # this is a drawing tool, and a mirror finish hides the
+                # geometry it is supposed to be showing.
+                prop.SetSpecular(0.30)
+                prop.SetSpecularPower(28)
             transform = v["vtkTransform"]()
             actor.SetUserTransform(transform)
             self._renderer.AddActor(actor)
@@ -525,7 +601,7 @@ class VtkAssemblyView(QWidget):
             self._renderer.AddActor(edge_actor)
 
             self._actors[part.name] = {
-                "part": part, "actor": actor, "mapper": mapper,
+                "part": part, "actor": actor, "mapper": mapper, "colour": rgb,
                 "polydata": polydata, "clipper": clipper, "plane": plane,
                 "edges": edge_actor, "edge_mapper": edge_mapper,
                 "edge_polydata": edge_polydata,
@@ -578,7 +654,7 @@ class VtkAssemblyView(QWidget):
         """
         p = branding.palette(self._mode)
         for name, record in self._actors.items():
-            rgb = record["part"].colour
+            rgb = record["colour"]
             if name == self._selected:
                 rgb = tinted(rgb, p.accent, SELECTED_TINT)
             elif name in self._flagged:
@@ -806,7 +882,7 @@ class VtkAssemblyView(QWidget):
         was already using, so the two renderers agree about it now.
         """
         for record in self._actors.values():
-            colour = record["part"].colour
+            colour = record["colour"]
             record["edges"].GetProperty().SetColor(
                 *[c / 255.0 * EDGE_SHADE for c in colour])
 

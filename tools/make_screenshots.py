@@ -348,8 +348,18 @@ def main() -> int:
     # letterbox, and `fit` fits to its *shortest* side - so a gearbox cropped
     # out of it is a small object adrift in a field of background. A squarer
     # window gives a squarer viewport and the part fills it.
+    #
+    # Larger than the window shots, and with the edges drawn: these two are the
+    # model on its own, read the way a CAD package shows one - shaded, with
+    # its features outlined.  At the size the README shows them, a chamfer is
+    # the line round a rim or it is nothing.
+    #
+    # The checks list goes for these two: the window cannot be made taller
+    # than the screen, and the viewport is what has to have the height.
     viewport = window._view3d.view
-    window.resize(1080, 1020)
+    window._checks_panel.setVisible(False)
+    window.resize(1400, 1000)
+    window._view3d._edges.setChecked(True)
     settle(app, 900)
     window._view3d.view.fit()
     settle(app, 900)
