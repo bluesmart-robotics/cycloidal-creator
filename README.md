@@ -952,7 +952,10 @@ separate representations of the same gearbox honest:
 
 - **The 3D mesh against the exported solid.** Every part's mesh volume is
   computed by the divergence theorem and compared against what OCCT says the
-  STEP body encloses, to within faceting error. The same test checks that each
+  STEP body encloses, to within faceting error - a bearing against the room it
+  takes, since the quick mesh draws it as that and the STEP file as the
+  bearing, which a test of its own holds to the steel it is weighed as. The
+  same test checks that each
   part is a *closed* surface — the vector areas of its faces must cancel
   exactly, which catches a missing end cap, a wall built for the wrong number of
   edges, or a loop wound the wrong way round. It has already earned its keep: it
