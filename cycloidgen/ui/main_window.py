@@ -2500,8 +2500,10 @@ class MainWindow(QMainWindow):
             ("Mass and inertia", [
                 ("Assembled mass", f"{m.total_mass_g:.0f} g", ""),
                 ("Disc mass", f"{m.disc_mass_g:.1f} g", f"x{s.disc_count}"),
-                ("Reflected inertia", f"{m.reflected_inertia_kg_mm2:.4f} kg mm2",
-                 "seen at the input shaft"),
+                ("Inertia at the input", f"{m.input_inertia_kg_mm2:.3f} kg mm2",
+                 f"shaft {m.shaft_inertia_kg_mm2:.3f}, discs "
+                 f"{m.reflected_inertia_kg_mm2:.3f}, output "
+                 f"{m.output_inertia_kg_mm2 / s.ratio ** 2:.3f}"),
                 ("Residual unbalance", f"{m.unbalance_force_N:.1f} N",
                  f"couple {m.unbalance_couple_Nmm:.1f} Nmm at {s.input_rpm:g} rpm"),
                 ("Thinnest disc web", self._length(m.min_web_mm),

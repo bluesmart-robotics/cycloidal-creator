@@ -644,3 +644,42 @@ def test_every_made_part_weighs_what_its_solid_encloses(ring_output):
     for names, analytic in expected.items():
         enclosed = sum(parts[n].val().Volume() for n in names)
         assert analytic == pytest.approx(enclosed, rel=0.02), names
+
+
+@pytest.mark.parametrize("ring_output", [False, True])
+def test_the_inertia_is_the_inertia_of_the_exported_solids(ring_output):
+    """The shaft and the turning output member, against what OCCT integrates
+    over the solids the STEP file is made of.
+
+    The pins are given the housing's material for this, because the solid
+    carrier carries its pins as one body and one body has one density.  The
+    tie bolts are counted as their mass on their circle, which leaves out
+    their own spin - a part in a thousand of the housing they turn with.
+    """
+    import cadquery as cq
+
+    from cycloidgen.core.spec import OutputMember
+    from cycloidgen.export import solid
+
+    spec = preset(21)
+    spec.pin_material = spec.housing_material
+    if ring_output:
+        spec.output_member = OutputMember.RING
+    m = analyse(spec).mass
+    parts = {**solid.parts(spec), "tie_bolts": solid.tie_bolts(spec),
+             "tie_nuts": solid.tie_nuts(spec)}
+
+    def inertia(names, material):          # kg mm^2, about the drive's axis
+        return sum(cq.Shape.matrixOfInertia(parts[n].val())[2][2] for n in names) \
+            * material.density_g_cm3 * 1e-6
+
+    assert m.shaft_inertia_kg_mm2 == pytest.approx(inertia(
+        ["eccentric_shaft", "shaft_spacer_input", "shaft_spacer_output"],
+        spec.shaft_mat), rel=0.02)
+    turning = (["housing", "input_end_plate", "output_end_plate", "ring_pins",
+                "tie_bolts", "tie_nuts"] if ring_output else ["output_flange"])
+    assert m.output_inertia_kg_mm2 == pytest.approx(
+        inertia(turning, spec.housing_mat), rel=0.02)
+    assert m.input_inertia_kg_mm2 == pytest.approx(
+        m.shaft_inertia_kg_mm2 + m.reflected_inertia_kg_mm2
+        + m.output_inertia_kg_mm2 / spec.ratio ** 2)

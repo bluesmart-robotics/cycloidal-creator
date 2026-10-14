@@ -405,8 +405,8 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
 
     rep.add(Severity.INFO, "MASS",
             f"{mass.total_mass_g:.0f} g assembled, {mass.disc_mass_g:.0f} g per disc; "
-            f"reflected inertia at the input "
-            f"{mass.reflected_inertia_kg_mm2:.3f} kg mm2.",
+            f"inertia at the input {mass.input_inertia_kg_mm2:.3f} kg mm2, "
+            f"{mass.shaft_inertia_kg_mm2:.3f} of it the shaft.",
             mass.total_mass_g)
 
     # ---- what holds it together ---------------------------------------------

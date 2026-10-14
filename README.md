@@ -50,7 +50,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,317 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,321 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -484,8 +484,10 @@ Beyond the geometry checks, every design gets a datasheet:
 - **Mass, inertia, unbalance.** Off the real lobed section, not a cylinder,
   with the bought parts on the scale too: every bearing, estimated from its
   envelope, and the tie bolts and nuts, from their ISO dimensions — each held
-  to published masses in the tests.
-  Reflected inertia at the input, and the shaking force a single disc throws —
+  to published masses in the tests. The inertia the motor turns, in three
+  terms: the shaft and its cams, the discs, and the output member through the
+  square of the ratio — where a carrier is almost nothing and a turning
+  housing is most of the total. And the shaking force a single disc throws —
   the disc, the cam it rides and the bearing between them, all orbiting
   together — rising as the square of speed. Evenly phased discs cancel the
   force and leave a couple.
@@ -846,9 +848,10 @@ lumped body in still air with no conduction into whatever the gearbox is bolted
 to. Bearing catalogue values are nominal metric-series figures, and a bearing's
 mass is estimated from its envelope rather than read from a maker's table. Of
 the bolts only the tie bolts are weighed: the motor's and the output's have no
-length until the drive knows what they go into. The reflected inertia is what
-moves with the discs, and leaves out the input shaft the motor turns directly.
-PV limits are
+length until the drive knows what they go into. The inertia at the input
+leaves out the pin rollers' spin about their own pins and the rings of the
+shaft's bearings, a few grams each at a few millimetres, and the load, which
+the drive does not know. PV limits are
 dry-against-steel design-guide values. The lubrication model builds a
 Dowson-Hamrock film for a *line* contact and applies it to the two conforming
 ones as well, where the formula was not derived — their film is capped at the
@@ -900,7 +903,7 @@ cycloidgen/
 docs/           the API reference and the README's figures
 tools/          what draws the banner, the icon, the logo assets, the
                 installer's bitmaps and the screenshots
-tests/          1,317 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,321 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -916,14 +919,14 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,317 tests, about 700 s. Most of that is CadQuery writing solids; the pure
+1,321 tests, about 700 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own
 application.
 
-Two of them are worth calling out because they are the ones that keep separate
-representations of the same gearbox honest:
+Three of them are worth calling out because they are the ones that keep
+separate representations of the same gearbox honest:
 
 - **The 3D mesh against the exported solid.** Every part's mesh volume is
   computed by the divergence theorem and compared against what OCCT says the
@@ -932,6 +935,11 @@ representations of the same gearbox honest:
   exactly, which catches a missing end cap, a wall built for the wrong number of
   edges, or a loop wound the wrong way round. It has already earned its keep: it
   found the eccentric shaft double-counting the barrel inside its own cams.
+- **The mass model against the exported solid.** Each made part's mass, at its
+  density, against the volume of its STEP body, part by part; and the shaft's
+  and the turning output member's inertia against the second moment OCCT
+  integrates over the same bodies. Its first run found the carrier's boss
+  weighed flush with an end plate it stands 8 mm proud of.
 - **The manifest against the disk.** An export is compared against what the
   manifest promised — exactly those files and no others — including the table in
   this README.

@@ -27,7 +27,7 @@ import numpy as np
 
 from ..core import profile as prof
 from ..core.fasteners import nut_volume, screw_volume
-from ..core.spec import GearSpec
+from ..core.spec import GearSpec, OutputMember
 from .bearings import BearingChoice, SeatBores, bearing_schedule, pin_diameters, seat_bores
 
 __all__ = ["MassResult", "analyse_mass", "tie_bolt_mass_g"]
@@ -66,10 +66,22 @@ class MassResult:
     fasteners_mass_g: float
 
     disc_inertia_kg_mm2: float         # about its own centre
-    #: Everything that moves the way a disc moves - the discs and the cam
-    #: bearings pressed into them - seen at the input shaft.  Not the shaft
-    #: itself, which the motor turns directly rather than through anything.
+    #: The disc stage: everything that moves the way a disc moves - the discs
+    #: and the cam bearings pressed into them - seen at the input shaft.  One
+    #: of the three terms of :attr:`input_inertia_kg_mm2`.
     reflected_inertia_kg_mm2: float
+    #: The input shaft with its cams and the sleeves clamped to it, about its
+    #: own axis.  The motor turns it directly, so it reaches the input as is.
+    shaft_inertia_kg_mm2: float
+    #: The member that turns at the output, about the axis: the carrier with
+    #: its pins, or on a ring-output drive the housing with its end plates,
+    #: ring pins and tie bolts.  At the output - see the next field.
+    output_inertia_kg_mm2: float
+    #: All of it as the motor sees it: the shaft, the disc stage, and the
+    #: output member through the square of the ratio.  What a motor is sized
+    #: and a servo loop tuned against, less the load, which the drive does not
+    #: know.
+    input_inertia_kg_mm2: float
 
     #: Residual, at the rated input speed, of everything orbiting at E in each
     #: disc's plane: the disc, its cam bearing and the cam it runs on.
@@ -129,6 +141,34 @@ def _lip_volume(bores: SeatBores, host: str) -> float:
     """
     return sum(math.pi * ((s.seat / 2.0) ** 2 - (s.bore / 2.0) ** 2) * s.thickness
                for s in bores.shoulders if s.host == host)
+
+
+def _polar(r_out: float, r_in: float, length: float) -> float:
+    """The integral of r^2 dV of a tube about its own axis, mm^5.  ``r_in`` 0 is a rod."""
+    return math.pi * length * (r_out ** 4 - r_in ** 4) / 2.0
+
+
+def _polar_off_axis(radius: float, centre: float, length: float) -> float:
+    """The integral of r^2 dV of a rod whose own axis is ``centre`` off the drive's, mm^5."""
+    return math.pi * radius ** 2 * length * (centre ** 2 + radius ** 2 / 2.0)
+
+
+def _lip_polar(bores: SeatBores, host: str) -> float:
+    """The integral of r^2 dV of the shoulders in ``host``'s seats - see :func:`_lip_volume`."""
+    return sum(_polar(s.seat / 2.0, s.bore / 2.0, s.thickness)
+               for s in bores.shoulders if s.host == host)
+
+
+def _rollers_on_circle(bearings: Sequence[BearingChoice], role: str,
+                       circle: float) -> float:
+    """Inertia of the pin rollers in ``role``, riding on ``circle``, kg mm^2."""
+    choice = next((c for c in bearings if c.role == role and c.fitted and c.fits
+                   and c.bearing is not None and c.count), None)
+    if choice is None:
+        return 0.0
+    part = choice.bearing
+    kg = choice.count * part.mass_g / 1000.0
+    return kg * (circle ** 2 + (part.outer ** 2 + part.bore ** 2) / 8.0)
 
 
 def tie_bolt_mass_g(spec: GearSpec) -> float:
@@ -319,6 +359,67 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
                      + (disc_inertia + cam_bearing_inertia)
                      * spec.disc_speed_ratio ** 2)
 
+    # The shaft, off the same shapes it was weighed as: a rod, a cam per disc
+    # centred at E less the rod's section it already counted, and the sleeves
+    # that turn with it.  Its phases do not matter here; a radius is a radius.
+    rs = spec.input_shaft_diameter / 2.0
+    shaft_polar = (_polar(rs, 0.0, h + 2.0 * spec.shaft_overhang)
+                   + n * (_polar_off_axis(spec.cam_diameter / 2.0,
+                                          spec.eccentricity, t)
+                          - _polar(rs, 0.0, t)))
+    sleeves_polar = sum(_polar(s.outer / 2.0, s.bore / 2.0, s.length)
+                        for s in bores.spacers if not s.name.startswith("washer"))
+    shaft_inertia = (shaft_polar + sleeves_polar) * rho_shaft * 1e-6
+
+    # The member that turns at the output, off the same shapes again.  Which
+    # one that is is the whole difference between the two topologies, and it
+    # is not a small one: a carrier is a plate on the axis, a housing is most
+    # of the gearbox's mass at its largest radius.
+    if spec.output_member is OutputMember.CARRIER:
+        rb = bores.hub / 2.0
+        flange_polar = (_polar(plate_r, 0.0, spec.output_flange_thickness)
+                        + _polar(spec.hub_diameter / 2.0, rb,
+                                 spec.plate_thickness + spec.output_boss_protrusion)
+                        - _polar(rb, 0.0, spec.output_flange_thickness)
+                        + _lip_polar(bores, "output_flange"))
+        pins_polar = spec.output_pin_count * _polar_off_axis(
+            output_pin_d / 2.0, spec.output_bolt_circle_radius, spec.output_pin_length)
+        output_inertia = ((flange_polar * rho_house + pins_polar * rho_pin) * 1e-6
+                          + _rollers_on_circle(bearings, "Output pin roller",
+                                               spec.output_bolt_circle_radius))
+    else:
+        R, ro = spec.pin_circle_radius, spec.housing_outer_radius
+        rp = spec.pin_radius
+        # A pocket is the outer half of a pin's circle, cut into the barrel's
+        # bore: its area at R, plus its first moment outward, plus its own.
+        pocket = (0.5 * math.pi * rp ** 2 * R ** 2 + 4.0 * R * rp ** 3 / 3.0
+                  + math.pi * rp ** 4 / 4.0)
+        bolt_r = spec.housing_bolt_diameter / 2.0
+        bolts = spec.housing_bolt_count * math.pi * bolt_r ** 2 * (
+            spec.housing_bolt_radius ** 2 + bolt_r ** 2 / 2.0)
+        barrel_polar = (math.pi * (ro ** 4 - R ** 4) / 2.0
+                        + (1.0 if spec.ring_pins_integral else -1.0)
+                        * spec.pin_count * pocket - bolts) * spec.barrel_height
+        out_bolt_r = spec.output_bolt_diameter / 2.0
+        plates_polar = (
+            (_polar(ro, 0.0, 1.0) * 2.0
+             - _polar(bores.input_plate / 2.0, 0.0, 1.0)
+             - _polar(bores.output_plate / 2.0, 0.0, 1.0)
+             - 2.0 * bolts
+             - spec.output_bolt_count * math.pi * out_bolt_r ** 2
+             * (spec.output_face_bolt_radius ** 2 + out_bolt_r ** 2 / 2.0))
+            * spec.plate_thickness
+            + _lip_polar(bores, "input_end_plate")
+            + _lip_polar(bores, "output_end_plate"))
+        pins_polar = (0.0 if spec.ring_pins_integral else spec.pin_count
+                      * _polar_off_axis(ring_pin_d / 2.0, R, spec.ring_pin_length))
+        output_inertia = (((barrel_polar + plates_polar) * rho_house
+                           + pins_polar * rho_pin) * 1e-6
+                          # the tie bolts, as their mass on their circle
+                          + fasteners_mass / 1000.0 * spec.housing_bolt_radius ** 2
+                          + _rollers_on_circle(bearings, "Ring pin roller", R))
+    input_inertia = shaft_inertia + reflected + output_inertia / spec.ratio ** 2
+
     # ---- unbalance ----------------------------------------------------------
     # Everything in a disc's plane whose centre is at E: the disc, its cam
     # bearing, and the cam itself.  The cam is part of the shaft, but a circle
@@ -379,6 +480,9 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
         fasteners_mass_g=fasteners_mass,
         disc_inertia_kg_mm2=disc_inertia,
         reflected_inertia_kg_mm2=reflected,
+        shaft_inertia_kg_mm2=shaft_inertia,
+        output_inertia_kg_mm2=output_inertia,
+        input_inertia_kg_mm2=input_inertia,
         unbalance_force_N=force,
         unbalance_couple_Nmm=couple,
         orbiting_mass_g=orbiting_kg * 1000.0,
