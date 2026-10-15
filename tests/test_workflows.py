@@ -79,6 +79,29 @@ def test_nsis_is_never_compiled_from_bash(path):
                 f"the /FLAG options")
 
 
+def test_the_release_lint_can_fail_the_release():
+    """The gate that was never shut.
+
+    The Windows job installs ``.[dev]`` and nothing else, and ran ``python -m
+    ruff check .`` and ``python -m pytest -q`` in one pwsh step.  ruff was not
+    in the extra, so the lint printed "No module named ruff" - and pwsh goes on
+    past a failing command, so only pytest's exit code decided the step.  7.10.0
+    was released that way.  The lint needs a step of its own and a ruff that
+    the job's own install brings.
+    """
+    definition = _load(ROOT / ".github" / "workflows" / "release.yml")
+    lint = [step for step in definition["jobs"]["windows"]["steps"]
+            if "ruff" in step.get("run", "")]
+    assert len(lint) == 1, "the release job should lint exactly once"
+    assert lint[0]["run"].strip() == "python -m ruff check .", (
+        "the lint step should run ruff and nothing else, so that ruff's exit "
+        "code is the step's")
+    # Read as text: tomllib arrived in 3.11 and this project still supports 3.10.
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    dev = next(line for line in pyproject.splitlines() if line.startswith("dev = "))
+    assert '"ruff' in dev, "the release job installs .[dev] only, so ruff has to be in it"
+
+
 def _release_notes_script() -> str:
     definition = _load(ROOT / ".github" / "workflows" / "release.yml")
     steps = definition["jobs"]["windows"]["steps"]

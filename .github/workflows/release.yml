@@ -52,13 +52,16 @@ jobs:
           grep -q "^## $source_version\$" CHANGELOG.md \
             || { echo "::error::CHANGELOG.md has no section for $source_version"; exit 1; }
 
+      # A step of its own: pwsh does not stop at a failing command, so while
+      # ruff and pytest shared a step only pytest's exit code counted.
+      - name: Lint
+        run: python -m ruff check .
+
       - name: Test
         env:
           QT_QPA_PLATFORM: offscreen
           MPLBACKEND: Agg
-        run: |
-          python -m ruff check .
-          python -m pytest -q
+        run: python -m pytest -q
 
       - name: Build the bundle
         run: python -m PyInstaller cycloidgen.spec --noconfirm
