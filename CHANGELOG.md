@@ -5,6 +5,158 @@ package in `pyproject.toml`; anything that changes a computed number gets called
 out, because that is the only kind of change that can quietly invalidate a
 design somebody already built.
 
+## 8.0.0
+
+**Major, because an input changed what it means.** *Motor drives the shaft*
+(`motor_drives_the_shaft`, on by default) meant until now that the motor's own
+shaft *is* the input shaft, and the advice that went with it was to make the
+input shaft the motor's - 5 mm for a NEMA 17. That drive cannot be built: a
+NEMA 17's shaft is 24 mm long and the output support is 43 mm past it. It means
+now what can be: the input shaft is the drive's own, stops short of the motor
+and is bored from that end for the motor's shaft, a D on its D. So it has to be
+thicker than the motor's, and a design saved on the old advice now fails the
+new `MOTOR_SHAFT_TOO_BIG`, an error, and its export stops.
+
+On a 21:1, a NEMA 17 on a 5 mm shaft or a NEMA 34 on 14 mm passed in 7.10.0
+with no motor finding, and a NEMA 23 on 6 mm or a NEMA 34 on 10 mm with
+`MOTOR_SHAFT_MISMATCH`. All four fail now. What to do is in the message: make
+the input shaft at least the size it names (on a printed drive 7.3 mm for a
+NEMA 17, 8.65 for a NEMA 23, 16.3 for a NEMA 34; the presets' 10 mm takes a
+NEMA 17 or 23 with no motor finding at all), or turn *motor drives the shaft*
+off and the motor goes on through a coupling, which joins two different shafts
+and is no error. A saved design still loads as it was: no field was added,
+renamed or removed.
+
+**Numbers** — they move, on every design. Seventeen designs were analysed by
+7.10.0 and by 8.0.0 and the whole of `report.json` compared: the six presets, a
+ground steel 21:1, a ring-output 21:1, a single-disc 21:1, and eight 21:1s with
+a motor on them - a NEMA 17 driven directly and through a coupling on both
+output members, a NEMA 23 through a coupling, a NEMA 17 on 5 and on 6 mm
+shafts and a NEMA 34 on 10 mm. Eleven more motor designs were compared for
+their verdicts.
+
+- **Every bought part is on the scale.** A bearing weighed nothing, and so
+  did a bolt. Bearings are weighed at 0.65 of their steel envelope - published
+  masses of six catalogue parts put the share between 0.59 and 0.69 - and the
+  tie bolts and their nuts off ISO 4762 and ISO 4032, within 5% and 11% of
+  the published tables. The carrier's boss is weighed as long as it is drawn,
+  3.4 cm3 the mass model had left out. Assembled mass is up 7.1% to 13.3% on
+  the presets (791.8 to 880.7 g on the 21:1: 50.6 g of bearings, 34.1 g of
+  bolts and nuts, 4.2 g of boss), 11.5% on the ring-output drive, 13.3% on a
+  single disc and 4.6% in steel (2050.5 to 2144.5 g). Power density is down
+  6.6% to 11.7% on the presets and 4.4% in steel. The bill of materials now
+  adds up, line by line, to the assembled mass. The design search ranks on
+  mass, so the order of a shortlist can change.
+- **What orbits on the crank** is the disc, its cam bearing and its cam, not
+  the disc alone. The unbalance couple is up 22% to 36% on the presets, 33% on
+  the ring-output drive and 5.2% in steel; on a single disc the unbalance force
+  is up 33%, 1.12 to 1.49 N at 1000 rpm. Evenly phased drives still cancel it.
+  `reflected_inertia_kg_mm2`, the disc stage, gains the cam bearing: up 4.2% to
+  5.6% on the presets that have one (no catalogue bearing fits the 10:1's or
+  the 39:1's cam, and they do not move), 11% on the ring-output drive, 0.75% in
+  steel.
+- **The inertia at the input is everything the motor turns.** The datasheet,
+  the PDF and the MASS reading quoted the disc stage, and quote the total now,
+  with its three terms beside it: the disc stage, the input shaft with its cams
+  and sleeves, and the member that turns at the output through the square of
+  the ratio. 2.35 against 1.10 kg mm2 on the 10:1, 2.63 against 0.78 on the
+  21:1, 4.83 against 0.31 on the 59:1, 5.95 against 0.32 on the ring-output
+  21:1, 6.69 against 4.76 in steel. Nothing is checked against inertia.
+- **With a motor on it**, the drive is now one that can be put together (see
+  Added), and it weighs what that takes. On the 21:1 with a NEMA 17: driven
+  directly 791.6 to 872.4 g, input inertia 2.52 kg mm2; through a coupling
+  945.7 g and 5.76 kg mm2. A NEMA 23 through a coupling, 966.9 g. On the ring
+  output a NEMA 17 driven directly is 1038.1 to 1163.1 g, and through a
+  coupling 1236.4 g and 9.25 kg mm2.
+- **Verdicts.** `MOTOR_SHAFT_TOO_BIG` as above. A 10 mm input shaft driven
+  directly by a NEMA 17 or 23 no longer warns `MOTOR_SHAFT_MISMATCH`: it is
+  bored for the motor's shaft rather than standing in for it. A NEMA 17 on
+  6 mm still does, with a 0.35 mm wall against the millimetre it asks for. A
+  NEMA 34 driven directly gains `MOTOR_SCREW_SEAT`. Through a coupling, a
+  NEMA 14 or 11 on a 10 mm shaft gains `COUPLING_DOES_NOT_FIT`, and a NEMA 8
+  that and `MOTOR_SHAFT_SHORT`. Those are warnings, so nothing else that
+  exported stops exporting.
+- **Nothing else moves.** Contact, torque capacity, stiffness, transmission
+  error, efficiency, lubrication, temperature, fatigue, the bearing selection,
+  the motor and the duty cycle are identical on all seventeen designs, and no
+  file joins or leaves the bundle.
+
+`report.json` gains `mass.bearings_mass_g`, `mass.fasteners_mass_g`,
+`mass.orbiting_mass_g`, `mass.shaft_inertia_kg_mm2`,
+`mass.output_inertia_kg_mm2` (at the output), `mass.input_inertia_kg_mm2` (the
+total, at the input), `mass.coupling_mass_g` and `mass.mount_mass_g`.
+
+**Added**
+
+- **A motor you can bolt on.** A frame was a face: a bolt pattern, a register,
+  a shaft diameter. Each now has a body, a shaft length, the depth of its
+  D-cut, and how its face is fixed - NEMA 8 to 17 threaded, NEMA 23 and 34
+  through a flange. The motor is drawn in the 3D view in a group of its own,
+  and is on the bill of materials at no mass.
+  - *Driven directly,* the input shaft stops half a millimetre short of the
+    motor's spigot and is bored from that end for the motor's shaft, at the
+    process's hole clearance; torque goes through the flat. The motor's screws
+    are ISO 4762 at the longest preferred length that does not bottom out: on
+    a threaded face in from the drive's side with their heads in counterbores,
+    on a flange in from the motor's side into ISO 4032 nuts in hexagonal
+    pockets. On a ring drive the shaft reaches down through the carrier's base
+    to meet the motor under it.
+  - *Through a coupling,* the smallest of five common beam couplings (D16 x L23
+    to D40 x L50) that takes both shafts, with a set screw over each shaft's
+    flat, or a plain sleeve, reported, where none does. The motor stands on a
+    mount that is part of the plate it rises from: a tube round the coupling
+    with a window either side for a key to its screws, and on its end a flange
+    with the motor's pattern and spigot. On a carrier drive the bill has an
+    input plate with the mount and an output plate, each at its own mass.
+- **Four checks, 69 in all.** `MOTOR_SHAFT_TOO_BIG` (error), as above.
+  `MOTOR_SHAFT_SHORT`: whether 1.5 diameters of the motor's shaft get into the
+  input shaft, or into the coupling's half. `MOTOR_SCREW_SEAT`: whether the
+  motor's screws get 0.8 of a diameter of thread, with 1.5 mm of plate under
+  their recesses. `COUPLING_DOES_NOT_FIT`: no catalogue coupling takes both
+  shafts, or the tube round it is where the motor's screws have to go.
+  `MOTOR_SHAFT_MISMATCH` now asks whether the bore leaves a millimetre of wall.
+- **The 3D view shows the solids the STEP file is made of** - the edge breaks,
+  the lead-ins, the shaft's flat, round circles. It opens on the quick mesh
+  and, once a design has stood still for 600 ms, tessellates the assembly in
+  the background and swaps it in; a design come back to with undo shows its
+  solids at once. A build without the CAD kernel, or `CYCLOIDGEN_CAD_VIEW=0`,
+  keeps the quick mesh.
+- **Steel looks like steel.** The hardware view shades by material: a metal in
+  its own colour and finish, a printed part in its diagram colour with its
+  material's surface, lit by a studio built in code. A VTK without PBR, or
+  `CYCLOIDGEN_VTK_PBR=0`, keeps the old shading.
+- **A bearing is drawn as a bearing, a bolt as a bolt,** in the STEP file: ball
+  bearings with raceways and balls, drawn cups with their needles, tie bolts as
+  ISO 4762 screws with a socket and a thread, nuts chamfered on both faces.
+  Inside corners where a bearing ring sits are radiused 0.2 mm.
+- **A banner** at the top of the README: the 15:1's disc rolling round its
+  pins, drawn by `tools/make_banner.py` from the spline the STEP export fits.
+
+**Fixed**
+
+- **A pip install on Python 3.10 or 3.11 died within seconds of opening the 3D
+  view.** PySide6 6.12.0 hands back `None` from every call that returns nothing
+  without taking a reference to it, and before 3.12 `None`'s count runs out.
+  `PySide6<6.12` on those two interpreters; `tests/test_qt_references.py`
+  measures the leak and is the check to lift the ceiling on. The installer,
+  the AppImage and the disk image run 3.12 and never met it.
+- **A design that gained a bearing got lighter.** In the trade study the mass
+  curve fell 228 g at 6 mm of pin radius, where a needle roller first fits over
+  the pin and the solid pin becomes a thinner dowel inside it. The step there
+  is 63 g now, and real: a sleeve of rollers is lighter than the steel it
+  stands in for.
+- **The traced point is on the disc.** The drawing traced a point at the
+  profile's outer radius on the disc's own axis, which is a root, 3.2 mm clear
+  of the material; it is a lobe crest now.
+- **A tie bolt longer than the fastener table** failed the bill of materials
+  on its missing length. It is listed by its hole and weighs nothing, as a
+  hole the table has no size for already was.
+- **The quick mesh drew the floor of the motor's register facing down** in the
+  input plate, so it shaded dark.
+- **The release ran unlinted.** `ruff` was not in `[dev]`, and the Windows
+  release job ran the lint and the tests in one step whose exit code was the
+  tests'. `ruff` is in `[dev]` and the lint is a step of its own.
+
 ## 7.10.0
 
 **Numbers** — they move, on every design, and here is by how much. Nine designs
