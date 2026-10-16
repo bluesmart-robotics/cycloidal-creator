@@ -28,6 +28,7 @@ from ..analysis.bearings import (
     bearing_schedule,
     pin_shank_diameter,
     placements_for_spec,
+    plate_edge_break,
     seat_bores,
 )
 from ..core import profile as prof
@@ -819,7 +820,7 @@ def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
     return _round_inside(_break_edges(
         plate, [spec.housing_outer_radius, max(bore, 1e-3) / 2.0,
                 *_lips(shoulders, host)],
-        spec.edge_break))
+        plate_edge_break(spec, shoulders, host)))
 
 
 #: A deep-groove ball's diameter as a share of the bearing's radial section,

@@ -32,7 +32,12 @@ from itertools import pairwise
 from pathlib import Path
 
 from .. import notice
-from ..analysis.bearings import bearing_placements, bearing_schedule, seat_bores
+from ..analysis.bearings import (
+    bearing_placements,
+    bearing_schedule,
+    plate_edge_break,
+    seat_bores,
+)
 from ..core.fasteners import size_for_hole
 from ..core.fits import SeatFit, hole_limits, housing_fit
 from ..core.spec import GearSpec, OutputMember, Process
@@ -308,7 +313,8 @@ def plate_features(spec: GearSpec, name: str) -> PlateFeatures:
         name=name, title=_TITLES[name],
         outside_diameter=2.0 * spec.housing_outer_radius, thickness=t,
         seat=seat, through=through, lip=lip_z, register=register,
-        patterns=tuple(patterns), mount=mount, edge_break=spec.edge_break,
+        patterns=tuple(patterns), mount=mount,
+        edge_break=plate_edge_break(spec, bores.shoulders, name),
         printed=printed)
 
 

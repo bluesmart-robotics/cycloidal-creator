@@ -12,11 +12,11 @@ from dataclasses import dataclass
 from ..core.spec import AUTOMATIC, CARRIER_DROP, DRY, MATERIALS, GearSpec, OutputMember
 from .lubrication import ContactFilm, LubricationResult
 
-__all__ = ["BEARING_FILL", "CATALOGUE", "MIN_SHOULDER", "Bearing", "BearingChoice", "BearingPlacement",
-           "BearingRing", "MissingShoulder", "SeatBores", "Shoulder", "Spacer",
-           "bearing_placements", "bearing_schedule", "life_hours",
-           "pin_shank_diameter", "placements_for_spec", "seat_bores",
-           "select_bearings"]
+__all__ = ["BEARING_FILL", "CATALOGUE", "LIP_LAND", "MIN_SHOULDER", "Bearing", "BearingChoice",
+           "BearingPlacement", "BearingRing", "MissingShoulder", "SeatBores", "Shoulder",
+           "Spacer", "bearing_placements", "bearing_schedule", "life_hours",
+           "pin_shank_diameter", "placements_for_spec", "plate_edge_break",
+           "seat_bores", "select_bearings"]
 
 
 @dataclass(frozen=True)
@@ -734,6 +734,26 @@ class Shoulder:
     @property
     def thickness(self) -> float:
         return self.z1 - self.z0
+
+
+#: What an end plate's edge breaks leave of a lip's bore between its two faces,
+#: millimetres: what the thinnest lip, :data:`MIN_SHOULDER`, kept under the
+#: breaks the default design has always had.
+LIP_LAND = 0.25
+
+
+def plate_edge_break(spec: GearSpec, shoulders: Sequence[Shoulder], host: str) -> float:
+    """The 45 degree break on end plate ``host``: the design's, held so that the
+    two on a lip's mouths leave :data:`LIP_LAND` of its bore standing.
+
+    The bore of a lip is broken on both faces, and two breaks that meet are not
+    a lip with its edges broken but a knife edge - which the CAD kernel will not
+    cut, so the plate, and every solid exported with it, failed.  A minimum lip
+    under the full half-millimetre break was enough: any design whose tie bolts
+    left a millimetre of rim land, which an M3 bolt in the default wall does.
+    """
+    lips = [s.thickness for s in shoulders if s.host == host]
+    return max(0.0, min([spec.edge_break, *((t - LIP_LAND) / 2.0 for t in lips)]))
 
 
 @dataclass(frozen=True)

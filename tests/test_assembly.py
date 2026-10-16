@@ -706,6 +706,40 @@ def test_the_inertia_is_the_inertia_of_the_exported_solids(ring_output, coupled)
         + m.output_inertia_kg_mm2 / spec.ratio ** 2)
 
 
+@pytest.mark.parametrize("bolt", [4.5, 3.4])
+def test_a_plate_s_edge_breaks_leave_its_lip_standing(bolt):
+    """A lip's bore is broken on both faces, and two breaks that meet are a
+    knife edge the CAD kernel will not cut.  An M3 tie bolt leaves a millimetre
+    of rim land in the default wall, which let the break grow to half a
+    millimetre on a one-millimetre lip, and the plate - with every solid
+    exported alongside it - failed.  Read off the solid: what is left standing
+    of each lip's bore.  At the default bolt the break is what it always was."""
+    from cycloidgen.analysis.bearings import (
+        LIP_LAND,
+        bearing_schedule,
+        plate_edge_break,
+        seat_bores,
+    )
+    from cycloidgen.export import solid
+
+    spec = preset(21)
+    spec.housing_bolt_diameter = bolt
+    bores = seat_bores(spec, bearing_schedule(spec))
+    parts = solid.parts(spec)
+    for name in ("input_end_plate", "output_end_plate"):
+        body = parts[name].val()
+        assert body.isValid(), name
+        lips = [s for s in bores.shoulders if s.host == name]
+        assert lips, name
+        for lip in lips:
+            standing = [f.BoundingBox().zlen for f in body.Faces()
+                        if f.geomType() == "CYLINDER"
+                        and abs(f.BoundingBox().xlen - lip.bore) < 1e-6]
+            assert standing and max(standing) >= LIP_LAND - 1e-6, name
+        if bolt == 4.5:
+            assert plate_edge_break(spec, bores.shoulders, name) == spec.edge_break
+
+
 def test_a_bearing_s_corner_is_radiused_and_a_washer_s_is_not():
     """Inside corners where a bearing ring sits get the radius a cutter leaves -
     smaller than any ring's own chamfer, so the ring still sits flat.  The
