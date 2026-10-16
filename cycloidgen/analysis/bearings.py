@@ -881,9 +881,12 @@ def _register_depth(spec: GearSpec, face: str, bore: float) -> float:
 
     The input plate's outside on a carrier drive, the carrier's base on a ring
     drive, and only where the spigot is wider than the bore already through
-    there - the same three conditions the parts are cut by.
+    there - the same conditions the parts are cut by.  Not through a coupling:
+    the motor's spigot then locates in the mount's flange, and the plate under
+    it has no register to take a lip's room.
     """
-    if not spec.has_motor_face or spec.motor_face.pilot_diameter <= bore:
+    if (not spec.has_motor_face or spec.coupled
+            or spec.motor_face.pilot_diameter <= bore):
         return 0.0
     frame = spec.motor_face
     if face == "input_plate" and not spec.ground_frame_fitted:

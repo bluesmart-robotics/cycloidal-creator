@@ -17,10 +17,11 @@ from cycloidgen.analysis.bearings import (
     BY_NAME,
     CATALOGUE,
     placements_for_spec,
+    seat_bores,
     select_bearings,
 )
 from cycloidgen.analysis.mechanics import analyse_contacts
-from cycloidgen.core.spec import CARRIER_DROP, Process, preset
+from cycloidgen.core.spec import CARRIER_DROP, OutputMember, Process, preset
 
 
 def _spec(rollers: bool = True):
@@ -972,6 +973,28 @@ def test_a_seat_without_room_for_a_shoulder_says_so():
     motor.motor_frame = "NEMA 17"
     (found,) = raised(motor)
     assert "spigot lands on it" in found.message and found.value < 0.0
+
+
+@pytest.mark.parametrize("member", [OutputMember.CARRIER, OutputMember.RING])
+def test_through_a_coupling_no_register_takes_a_lip(member):
+    """The spigot locates in the mount's flange then, and the plate or base the
+    mount stands on is cut for no register - so the lip the register would have
+    eaten is still there, and no seat is reported as having nothing behind it."""
+    spec = preset(21)
+    spec.output_member = member
+    spec.motor_frame = "NEMA 17"
+    spec.motor_drives_the_shaft = False
+    bores = seat_bores(spec)
+    host = "input_end_plate" if member is OutputMember.CARRIER else "output_flange"
+    assert not bores.unshouldered
+    lip = next(s for s in bores.shoulders if s.bearing == (
+        "bearing_shaft_input" if member is OutputMember.CARRIER
+        else "bearing_shaft_output"))
+    assert lip.host == host
+    plain = preset(21)
+    plain.output_member = member
+    reference = next(s for s in seat_bores(plain).shoulders if s.bearing == lip.bearing)
+    assert lip.thickness == pytest.approx(reference.thickness)
 
 
 # --------------------------------------------------------------------- weighed
