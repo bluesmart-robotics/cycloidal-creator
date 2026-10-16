@@ -50,7 +50,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,401 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,457 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -225,6 +225,7 @@ which writes everything or everything but the solids.
 | `disc.svg` | drawings | Same drawing, 1 unit = 1 mm |
 | `dxf/` | drawings | One cutting file per part — each disc on its own, the ring plate, a carrier drilling template drilled for the *press fit* rather than for the disc's running hole, and the two end plates with their tie-bolt circle and motor pattern |
 | `sketch/` | drawings | The same disc outline as **one closed cubic spline** instead of the cutting file's ~1,800 vertices — a curve a CAD package can offset, dimension and build features against. Fitted to the design's own chord tolerance and stamped with the deviation it reached, with the centre marks and bolt circle the disc never had. Not a cutting file: two outlines in one file is a part cut twice |
+| `sheets/` | drawings | **Dimensioned drawings**, an A3 PDF per part for the shop that makes it: a view from outside and a section, every size, which face a seat is bored from and how deep, and the tolerances that matter — each bearing seat's ISO 286 fit, chosen from whether its load turns round the outer ring, and each hole pattern's position tolerance, from the hole and the screw through it. Datums, a title block, ISO first angle. The two end plates so far |
 | `assembly.step` | solids | Full gearbox: housing and its two end plates, ring pins, phased discs, eccentric shaft, output flange with its bearing boss, every bearing that fits, coloured. Bought parts drawn as the parts: a ball bearing as two rings with raceways and a pitch circle of balls, a drawn cup as its cup and needles, the tie bolts threaded with a broken head and a drilled socket, the nuts chamfered. Inside corners where a bearing ring sits are radiused under the ring's own chamfer |
 | `step/` | solids | Each part as its own solid, in its own frame, carrying its own name and colour inside the file — so a part imported into your own assembly arrives as `housing` rather than as whatever the kernel calls it. A disc's flank is the same spline as `sketch/`, not facets: one face per flank, with a vertex on every lobe root and crest to dimension from |
 | `stl/` | solids | Each part separately — STL has no assembly structure. A multi-disc stack gets `disc_1.stl`, `disc_2.stl`, … because **the discs are not the same part** (see below). A printed part — PLA, PETG, ABS, PA12 or resin — comes ready to print: laid on whichever face leaves the least to support, standing on the bed, and on FDM with its bed edge broken back 0.3 mm so the squashed first layer does not stand proud of the profile |
@@ -257,6 +258,37 @@ which quantities may have moved, and that the inputs still mean what they
 meant — instead of quietly reporting a different mass than the one you wrote
 down. [RELEASING.md](https://github.com/medinstech/cycloidgen/blob/main/RELEASING.md) says which version digits are allowed to
 move a number and which one is defined as the digit that cannot.
+
+**What the drawing sheets add, and where it comes from.** A cutting file is an
+outline and its holes; it cannot say that a seat is bored from the inside face
+to a depth, or what the bore a bearing is pressed into is held to. The sheets
+in `sheets/` do, and every tolerance on them is derived rather than picked:
+
+- *A bearing seat's fit follows from whether its load turns round the outer
+  ring.* A ring whose load turns rolls round its bore and creeps unless
+  interference holds it; one whose load stands still may slide. In a cycloidal
+  drive every internal load points where the crank points, so every seat in the
+  housing sees its load turn - the shaft supports included, which in most
+  machines are the textbook stationary case. They get N7, or M7 where the load
+  is light (at or under 0.05 C, the lower of the makers' thresholds). The limits
+  are worked out from ISO 286-1's rules - a grade's width and the deviation
+  that places it - and a test holds them to ISO 286-2's printed tables.
+- *A hole pattern's position tolerance is the clearance its screw has.* Holes
+  of `H` in two parts take a screw of `F` however far apart their axes are, up
+  to `H - F`; so each hole may sit anywhere in a zone that wide, at maximum
+  material, where the screw floats through every part, and half that where its
+  far end is held in a thread. The test checks it by sampling the screw through
+  two holes offset by the zone, and a hundredth more.
+- *The section is the solid's section.* It is drawn from the same numbers the
+  sheet dimensions, and a test asks the OCCT solid, point by point either side
+  of every line, whether there is metal where the drawing says there is; a line
+  drawn a quarter of a millimetre off shows up.
+
+What they do not do yet: only the two end plates have a sheet. The fits are the
+makers' tables for a steel or cast-iron housing, and an aluminium plate grows
+away from its bearing as it warms - the sheet says which table it used and does
+not adjust for it. A printed part gets no fit at all, because a printer holds
+none; its sheet says so and states the clearance the design assumed instead.
 
 **Why the animation loops without a jump.** A GIF restarts whether or not the
 mechanism is back where it started, and one that is not reads as a fault in the
@@ -931,7 +963,8 @@ cycloidgen/
 ├── core/       spec (the one source of truth), profile, kinematics, validate,
 │               motor (the face it bolts to and the torque it makes),
 │               duty (what the drive is asked to do, over time), fasteners
-│               (the ISO bolts and nuts it is held together with), designfile
+│               (the ISO bolts and nuts it is held together with), fits (ISO
+│               286 limits, and the fit a bearing seat takes), designfile
 │               (a saved design, and which build saved it), explain (what each
 │               check tests, why, and what to change), guide (what each
 │               parameter is and how to choose it)
@@ -951,8 +984,10 @@ cycloidgen/
 │               clashes (which parts a check is about), tessellate
 ├── export/     manifest (what a bundle contains), dxf, svg, solid (OCCT),
 │               threemf (the coloured assembly), printing (the face a part
-│               prints on, and its bed edge), bom, animation (the looping GIF)
-├── report/     plots (shared by UI and PDF), build
+│               prints on, and its bed edge), sheets (the dimensioned drawings),
+│               bom, animation (the looping GIF)
+├── report/     plots (shared by UI and PDF), build, drafting (views,
+│               dimensions and a title block on an A3 sheet)
 └── ui/         PySide6 window, 3D viewer, outputs tab, declarative field table,
                 folding parameter groups, optimiser and duty-cycle dialogs,
                 trade-study tab, undo/redo history, log panel, branding
@@ -961,7 +996,7 @@ cycloidgen/
 docs/           the API reference and the README's figures
 tools/          what draws the banner, the icon, the logo assets, the
                 installer's bitmaps and the screenshots
-tests/          1,401 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,457 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -977,7 +1012,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,401 tests, about 700 s. Most of that is CadQuery writing solids; the pure
+1,457 tests, about 700 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

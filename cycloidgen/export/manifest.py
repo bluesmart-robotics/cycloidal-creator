@@ -30,6 +30,7 @@ __all__ = [
     "part_names",
     "planned_files",
     "resolve_groups",
+    "sheet_names",
     "spacer_names",
 ]
 
@@ -59,6 +60,15 @@ GROUPS: tuple[Group, ...] = (
           "The drive turning, as a looping GIF for a document or an issue. "
           "Rendered a frame at a time, so it costs a few seconds."),
 )
+
+
+def sheet_names(spec: GearSpec) -> list[str]:
+    """The parts that get a dimensioned drawing, by file stem.
+
+    The end plates: the made parts whose whole job is holes - two bearing
+    seats and the patterns the drive is bolted together and onto a motor by.
+    """
+    return ["input_end_plate", "output_end_plate"]
 
 
 def disc_names(spec: GearSpec) -> list[str]:
@@ -181,6 +191,14 @@ MANIFEST: tuple[Output, ...] = (
            "the disc never had. Not for cutting: two outlines in one file is a "
            "part cut twice, which is why this is a folder of its own.",
            contents=lambda s: [f"{n}.dxf" for n in disc_names(s)]),
+    Output("sheets", "sheets/", "drawings", "PDF",
+           "Dimensioned drawings, one per part",
+           "An A3 sheet for the shop that makes the part: a view and a section, "
+           "every size it is made to, which face a seat is bored from and how "
+           "deep, the fit each bearing seat is held to and the position each "
+           "hole pattern is held to - worked out from what goes in them, not "
+           "picked. The two end plates so far.",
+           contents=lambda s: [f"{n}.pdf" for n in sheet_names(s)]),
     Output("assembly_step", "assembly.step", "solids", "STEP",
            "Assembled gearbox",
            "Housing, ring pins, phased discs, eccentric shaft and output "

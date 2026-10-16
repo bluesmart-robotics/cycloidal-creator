@@ -1352,6 +1352,22 @@ class GearSpec(BaseModel):
         return self.housing_outer_radius - self.housing_wall / 2.0
 
     @property
+    def rim_land(self) -> float:
+        """Metal between the tie-bolt holes and the outside of the housing,
+        which is what an edge break on the rim has to stay within."""
+        if not self.housing_bolt_count:
+            return self.housing_wall
+        return (self.housing_outer_radius - self.housing_bolt_radius
+                - self.housing_bolt_diameter / 2.0)
+
+    @property
+    def edge_break(self) -> float:
+        """The 45 degree break the end plates actually get: the design's, held
+        to a quarter of the plate and half the rim land so it cannot run into
+        the tie-bolt holes or through a thin plate."""
+        return min(self.edge_chamfer, self.plate_thickness / 4.0, self.rim_land / 2.0)
+
+    @property
     def tie_bolt_bottom(self) -> float:
         """Where a tie bolt starts: the outer face of the output end plate."""
         return self.barrel_bottom - self.plate_thickness

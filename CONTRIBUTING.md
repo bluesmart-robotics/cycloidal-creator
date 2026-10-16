@@ -90,15 +90,18 @@ the version policy, which is built around the same question.
 ```
 cycloidgen/
 ├── core/       spec (the one source of truth), profile, kinematics, validate,
-│               explain (what each check tests, why, and what to change)
+│               explain (what each check tests, why, and what to change), fits
+│               (ISO 286 limits, and the fit a bearing seat takes)
 ├── analysis/   mechanics (Hertz), stiffness (contacts, backlash, transmission
 │               error), compliance (the parts around the mesh, as springs),
 │               tolerance (where the pins actually are), thermal, mass,
 │               efficiency, bearings
 ├── design/     optimise (requirements -> geometry), sweep (trade studies)
 ├── viz/        mesh and scene: 3D geometry and rendering maths, no Qt
-├── export/     manifest (what a bundle contains), dxf, svg, solid, bom, animation
-├── report/     plots (shared by the app and the PDF), build
+├── export/     manifest (what a bundle contains), dxf, svg, solid, sheets
+│               (dimensioned drawings), bom, animation
+├── report/     plots (shared by the app and the PDF), build, drafting (a sheet's
+│               views, dimensions and title block)
 └── ui/         PySide6 window, 3D viewer, outputs tab, trade study, log panel
 ```
 

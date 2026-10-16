@@ -217,10 +217,7 @@ def _lips(shoulders: Sequence[Shoulder], host: str) -> list[float]:
 
 def _rim_land(spec: GearSpec) -> float:
     """Metal between the tie-bolt holes and the outside of the housing."""
-    if not spec.housing_bolt_count:
-        return spec.housing_wall
-    return (spec.housing_outer_radius - spec.housing_bolt_radius
-            - spec.housing_bolt_diameter / 2.0)
+    return spec.rim_land
 
 
 def _profile_edges(spec: GearSpec) -> list[cq.Edge]:
@@ -790,7 +787,7 @@ def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
     return _round_inside(_break_edges(
         plate, [spec.housing_outer_radius, max(bore, 1e-3) / 2.0,
                 *_lips(shoulders, host)],
-        min(spec.edge_chamfer, spec.plate_thickness / 4.0, _rim_land(spec) / 2.0)))
+        spec.edge_break))
 
 
 #: A deep-groove ball's diameter as a share of the bearing's radial section,

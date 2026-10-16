@@ -3,9 +3,10 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 cycloidgen sizes a cycloidal drive, checks it (Hertz contact, stiffness, bearings, fatigue, thermal)
-and exports DXF, SVG, STEP, STL, 3MF, a BOM, JSON and a PDF report, from a PySide6 window or the
-CLI. The README holds the equations, the checks and the model's limits: read it, do not re-derive.
-CONTRIBUTING.md (layout, style) and RELEASING.md (version policy, release steps) are current.
+and exports DXF, SVG, STEP, STL, 3MF, dimensioned drawing sheets, a BOM, JSON and a PDF report,
+from a PySide6 window or the CLI. The README holds the equations, the checks and the model's
+limits: read it, do not re-derive. CONTRIBUTING.md (layout, style) and RELEASING.md (version
+policy, release steps) are current.
 
 ## Commands
 
