@@ -55,12 +55,8 @@ from ..report.drafting import (
 )
 from .manifest import sheet_names
 
-__all__ = ["PRINTED", "Pattern", "PlateFeatures", "Seat", "plate_features",
-           "plate_sheet", "write_sheets"]
-
-#: Processes whose parts come off a printer, for which an ISO fit or a general
-#: tolerance class is a claim nobody can make.
-PRINTED = frozenset({Process.FDM, Process.SLA, Process.SLS})
+__all__ = ["Pattern", "PlateFeatures", "Seat", "plate_features", "plate_sheet",
+           "write_sheets"]
 
 #: ISO 2768 general tolerance class each machining process works to.
 _GENERAL = {Process.CNC: "ISO 2768-mK", Process.EDM: "ISO 2768-fH"}
@@ -110,6 +106,10 @@ class Pattern:
     recess: tuple[str, float, float] | None = None
     #: Degrees from the tie-bolt pattern, for a pattern turned against it.
     phase: float = 0.0
+    #: For a pattern that is not equally spaced: each hole's angle, degrees.
+    angles: tuple[float, ...] = ()
+    #: The fit the holes are reamed to, for a pattern that locates.
+    fit: str = ""
 
 
 @dataclass(frozen=True)
@@ -198,7 +198,7 @@ def plate_features(spec: GearSpec, name: str) -> PlateFeatures:
     choices = bearing_schedule(spec)
     bores = seat_bores(spec, choices)
     placements = bearing_placements(spec, choices)
-    printed = spec.process in PRINTED
+    printed = spec.printed
     t = spec.plate_thickness
     inside = spec.barrel_top if name == "input_end_plate" else spec.barrel_bottom
     toward_outside = 1.0 if name == "input_end_plate" else -1.0
@@ -269,6 +269,16 @@ def plate_features(spec: GearSpec, name: str) -> PlateFeatures:
             fixed=True, datums=("A", "B"), phase=math.degrees(phase)))
     if direct_motor:
         patterns.append(_motor_pattern(spec, register is not None, recessed=True))
+    if spec.plate_dowel_centres:
+        patterns.append(Pattern(
+            label="plate dowels", centres=tuple(spec.plate_dowel_centres),
+            hole=spec.plate_dowel_hole, circle=2.0 * spec.housing_bolt_radius,
+            square=None,
+            screw=(f"Ø{spec.plate_dowel_diameter:g} m6 x "
+                   f"{spec.plate_dowel_length:g} dowel"),
+            position=None, fixed=False, datums=(),
+            angles=tuple(math.degrees(a) for a in spec.plate_dowel_angles),
+            fit="" if printed else "H7"))
 
     # ---- the motor's mount, through a coupling ------------------------------
     mount = None
@@ -504,9 +514,15 @@ def _front(f: PlateFeatures, mirror: float) -> list:
 
 def _pattern_lines(p: Pattern, f: PlateFeatures) -> tuple[str, ...]:
     n = len(p.centres)
-    where = (f"ON Ø{_fmt(p.circle)} EQ SP" if p.circle is not None
-             else f"ON {_fmt(p.square)} x {_fmt(p.square)} SQUARE")
-    lines = [f"{n}x Ø{_fmt(p.hole)} THRU {where}"]
+    if p.angles:
+        where = (f"ON Ø{_fmt(p.circle)} AT "
+                 + " AND ".join(f"{a:g}°" for a in p.angles))
+    elif p.circle is not None:
+        where = f"ON Ø{_fmt(p.circle)} EQ SP"
+    else:
+        where = f"ON {_fmt(p.square)} x {_fmt(p.square)} SQUARE"
+    size = f"Ø{_fmt(p.hole)} {p.fit}".strip()
+    lines = [f"{n}x {size} THRU {where}"]
     if p.phase:
         lines.append(f"{p.phase:.1f}° FROM THE TIE BOLTS")
     if p.recess is not None:
@@ -515,6 +531,8 @@ def _pattern_lines(p: Pattern, f: PlateFeatures) -> tuple[str, ...]:
             lines.append(f"C'BORE Ø{_fmt(size)} x {_fmt(depth)} DEEP FROM A")
         else:
             lines.append(f"HEX POCKET {_fmt(size)} A/F x {_fmt(depth)} DEEP FROM A")
+    if p.fit:
+        lines.append("REAM ON ASSEMBLY WITH THE BARREL")
     lines.append(f"for {p.screw}, {p.label}" if p.screw else f"for the {p.label}")
     return tuple(lines)
 
@@ -679,6 +697,24 @@ def plate_sheet(spec: GearSpec, name: str) -> Sheet:
         notes.append(f"{p.label[0].upper()}{p.label[1:]}: position "
                      f"Ø{_fmt(p.position)} at maximum material - an {p.screw} in "
                      f"a Ø{_fmt(p.hole)} hole, {how}.")
+    dowels = next((p for p in f.patterns if p.label == "plate dowels"), None)
+    if dowels is not None:
+        n = len(dowels.centres)
+        if dowels.fit:
+            notes.append(
+                f"Plate dowels: {n}x ISO 8734 {dowels.screw}s, pressed into the "
+                f"barrel (N7) and a tight slide here (H7) - they, not the tie "
+                f"bolts, put this plate on the ring's axis. Ream these holes on "
+                f"assembly with the barrel, its pin circle and B concentric "
+                f"within Ø{_fmt(spec.profile_clearance)}: the crank turns on B, "
+                f"and an axis off the ring's by more than half the profile "
+                f"clearance takes it from one side of the mesh.")
+        else:
+            notes.append(
+                f"Plate dowels: {n}x ISO 8734 {dowels.screw}s, pressed into the "
+                f"barrel's printed holes; these are printed "
+                f"{_fmt(spec.hole_clearance)} mm over the pin so it slides, "
+                f"which is what this design assumes of a printed hole.")
     if f.edge_break > 0.0:
         notes.append(f"Break outside edges and the mouths of the bores "
                      f"{_fmt(f.edge_break)} x 45°; inside corners at the seat's "

@@ -42,7 +42,7 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Sixty-nine checks that explain themselves.** Each says what it tests, what
+- **Seventy-one checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -400,6 +400,23 @@ bolt circle runs down, and the input plate's outside is where a motor goes. On
 a ring-output drive that face is the one the load bolts to instead, and
 `TIE_NUTS_ON_OUTPUT_FACE` says how far proud of it the nuts stand.
 
+**What puts the plates on the ring's axis is two dowels at each end, not the
+bolts.** The plates carry the shaft supports and the output bearing, so they
+decide where the crank's axis is, and the ring pins are in the barrel; a bolt
+in a clearance hole locates nothing, and an M4 in 4.5 mm lets a plate sit half
+a millimetre off - against a machined drive's few hundredths of profile
+clearance. So each joint has two ISO 8734 dowels on the tie-bolt circle, the
+largest that leaves a quarter of the wall either side (3 mm in the default
+6 mm wall), pressed into the barrel and a tight slide in the plate. They sit a
+quarter of a tie-bolt pitch round, clear of the tie bolts and of the output
+bolts half a pitch round, and the second is placed clear of the motor's
+pattern and never where a turn or a flip would bring the pair back onto
+itself: a plate goes on one way only. Machined, the holes are reamed on
+assembly with the barrel, the plate's seat indicated concentric with the pin
+circle within the profile clearance; printed, the plate's holes are printed
+the design's hole allowance over the pin. `plate_dowels` turns them off, and
+`PLATES_NOT_LOCATED` then says how far off the crank's axis can sit.
+
 > **Sign warning.** The equivalent `psi` formulation needs a *leading minus*:
 > `psi(t) = -atan2(sin(N·t), R/(E·Np) - cos(N·t))`. The positive-sign variant is
 > widespread online and is wrong - it deviates by millimetres and the disc
@@ -519,7 +536,8 @@ Beyond the geometry checks, every design gets a datasheet:
 - **Mass, inertia, unbalance.** Off the real lobed section, not a cylinder,
   with the bought parts on the scale too: every bearing, estimated from its
   envelope, and the tie bolts and nuts, from their ISO dimensions — each held
-  to published masses in the tests. The inertia the motor turns, in three
+  to published masses in the tests — and the plate dowels, which are ground
+  cylinders. The inertia the motor turns, in three
   terms: the shaft and its cams, the discs, and the output member through the
   square of the ratio — where a carrier is almost nothing and a turning
   housing is most of the total. And the shaking force a single disc throws —
@@ -531,7 +549,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Sixty-nine of them. Errors block export; warnings do not; several are readings
+Seventy-one of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -562,7 +580,8 @@ rather than tests.
 **Mounting** — `HOUSING_BOLT_CLASH` · `OUTPUT_BOLT_CLASH` ·
 `MOTOR_SHAFT_TOO_BIG` · `MOTOR_SHAFT_MISMATCH` · `MOTOR_SHAFT_SHORT` ·
 `MOTOR_SCREW_SEAT` · `COUPLING_DOES_NOT_FIT` · `MOTOR_FACE_CLASH` ·
-`MOTOR_RADIAL_LOAD` · `TIE_NUTS_ON_OUTPUT_FACE`
+`MOTOR_RADIAL_LOAD` · `TIE_NUTS_ON_OUTPUT_FACE` · `PLATES_NOT_LOCATED` ·
+`PLATE_DOWEL_CLASH`
 
 **The motor** — `MOTOR_OPERATING_POINT` · `MOTOR_TORQUE_SHORT` ·
 `MOTOR_SUPPLY_VOLTAGE`
@@ -935,8 +954,8 @@ and are not modelled, so a real drive measures worse. The thermal model is a sin
 lumped body in still air with no conduction into whatever the gearbox is bolted
 to. Bearing catalogue values are nominal metric-series figures, and a bearing's
 mass is estimated from its envelope rather than read from a maker's table. Of
-the bolts only the tie bolts are weighed: the motor's and the output's have no
-length until the drive knows what they go into. The inertia at the input
+the bolts the output's are not weighed: they have no length until the drive
+knows what they go into. The inertia at the input
 leaves out the pin rollers' spin about their own pins and the rings of the
 shaft's bearings, a few grams each at a few millimetres, and the load, which
 the drive does not know. PV limits are

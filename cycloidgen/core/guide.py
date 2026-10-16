@@ -532,6 +532,16 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "bolt beside it."),
 
     # ---------------------------------------------------------------- bearings --
+    "plate_dowels": ParameterGuide(
+        "Two hardened dowel pins at each end, pressed into the ring housing and "
+        "a tight slide in the end plate, that put the plate - and the bearings "
+        "in it - on the ring's axis.",
+        "On. The tie bolts clamp the plates but cannot place them: they pass "
+        "through clearance, and the plates carry the bearings the crank turns "
+        "in. Off is for a drive whose plates are located some other way.",
+        "Four ISO 8734 pins and two reamed holes per joint. Off saves them and "
+        "lets the crank's axis sit as far off the pin circle's as the tie bolts' "
+        "clearance allows."),
     "cam_bearing_fitted": ParameterGuide(
         "Whether there is a needle bearing between the cam and the disc bore, "
         "or the bore runs straight on the cam.",

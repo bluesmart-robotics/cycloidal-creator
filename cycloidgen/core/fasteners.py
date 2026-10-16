@@ -1,8 +1,9 @@
 """Metric fasteners: the ISO dimensions the drive's bolts are drawn and ordered by.
 
 Nominal figures from the standards' own tables - ISO 273 clearance holes in the
-medium series, ISO 4762 socket head cap screws, ISO 4032 hexagon nuts and the
-coarse thread pitch - for the sizes a drive of this kind uses.  Like the bearing
+medium series, ISO 4762 socket head cap screws, ISO 4032 hexagon nuts, ISO 8734
+dowel pins and the coarse thread pitch - for the sizes a drive of this kind
+uses.  Like the bearing
 catalogue they are first-pass values: confirm them against the supplier's sheet
 before ordering.
 
@@ -17,7 +18,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-__all__ = ["M2", "SCREW_LENGTHS", "SIZES", "THREAD_DEPTH", "MetricSize", "hexagon",
+__all__ = ["DOWEL_DIAMETERS", "DOWEL_LENGTHS", "M2", "SCREW_LENGTHS", "SIZES",
+           "THREAD_DEPTH", "MetricSize", "dowel_for_wall", "dowel_length", "hexagon",
            "nut_volume", "screw_length", "screw_volume", "size_for_hole",
            "size_named", "thread_length", "thread_mean_diameter"]
 
@@ -71,6 +73,32 @@ M2 = MetricSize("M2", 2.0, 0.4, 2.4, 3.8, 2.0, 1.5, 1.0, 4.0, 1.6)
 def size_named(name: str) -> MetricSize | None:
     """A size by its metric name, ``M2`` included; ``None`` for one not here."""
     return next((s for s in (M2, *SIZES) if s.name == name), None)
+
+
+#: ISO 8734 hardened dowel pins: the nominal diameters, every one ground to m6.
+DOWEL_DIAMETERS: tuple[float, ...] = (1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0,
+                                      10.0, 12.0)
+#: Their preferred lengths.
+DOWEL_LENGTHS: tuple[float, ...] = (
+    4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 35, 40, 45, 50,
+    55, 60)
+
+
+def dowel_for_wall(wall: float) -> float | None:
+    """The largest dowel that leaves a quarter of ``wall`` either side of it.
+
+    A dowel on the middle of a wall with as much metal beside it as it is wide
+    half again: the hole is reamed, and a reamer walks in a hole with less.
+    ``None`` where even the smallest would not.
+    """
+    fitting = [d for d in DOWEL_DIAMETERS if d <= wall / 2.0 + 1e-9]
+    return fitting[-1] if fitting else None
+
+
+def dowel_length(need: float) -> float | None:
+    """The shortest preferred dowel at least ``need`` long; ``None`` past the
+    table."""
+    return next((n for n in DOWEL_LENGTHS if n >= need - 1e-9), None)
 
 
 def size_for_hole(hole: float) -> MetricSize | None:

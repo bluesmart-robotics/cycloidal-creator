@@ -21,7 +21,7 @@ CLASH_CODES = frozenset({
     "HOLE_HITS_BORE", "HOLE_BREAKS_RIM", "OUTPUT_HOLES_OVERLAP",
     "ECCENTRIC_TIGHT", "HOUSING_BOLT_CLASH", "OUTPUT_BOLT_CLASH",
     "MOTOR_FACE_CLASH", "BEARING_DOES_NOT_FIT", "SEAT_HAS_NO_SHOULDER",
-    "TIE_NUTS_ON_OUTPUT_FACE",
+    "TIE_NUTS_ON_OUTPUT_FACE", "PLATE_DOWEL_CLASH",
 })
 
 #: Where a bearing that will not go in would have gone, by its role: the parts
@@ -64,6 +64,10 @@ def finding_parts(analysis, finding) -> tuple[str, ...]:
             "input_end_plate",)
     if code == "TIE_NUTS_ON_OUTPUT_FACE":
         return ("tie_nuts", "input_end_plate")
+    if code == "PLATE_DOWEL_CLASH":
+        return ("plate_dowels", "input_end_plate")
+    if code == "PLATES_NOT_LOCATED":
+        return ("housing", "input_end_plate", "output_end_plate")
     if code == "SEAT_HAS_NO_SHOULDER":
         from ..analysis.bearings import seat_bores
 

@@ -189,6 +189,11 @@ GROUPS: list[tuple[str, list[Field]]] = [
         Field("housing_bolt_diameter", "Tie bolt", "float", 1, 20, 0.5,
               decimals=2, suffix=" mm",
               advanced=True),
+        Field("plate_dowels", "Plate dowels", "bool",
+              tip="Two dowels at each end that put the end plates, and the "
+                  "bearings in them, on the ring's axis. The tie bolts cannot: "
+                  "they pass through clearance.",
+              advanced=True),
         Field("output_boss_protrusion", "Boss stands out", "float", 0, 100, 1,
               decimals=2, suffix=" mm",
               tip="How far the output boss stands past the end plate. With the "
@@ -425,6 +430,9 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
                              "eccentric_cam_diameter", "center_bore_diameter"),
     "TIE_NUTS_ON_OUTPUT_FACE": ("output_member", "housing_bolt_count",
                                 "housing_bolt_diameter"),
+    "PLATES_NOT_LOCATED": ("plate_dowels", "housing_wall", "housing_bolt_diameter"),
+    "PLATE_DOWEL_CLASH": ("housing_bolt_count", "output_bolt_count", "motor_frame",
+                          "housing_wall"),
     "SEAT_HAS_NO_SHOULDER": ("housing_wall", "output_boss_protrusion",
                              "shaft_bearing", "output_bearing", "motor_frame"),
     "BEARINGS_OMITTED": ("cam_bearing_fitted", "shaft_bearings_fitted",

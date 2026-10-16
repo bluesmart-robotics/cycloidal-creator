@@ -38,6 +38,9 @@ LAYERS = {
     # The lip past a bearing seat: the through hole, where the seat is bored
     # from one face only.
     "SHOULDER": 30,
+    # The dowels that put the plates on the ring's axis: reamed, so a second
+    # operation after the laser or the drill, like a seat.
+    "DOWELS": 140,
 }
 
 
@@ -118,6 +121,14 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
         else:
             depth = spec.barrel_bottom - lip.z1
         note += (f" x {depth:g} deep from the inside, through {lip.bore:g}")
+
+    if spec.plate_dowel_centres:
+        for c in spec.plate_dowel_centres:
+            msp.add_circle(c, spec.plate_dowel_hole / 2.0,
+                           dxfattribs={"layer": "DOWELS"})
+            _cross(msp, c)
+        note += (f"  |  2 x {spec.plate_dowel_hole:g} dowel"
+                 + ("" if spec.printed else " H7, ream on assembly"))
 
     if spec.housing_bolt_count:
         msp.add_circle((0, 0), spec.housing_bolt_radius,
@@ -268,8 +279,15 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
         msp.add_circle((spec.pin_circle_radius * np.cos(a),
                         spec.pin_circle_radius * np.sin(a)),
                        spec.pin_radius, dxfattribs={"layer": "RING_PINS"})
+    for c in spec.plate_dowel_centres:
+        msp.add_circle(c, spec.plate_dowel_diameter / 2.0,
+                       dxfattribs={"layer": "DOWELS"})
+        _cross(msp, c)
     _title(msp, spec, f"ring plate  {spec.pin_count} pins  "
-                      f"BC {2 * spec.pin_circle_radius:g}",
+                      f"BC {2 * spec.pin_circle_radius:g}"
+                      + (f"  |  2 x {spec.plate_dowel_diameter:g} dowel"
+                         + ("" if spec.printed else " N7 through, a press")
+                         if spec.plate_dowel_centres else ""),
            spec.housing_outer_radius)
     out = directory / "ring_plate.dxf"
     doc.saveas(out)

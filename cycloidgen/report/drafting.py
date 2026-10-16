@@ -35,7 +35,8 @@ BORDER = (20.0, 10.0, 10.0, 10.0)            # left, bottom, right, top
 #: The title block, bottom right inside the border: ISO 7200's 180 mm width.
 TITLE = (230.0, 10.0, 180.0, 46.0)            # x, y, width, height
 
-_TEXT = 3.5             # dimension and note text, mm
+_TEXT = 3.5             # dimension and callout text, mm
+_NOTE = 2.5             # the notes: ISO 3098's smallest, so they fit under the views
 _ARROW = 3.0            # arrowhead length, mm
 _WIDE, _THIN = 0.5, 0.25
 _PT = 72.0 / 25.4       # points per millimetre
@@ -507,17 +508,17 @@ def _notes(pen: _Pen, s: Sheet) -> None:
         lines: list[str] = []
         for word in words:
             trial = f"{line} {word}".strip()
-            if pen.width(trial, 2.8) > width - 6.0 and line:
+            if pen.width(trial, _NOTE) > width - 6.0 and line:
                 lines.append(line)
                 line = word
             else:
                 line = trial
         lines.append(line)
         for text in lines:
-            y -= 4.0
-            pen.text((x + 6.0, y), text, size=2.8)
+            y -= _NOTE + 1.1
+            pen.text((x + 6.0, y), text, size=_NOTE)
             if first:
-                pen.text((x, y), f"{i}.", size=2.8)
+                pen.text((x, y), f"{i}.", size=_NOTE)
                 first = False
 
 

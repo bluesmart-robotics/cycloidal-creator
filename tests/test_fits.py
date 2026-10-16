@@ -13,6 +13,7 @@ from cycloidgen.core.fits import (
     hole_limits,
     housing_fit,
     nominal_range,
+    shaft_limits,
     tolerance_unit,
 )
 
@@ -33,6 +34,17 @@ PUBLISHED = {
 }
 
 
+# And ISO 286-2's shaft tables, the same way.
+PUBLISHED_SHAFTS = {
+    "h6": [(0, -8), (0, -9), (0, -11), (0, -13), (0, -16), (0, -19), (0, -22),
+           (0, -25), (0, -29), (0, -32), (0, -36)],
+    "m6": [(12, 4), (15, 6), (18, 7), (21, 8), (25, 9), (30, 11), (35, 13),
+           (40, 15), (46, 17), (52, 20), (57, 21)],
+    "n6": [(16, 8), (19, 10), (23, 12), (28, 15), (33, 17), (39, 20), (45, 23),
+           (52, 27), (60, 31), (66, 34), (73, 37)],
+}
+
+
 def _middle(index: int) -> float:
     return (_LIMITS[index] + _LIMITS[index + 1]) / 2.0
 
@@ -41,6 +53,27 @@ def _middle(index: int) -> float:
 def test_the_rules_reproduce_the_published_classes(cls):
     worked = [hole_limits(_middle(i), cls) for i in range(len(_LIMITS) - 1)]
     assert worked == PUBLISHED[cls]
+
+
+@pytest.mark.parametrize("cls", sorted(PUBLISHED_SHAFTS))
+def test_the_rules_reproduce_the_published_shafts(cls):
+    worked = [shaft_limits(_middle(i), cls) for i in range(len(_LIMITS) - 1)]
+    assert worked == PUBLISHED_SHAFTS[cls]
+
+
+def test_a_dowel_presses_into_n7_and_locates_in_h7():
+    """What the plates' dowels are drilled for, read off the limits rather
+    than taken on trust: an m6 pin in an N7 hole is tight at every size and
+    every pair of limits, and in an H7 hole it is a transition fit whose
+    loosest case is one grade 6 of clearance - the play a plate has on it."""
+    for i in range(len(_LIMITS) - 1):
+        d = _middle(i)
+        pin_hi, pin_lo = shaft_limits(d, "m6")
+        n_hi, _ = hole_limits(d, "N7")
+        assert pin_lo - n_hi > 0                      # always interference
+        h_hi, h_lo = hole_limits(d, "H7")
+        assert h_hi - pin_lo == IT[6][i] > 0          # can be clear...
+        assert pin_hi - h_lo > 0                      # ...or tight
 
 
 @pytest.mark.parametrize(("grade", "factor"), [(6, 10), (7, 16), (8, 25)])

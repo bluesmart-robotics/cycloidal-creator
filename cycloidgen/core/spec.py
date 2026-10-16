@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 # Re-exported here because every consumer already reaches for the spec, and a
 # name that moves house is a name that breaks a dozen imports for no gain.
 from .duty import DutyCycle
-from .fasteners import MetricSize, screw_length, size_for_hole
+from .fasteners import MetricSize, dowel_for_wall, dowel_length, screw_length, size_for_hole
 from .motor import (
     COUPLING_GAP,
     MOTOR_FRAMES,
@@ -561,6 +561,11 @@ class GearSpec(BaseModel):
                     "the plates are held on by something this app is not drawing",
     )
     housing_bolt_diameter: float = Field(4.5, gt=0)
+    plate_dowels: bool = Field(
+        True,
+        description="two dowels locating each end plate on the barrel; off "
+                    "leaves only the tie bolts, through clearance, to do it",
+    )
     # A ring-output drive turns its housing, and a barrel has nowhere to grip:
     # the boss that is the whole output interface of the carrier-output layout
     # belongs to the *grounded* member here, so the load needs a face of its
@@ -1359,6 +1364,141 @@ class GearSpec(BaseModel):
             return self.housing_wall
         return (self.housing_outer_radius - self.housing_bolt_radius
                 - self.housing_bolt_diameter / 2.0)
+
+    # ---- the dowels that locate the end plates on the barrel -------------------
+    #
+    # The plates carry the shaft supports and the output bearing, so they set
+    # where the crank's axis is; the ring pins are in the barrel.  Nothing but
+    # the tie bolts joined the two, and a bolt in a clearance hole locates
+    # nothing - an M4 in 4.5 mm lets a plate sit half a millimetre off, against
+    # a machined drive's three hundredths of profile clearance.  So two dowels
+    # per joint, pressed into the barrel and a tight slide in the plate.
+    @property
+    def plate_dowel_diameter(self) -> float:
+        """ISO 8734 dowel, mm: the largest that leaves a quarter of the wall
+        either side of it on the tie-bolt circle; zero with none."""
+        if not self.plate_dowels:
+            return 0.0
+        return dowel_for_wall(self.housing_wall) or 0.0
+
+    @property
+    def input_plate_holes(self) -> list[tuple[float, float, float, str]]:
+        """Every hole through the input end plate but its bore and the dowels':
+        ``(x, y, diameter, what)``, at its widest - a counterbore or a nut's
+        pocket where it has one, since that is the metal it takes."""
+        holes = []
+        n = self.housing_bolt_count
+        for k in range(n):
+            a = 2.0 * math.pi * k / n
+            holes.append((self.housing_bolt_radius * math.cos(a),
+                          self.housing_bolt_radius * math.sin(a),
+                          self.housing_bolt_diameter, "a tie bolt"))
+        if self.ground_frame_fitted and self.output_bolt_count:
+            r, m = self.output_face_bolt_radius, self.output_bolt_count
+            for k in range(m):
+                a = self.output_bolt_phase + 2.0 * math.pi * k / m
+                holes.append((r * math.cos(a), r * math.sin(a),
+                              self.output_bolt_diameter, "an output bolt"))
+        elif self.has_motor_face and not self.coupled:
+            fix = self.motor_fixing
+            hole = max(self.motor_face.bolt_diameter, fix.recess if fix else 0.0)
+            holes += [(x, y, hole, "a motor screw") for x, y in self.motor_bolt_centres]
+        return holes
+
+    def plate_dowel_metal(self, angle: float) -> tuple[float, str]:
+        """The least metal between a dowel at ``angle`` on the tie-bolt circle
+        and any other hole through the input plate, mm, and which hole."""
+        r, d = self.housing_bolt_radius, self.plate_dowel_diameter
+        x, y = r * math.cos(angle), r * math.sin(angle)
+        return min(((math.hypot(hx - x, hy - y) - (d + hd) / 2.0, what)
+                    for hx, hy, hd, what in self.input_plate_holes),
+                   default=(math.inf, ""))
+
+    @property
+    def plate_dowel_angles(self) -> tuple[float, ...]:
+        """Where the two dowels sit on the tie-bolt circle, radians.
+
+        A quarter of a tie-bolt pitch round, which is as far as can be from both
+        the tie bolts and the output bolts that sit half a pitch round on a
+        ring drive.  The first at the first such place; the second at whichever
+        other one keeps a millimetre clear of the motor's pattern and stands
+        nearest opposite the first - but never exactly opposite, and never
+        where a flip would bring the pair back onto itself, so that a plate
+        goes on one way only and the seats it carries line up with the barrel
+        they were bored to match.  (A second dowel three quarters of a pitch
+        round would mirror the first across a bolt.)
+        """
+        if not self.plate_dowel_diameter:
+            return ()
+        n = self.housing_bolt_count or 6
+        pitch = 2.0 * math.pi / n
+        first = 0.25 * pitch
+        candidates = [(k + 0.25) * pitch for k in range(1, n) if 2 * k != n]
+        if not candidates:                  # one or two bolts: anywhere off-axis
+            return (first, 0.6 * pitch)
+
+        def merit(angle: float) -> tuple[bool, float, float]:
+            metal = self.plate_dowel_metal(angle)[0]
+            apart = abs(math.remainder(angle - first, 2.0 * math.pi))
+            return metal >= 1.0, -abs(apart - math.pi), metal
+
+        return (first, max(candidates, key=merit))
+
+    @property
+    def plate_dowel_centres(self) -> list[tuple[float, float]]:
+        """The dowels' centres in the plane, on the tie-bolt circle."""
+        r = self.housing_bolt_radius
+        return [(r * math.cos(a), r * math.sin(a)) for a in self.plate_dowel_angles]
+
+    @property
+    def printed(self) -> bool:
+        """Whether the drive's parts come off a printer, which holds no fit."""
+        return self.process in (Process.FDM, Process.SLA, Process.SLS)
+
+    @property
+    def plate_dowel_hole(self) -> float:
+        """The dowel's hole through an end plate, mm.
+
+        Its own diameter when machined: reamed to H7 it is a tight slide, and
+        the fit is a note on the drawing, not a size.  Printed, a hole holds no
+        fit, so it gets the design's own allowance for a hole that takes a part
+        - the barrel's stays at the dowel, which is a press into plastic.
+        """
+        d = self.plate_dowel_diameter
+        return d + self.hole_clearance if d and self.printed else d
+
+    @property
+    def plate_dowel_engagement(self) -> tuple[float, float]:
+        """How far each dowel goes into ``(the plate, the barrel)``, mm.
+
+        Into the plate to half a millimetre short of its outside face, so it
+        locates over the plate's whole depth and never stands proud of it; into
+        the barrel one and a half diameters, the usual hold for a press fit.
+        """
+        d = self.plate_dowel_diameter
+        return (max(self.plate_thickness - 0.5, 0.0), 1.5 * d)
+
+    @property
+    def plate_dowel_length(self) -> float | None:
+        """The preferred ISO 8734 length that makes both engagements; None with
+        no dowels or past the table."""
+        if not self.plate_dowel_diameter:
+            return None
+        return dowel_length(sum(self.plate_dowel_engagement))
+
+    @property
+    def plate_dowel_spans(self) -> list[tuple[float, float]]:
+        """Where the dowels are along the axis, ``(z0, z1)``: the input plate's
+        pair, then the output plate's - each into its plate as far as
+        :attr:`plate_dowel_engagement` says and the rest of its length into the
+        barrel, whose hole runs right through."""
+        length = self.plate_dowel_length
+        if not length:
+            return []
+        into_plate = self.plate_dowel_engagement[0]
+        top = self.barrel_top + into_plate
+        bottom = self.barrel_bottom - into_plate
+        return [(top - length, top), (bottom, bottom + length)]
 
     @property
     def edge_break(self) -> float:

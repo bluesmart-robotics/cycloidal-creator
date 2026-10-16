@@ -650,6 +650,30 @@ EXPLANATIONS: dict[str, Explanation] = {
         "pick a narrower bearing for the seat; or, where it is the register, a "
         "frame whose spigot is shallower.",
         keep="above", unit="mm"),
+    "PLATES_NOT_LOCATED": Explanation(
+        "Nothing puts the end plates on the ring's axis",
+        "dowels between each end plate and the barrel",
+        "The plates carry the shaft supports and the output bearing, so they "
+        "decide where the crank's axis is; the ring pins are in the barrel. A "
+        "tie bolt in a clearance hole locates nothing - an M4 in 4.5 mm lets a "
+        "plate sit half a millimetre off the barrel - and the crank's axis moves "
+        "with it. Against a machined drive's few hundredths of profile "
+        "clearance that is a drive that binds on one side and rattles on the "
+        "other, and nothing in the stiffness or tolerance analysis sees it: "
+        "both put the ring on the crank's axis.",
+        "Turn the plate dowels on. If they are on and this still shows, the "
+        "housing wall has no room for one: thicken it.",
+        keep="below", unit="mm"),
+    "PLATE_DOWEL_CLASH": Explanation(
+        "A plate dowel lands on another hole",
+        "metal between each dowel's hole and every other hole in the plate",
+        "The dowels share the tie bolts' circle, a quarter of a pitch round from "
+        "them - which keeps them off the tie bolts, and off the output bolts "
+        "half a pitch round on a ring drive, whatever the counts. The second "
+        "one is placed clear of the motor's pattern as well. What is left is a "
+        "pattern on that circle that none of those rules knew about.",
+        "Change the count of the bolts it runs into, or a smaller motor frame.",
+        keep="above", unit="mm"),
     "TIE_NUTS_ON_OUTPUT_FACE": Explanation(
         "Tie-bolt nuts standing on the face the load bolts to",
         "nothing proud of the turning face  (ring-output drives)",

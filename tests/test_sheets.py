@@ -93,9 +93,12 @@ def test_the_patterns_are_the_ones_the_plate_is_drilled_with():
     assert motor.square == spec.motor_face.bolt_span
     assert motor.recess[0] == "counterbore" and motor.datums == ("A", "C")
     assert f.register.diameter == spec.motor_face.pilot_diameter
-    # Nothing motor-shaped on the far plate.
+    dowels = by["plate dowels"]
+    assert sorted(dowels.centres) == sorted(spec.plate_dowel_centres)
+    assert dowels.hole == spec.plate_dowel_diameter and dowels.fit == "H7"
+    # Nothing motor-shaped on the far plate; the same dowels.
     out = sheets.plate_features(spec, "output_end_plate")
-    assert [p.label for p in out.patterns] == ["tie bolts"]
+    assert [p.label for p in out.patterns] == ["tie bolts", "plate dowels"]
     assert out.register is None
 
 
@@ -124,6 +127,10 @@ def test_a_position_tolerance_still_lets_every_screw_through(kind):
     spec = _design(kind)
     for name in PLATES:
         for p in sheets.plate_features(spec, name).patterns:
+            if p.label == "plate dowels":
+                # Reamed on assembly with the barrel, so no zone between parts.
+                assert p.position is None
+                continue
             screw = size_for_hole(p.hole).d
             offset = 2.0 * p.position if p.fixed else p.position
             assert _common_circle_fits(p.hole, offset, screw), p.label

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from ..analysis import DesignAnalysis
 from ..analysis.bearings import pin_diameters, seat_bores
+from ..analysis.mass import plate_dowel_mass_g
 from ..core.fasteners import nut_volume, screw_volume
 from ..core.spec import OutputMember
 
@@ -256,6 +257,19 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
             note=f"through both end plates into the barrel, on a "
                  f"{2 * s.housing_bolt_radius:.1f} mm circle"))
 
+    # The dowels that locate the end plates on the barrel: two at each end.
+    if s.plate_dowel_length:
+        items.append(BomItem(
+            part="Plate dowel", quantity=2 * len(s.plate_dowel_centres),
+            material="Bearing steel 100Cr6",
+            size=f"{s.plate_dowel_diameter:g} m6 x {s.plate_dowel_length:g} dowel "
+                 f"pin, ISO 8734",
+            mass_each_g=plate_dowel_mass_g(s), source="buy",
+            note=f"two at each end, pressed into the barrel and a tight slide in "
+                 f"the plate, on the {2 * s.housing_bolt_radius:.1f} mm tie-bolt "
+                 f"circle - they, not the bolts, are what put the plates' "
+                 f"bearing seats on the ring's axis"))
+
     if s.ground_frame_fitted and s.output_bolt_count:
         items.append(BomItem(
             part="Output bolt", quantity=s.output_bolt_count,
@@ -372,6 +386,7 @@ def _assembly(part: str, spec) -> tuple[str, ...]:
         "Ring pin (dowel)": ("ring_pins",),
         "Tie bolt": ("tie_bolts",),
         "Tie bolt nut": ("tie_nuts",),
+        "Plate dowel": ("plate_dowels",),
         "Input shaft support": ("bearing_shaft_input", "bearing_shaft_output"),
         "Main output bearing": ("bearing_output_main", "bearing_output_input"),
         "Ring pin roller": ("bearing_ring_pins",),

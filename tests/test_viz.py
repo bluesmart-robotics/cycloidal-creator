@@ -100,11 +100,13 @@ def test_mesh_volume_matches_the_exported_solid(ratio, discs):
     s.disc_count = discs
     mesh = build_mesh(s)
     volumes = _part_volumes(mesh)
-    # `parts` is the made ones; the bearings and the tie bolts are bought, so
-    # they get no STL of their own - but they are in the picture and in the
-    # STEP assembly, so they are held to the same agreement as everything else.
+    # `parts` is the made ones; the bearings, the tie bolts and the dowels are
+    # bought, so they get no STL of their own - but they are in the picture and
+    # in the STEP assembly, so they are held to the same agreement as
+    # everything else.
     solids = {**solid.parts(s), **solid.bearing_solids(s),
-              "tie_bolts": solid.tie_bolts(s), "tie_nuts": solid.tie_nuts(s)}
+              "tie_bolts": solid.tie_bolts(s), "tie_nuts": solid.tie_nuts(s),
+              "plate_dowels": solid.plate_dowels(s)}
     # A bearing is the exception.  The quick mesh draws it as the room it
     # takes, and the solid is the bearing - rings and rolling elements, about
     # two thirds of that room, which `test_bearings.py` holds it to.  So the

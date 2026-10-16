@@ -71,8 +71,8 @@ MOTOR_SHAFT_MATERIAL = "Steel 1045"
 def material_of(spec: GearSpec, part: Part) -> str:
     """The material a part is made of - the same choice the bill orders it in."""
     group = part.group
-    if group == "bearings":
-        return BEARING_MATERIAL
+    if group == "bearings" or part.name == "plate_dowels":
+        return BEARING_MATERIAL            # a dowel pin is hardened like one
     if group == "motor":
         return MOTOR_SHAFT_MATERIAL
     if part.name == "coupling":

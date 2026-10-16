@@ -79,6 +79,7 @@ _PART_GROUP = {
     "output_end_plate": "end_plates",
     "tie_bolts": "fasteners",
     "tie_nuts": "fasteners",
+    "plate_dowels": "fasteners",
     "shaft_spacer_input": "shaft",
     "shaft_spacer_output": "shaft",
     "washers": "shaft",
@@ -338,6 +339,9 @@ def ring_housing(spec: GearSpec) -> cq.Workplane:
                  .circle(spec.housing_bolt_diameter / 2.0)
                  .extrude(h))
         body = body.cut(bolts)
+    # The dowels that locate the plates, pressed in from each end: one hole the
+    # whole length, so a dowel can be driven out from the other end.
+    body = _cut_dowel_holes(body, spec, z0, h, spec.plate_dowel_diameter)
     # The rim only.  The bore and its pockets are where the pins sit and the
     # disc runs; and the rim's break stops at half the metal between it and the
     # tie-bolt holes, which on the default wall is under a millimetre.
@@ -753,6 +757,8 @@ def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
                  .polarArray(spec.housing_bolt_radius, 0, 360,
                              spec.housing_bolt_count)
                  .hole(spec.housing_bolt_diameter))
+    plate = _cut_dowel_holes(plate, spec, 0.0, spec.plate_thickness,
+                             spec.plate_dowel_hole)
 
     if motor_face and spec.ground_frame_fitted:
         if spec.output_bolt_count:
@@ -942,6 +948,40 @@ def spacer_parts(spec: GearSpec,
     if washers is not None:
         out["washers"] = washers
     return out
+
+
+def _cut_dowel_holes(body: cq.Workplane, spec: GearSpec, z0: float,
+                     length: float, diameter: float) -> cq.Workplane:
+    """Cut the plate dowels' holes through ``body`` from ``z0`` for ``length``.
+
+    ``diameter`` is the dowel's in the barrel, a press, and
+    :attr:`~cycloidgen.core.spec.GearSpec.plate_dowel_hole` in a plate - the
+    dowel's again when machined, since the fit is a drawing note and not a
+    hundredth of a millimetre a solid could show.
+    """
+    centres = spec.plate_dowel_centres
+    if not centres:
+        return body
+    holes = (cq.Workplane("XY").workplane(offset=z0 - 1.0)
+             .pushPoints(centres).circle(diameter / 2.0)
+             .extrude(length + 2.0))
+    return body.cut(holes)
+
+
+def plate_dowels(spec: GearSpec) -> cq.Workplane | None:
+    """The dowels themselves, as one multi-solid part; None with none.
+
+    Bought, like the bolts, so in the assembly and not the per-part export.
+    Plain ground cylinders at the nominal diameter: an ISO 8734 pin's end
+    chamfers are a few hundredths of a gram.
+    """
+    spans = spec.plate_dowel_spans
+    if not spans:
+        return None
+    r = spec.plate_dowel_diameter / 2.0
+    shapes = [cq.Solid.makeCylinder(r, z1 - z0, cq.Vector(cx, cy, z0))
+              for z0, z1 in spans for cx, cy in spec.plate_dowel_centres]
+    return cq.Workplane("XY").add(cq.Compound.makeCompound(shapes))
 
 
 def _bolt_centres(spec: GearSpec) -> list[tuple[float, float, float]]:
@@ -1171,6 +1211,9 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     if coupling is not None:
         assy.add(coupling, name="coupling", color=_part_colour("eccentric_shaft"))
 
+    dowels = plate_dowels(spec)
+    if dowels is not None:
+        assy.add(dowels, name="plate_dowels", color=_part_colour("plate_dowels"))
     if spec.housing_bolt_count:
         assy.add(tie_bolts(spec), name="tie_bolts", color=_part_colour("tie_bolts"))
         nuts = tie_nuts(spec)

@@ -599,6 +599,13 @@ def output_face_bolt_holes(spec: GearSpec) -> list[np.ndarray]:
                       for k in range(spec.output_bolt_count))]
 
 
+def plate_dowel_holes(spec: GearSpec, plate: bool) -> list[np.ndarray]:
+    """The holes the plate dowels go in: through the barrel at the dowel, a
+    press, and through both plates at the plate's own hole for it."""
+    r = (spec.plate_dowel_hole if plate else spec.plate_dowel_diameter) / 2.0
+    return [_circle(cx, cy, r, 12) for cx, cy in spec.plate_dowel_centres]
+
+
 def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
     """Every hole through an end plate: the tie bolts, and whichever pattern the
     outside face carries.
@@ -607,7 +614,7 @@ def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
     spec's answer and not this argument's: the motor's when the housing is
     bolted down, the driven machine's when the housing is what turns.
     """
-    holes = tie_bolt_holes(spec)
+    holes = tie_bolt_holes(spec) + plate_dowel_holes(spec, plate=True)
     if not motor_face:
         return holes
     if spec.ground_frame_fitted:
@@ -699,7 +706,7 @@ def build_mesh(spec: GearSpec,
                 (pocketed_bore(spec.pin_circle_radius, spec.pin_radius,
                                spec.pin_count,
                                integral=spec.ring_pins_integral),
-                 *tie_bolt_holes(spec)),
+                 *tie_bolt_holes(spec), *plate_dowel_holes(spec, plate=False)),
                 spec.barrel_bottom, spec.barrel_top)
 
     # A pin carrying a roller loses its outside to it - drawn at full size it
@@ -1096,6 +1103,15 @@ def build_mesh(spec: GearSpec,
                             (_circle(cx, cy, size.d / 2.0, _BOLT_SEGMENTS),),
                             face, face + size.nut_m)
 
+    # The dowels that locate the plates on the barrel, two at each end.
+    if spec.plate_dowel_spans:
+        r = spec.plate_dowel_diameter / 2.0
+        with b.part("plate_dowels", "Plate dowels", "fasteners",
+                    PART_COLOURS["fasteners"]):
+            for z0, z1 in spec.plate_dowel_spans:
+                for cx, cy in spec.plate_dowel_centres:
+                    b.prism(_circle(cx, cy, r, _BOLT_SEGMENTS), (), z0, z1)
+
     if spec.has_motor_face:
         _motor(b, spec)
 
@@ -1329,6 +1345,10 @@ def mesh_fingerprint(spec: GearSpec,
         spec.motor_fixing, spec.motor_face_z, spec.coupling, spec.coupling_span,
         spec.motor_mount,
         spec.output_bolt_count, spec.output_bolt_diameter,
+        # The dowels as placed and as drilled: where they go turns on the motor
+        # pattern, and a printed plate's hole on the process.
+        tuple(spec.plate_dowel_centres), spec.plate_dowel_diameter,
+        spec.plate_dowel_hole, tuple(spec.plate_dowel_spans),
         tuple(placements),
         # The seats as bored, which follow the bearings for the same reason the
         # placements are here: the outcome cannot be wrong about itself.

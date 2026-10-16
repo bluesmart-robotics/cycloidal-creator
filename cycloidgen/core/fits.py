@@ -26,8 +26,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-__all__ = ["HOLE_CLASSES", "LIGHT_LOAD", "SeatFit", "hole_limits", "housing_fit",
-           "nominal_range", "tolerance_unit"]
+__all__ = ["HOLE_CLASSES", "LIGHT_LOAD", "SHAFT_CLASSES", "SeatFit", "hole_limits",
+           "housing_fit", "nominal_range", "shaft_limits", "tolerance_unit"]
 
 #: Upper limits of the ISO 286 nominal size ranges, millimetres.  A diameter
 #: belongs to the range it is *over the previous limit and up to and including*
@@ -101,6 +101,29 @@ def hole_limits(diameter: float, tolerance_class: str) -> tuple[int, int]:
     ei_shaft = IT[7][i] - IT[6][i] if letter == "M" else _EI_N[i]
     upper = -ei_shaft + delta
     return upper, upper - width
+
+
+#: The shaft classes this module can state: the m6 a dowel pin is ground to,
+#: and the n6 and h6 the hole rules above are defined against.
+SHAFT_CLASSES: tuple[str, ...] = ("h6", "m6", "n6")
+
+
+def shaft_limits(diameter: float, tolerance_class: str) -> tuple[int, int]:
+    """``(upper, lower)`` deviation of a shaft, micrometres, from its nominal.
+
+    ISO 286-1 again: an h shaft ends at the nominal, an m starts ``IT7 - IT6``
+    above it and an n at its own fundamental deviation, each a grade wide.
+    """
+    if tolerance_class not in SHAFT_CLASSES:
+        raise ValueError(f"no limits for {tolerance_class!r}; this module knows "
+                         + ", ".join(SHAFT_CLASSES))
+    i = nominal_range(diameter)
+    letter, grade = tolerance_class[0], int(tolerance_class[1:])
+    width = IT[grade][i]
+    if letter == "h":
+        return 0, -width
+    lower = IT[7][i] - IT[6][i] if letter == "m" else _EI_N[i]
+    return lower + width, lower
 
 
 @dataclass(frozen=True)

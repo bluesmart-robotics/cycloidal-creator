@@ -476,6 +476,45 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                         f"and the tie bolt beside it on the same circle.",
                         metal, 1.5)
 
+    # The plates carry the shaft supports and the output bearing, so they set
+    # the crank's axis; the ring pins are in the barrel.  What puts the one on
+    # the other is the dowels - a bolt in a clearance hole locates nothing.
+    if spec.housing_bolt_count and not spec.plate_dowel_diameter:
+        # A plate and the barrel are each drilled to the hole and the bolt
+        # floats through both, so one can sit the whole clearance off the other.
+        size = spec.tie_bolt_size
+        play = spec.housing_bolt_diameter - size.d if size is not None else None
+        why = ("they are switched off" if not spec.plate_dowels else
+               f"no ISO 8734 dowel leaves metal either side of itself in a "
+               f"{spec.housing_wall:g} mm wall")
+        how_far = (f"up to {play:.2f} mm" if play is not None
+                   else "as far as the clearance round the tie bolts")
+        rep.add(Severity.WARNING, "PLATES_NOT_LOCATED",
+                f"Nothing locates the end plates on the ring housing: there are "
+                f"no dowels ({why}), and the tie bolts pass through clearance. "
+                f"The plates carry the bearings the crank turns in, so its axis "
+                f"can sit {how_far} off the pin circle's - against "
+                f"{spec.profile_clearance:.3f} mm of profile clearance a side.",
+                play if play is not None else spec.housing_bolt_diameter,
+                spec.profile_clearance)
+    elif spec.plate_dowel_centres:
+        # The dowels share the tie bolts' circle, and on the input plate the
+        # output bolts' or the motor's pattern as well: a quarter pitch round
+        # keeps them off the first two whatever the counts are, but not off
+        # every pattern a user can set.
+        metal, what = min(spec.plate_dowel_metal(a) for a in spec.plate_dowel_angles)
+        if metal <= 0.0:
+            rep.add(Severity.ERROR, "PLATE_DOWEL_CLASH",
+                    f"A plate dowel's hole runs into {what}'s. The dowels sit a "
+                    f"quarter of a tie-bolt pitch round, which keeps them off the "
+                    f"tie bolts and the output bolts - this pattern is somewhere "
+                    f"else. Change the count of the bolts it hits.",
+                    metal, 0.0)
+        elif metal < 1.0:
+            rep.add(Severity.WARNING, "PLATE_DOWEL_CLASH",
+                    f"Only {metal:.2f} mm of metal between a plate dowel and "
+                    f"{what} beside it.", metal, 1.0)
+
     # Not "has no bearing" - a plain cam has none and the drive still carries
     # that force, sliding, which the PV check is there for.  This is the narrower
     # question of a load leaving the gearbox for something on the other end of it.
