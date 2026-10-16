@@ -73,7 +73,7 @@
 <text x="217.087" y="97.5" class="sans" font-size="13" font-weight="600" letter-spacing="3.6" fill="#d8d6ff">OPEN SOURCE</text>
 <text x="68" y="212" class="sans" font-size="86" font-weight="700" letter-spacing="-2" fill="#fff">cycloidgen</text>
 <text x="72" y="256" class="sans" font-size="26" fill="#cac7ff">Parametric cycloidal drive design</text>
-<rect x="72" y="292" width="149.7" height="32" rx="16" class="chip"/><text x="146.85" y="313" class="chiptext">2D + 3D, live</text><rect x="231.7" y="292" width="114.1" height="32" rx="16" class="chip"/><text x="288.75" y="313" class="chiptext">65 checks</text><rect x="355.8" y="292" width="229.8" height="32" rx="16" class="chip"/><text x="470.7" y="313" class="chiptext">DXF · STEP · STL · 3MF</text><rect x="595.6" y="292" width="131.9" height="32" rx="16" class="chip"/><text x="661.55" y="313" class="chiptext">PDF dossier</text>
+<rect x="72" y="292" width="149.7" height="32" rx="16" class="chip"/><text x="146.85" y="313" class="chiptext">2D + 3D, live</text><rect x="231.7" y="292" width="114.1" height="32" rx="16" class="chip"/><text x="288.75" y="313" class="chiptext">69 checks</text><rect x="355.8" y="292" width="229.8" height="32" rx="16" class="chip"/><text x="470.7" y="313" class="chiptext">DXF · STEP · STL · 3MF</text><rect x="595.6" y="292" width="131.9" height="32" rx="16" class="chip"/><text x="661.55" y="313" class="chiptext">PDF dossier</text>
 </g>
 <rect x=".5" y=".5" width="1279" height="399" rx="19.5" fill="none" stroke="#fff" stroke-opacity=".08"/>
 </svg>
