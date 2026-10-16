@@ -110,7 +110,13 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
     # the half of it a circle cannot.
     for lip in (s for s in shoulders if s.host == name):
         msp.add_circle((0, 0), lip.bore / 2.0, dxfattribs={"layer": "SHOULDER"})
-        depth = spec.plate_thickness - lip.thickness
+        # From the inside face to where the lip starts.  Not the plate less the
+        # lip: a register cut into the outside face takes its own depth off the
+        # far end, and boring the seat that deep goes through the lip.
+        if name == "input_end_plate":
+            depth = lip.z0 - spec.barrel_top
+        else:
+            depth = spec.barrel_bottom - lip.z1
         note += (f" x {depth:g} deep from the inside, through {lip.bore:g}")
 
     if spec.housing_bolt_count:

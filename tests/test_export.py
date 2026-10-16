@@ -13,7 +13,7 @@ import pytest
 matplotlib.use("Agg")
 
 from cycloidgen.analysis import analyse
-from cycloidgen.analysis.bearings import seat_bores
+from cycloidgen.analysis.bearings import placements_for_spec, seat_bores
 from cycloidgen.core import profile as prof
 from cycloidgen.core.spec import preset
 from cycloidgen.export import dxf, solid, svg
@@ -311,6 +311,26 @@ def test_each_end_plate_is_bored_for_what_actually_sits_in_it(spec, tmp_path):
         bores = msp.query('CIRCLE[layer=="DISC_BORE"]')
         assert len(bores) == 1
         assert bores[0].dxf.radius == pytest.approx(bore / 2.0)
+
+
+def test_a_seat_is_as_deep_as_its_bearing_reaches(tmp_path):
+    """The note on a plate's cutting file says how deep the seat is bored from
+    the inside, and the answer is where the bearing in it ends.  It used to be
+    the plate less the lip, which is the same number until a motor's register
+    is cut into the outside face: then it is deeper by the register, and in an
+    11 mm plate under a NEMA 17 it said 10 where the bearing ends at 8 - a seat
+    bored to that goes through the lip it is meant to stop short of."""
+    s = preset(21)
+    s.motor_frame = "NEMA 17"
+    s.end_plate_thickness = 11.0
+    placements = {p.name: p for p in placements_for_spec(s)}
+    ends = {"input_end_plate": placements["bearing_shaft_input"].rings[0].z1 - s.barrel_top,
+            "output_end_plate": s.barrel_bottom
+            - placements["bearing_output_main"].rings[0].z0}
+    for name, depth in ends.items():
+        note = next(t.dxf.text for t in _plate(s, tmp_path, name).query("TEXT"))
+        assert f"x {depth:g} deep from the inside" in note, (name, note)
+    assert ends["input_end_plate"] < s.plate_thickness - s.motor_face.pilot_depth
 
 
 def test_the_tie_bolts_land_where_the_solid_puts_them(spec, tmp_path):
