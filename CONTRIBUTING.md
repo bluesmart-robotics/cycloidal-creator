@@ -91,7 +91,7 @@ the version policy, which is built around the same question.
 cycloidgen/
 ├── core/       spec (the one source of truth), profile, kinematics, validate,
 │               explain (what each check tests, why, and what to change), fits
-│               (ISO 286 limits, and the fit a bearing seat takes)
+│               (ISO 286 limits, and the fit a bearing seat takes), presets
 ├── analysis/   mechanics (Hertz), stiffness (contacts, backlash, transmission
 │               error), compliance (the parts around the mesh, as springs),
 │               tolerance (where the pins actually are), thermal, mass,

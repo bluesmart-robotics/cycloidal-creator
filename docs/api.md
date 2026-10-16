@@ -33,6 +33,19 @@ spec.disc_count = 2
 spec.lubricant = "Grease NLGI 2 (EP, moly)"
 ```
 
+`preset` is geometry for a reduction and nothing more. The named presets add
+whole drives built round a motor - its curve, the material and process, a duty
+it carries - and each call hands back a fresh design to change:
+
+```python
+from cycloidgen.core.presets import PRESETS, by_key
+
+for p in PRESETS:
+    print(f"{p.key:20} {p.title}")
+drive = by_key("nema17-printed-21").spec()
+print(drive.motor_frame, drive.output_torque_Nm, drive.output_rpm)
+```
+
 One of those fifty decides more than the rest: **which member the output comes
 off**. The crank is always the input, but the ring and the carrier are
 interchangeable — ground either one and the other is the output — and that sets

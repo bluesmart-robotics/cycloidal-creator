@@ -30,6 +30,12 @@ def _spec_from_args(args):
         written = written_by(data)
         if numbers_may_have_moved(written):
             print(provenance(written), file=sys.stderr)
+    elif args.preset:
+        from .core.presets import by_key
+        try:
+            spec = by_key(args.preset).spec()
+        except KeyError as exc:
+            raise SystemExit(exc.args[0]) from None
     else:
         # ``--ratio`` is a reduction wherever this CLI uses it, including in the
         # search - and off the ring a reduction of N+1 is a disc of N lobes,
@@ -68,6 +74,20 @@ def _apply_omissions(spec, args):
     if args.no_output_bearing:
         spec.output_bearing_fitted = False
     return spec
+
+
+def _list_presets() -> int:
+    """The presets, by group: what ``--preset`` takes and what each is for."""
+    from .core.presets import PRESETS
+
+    group = None
+    for p in PRESETS:
+        if p.group != group:
+            print(f"{p.group}:" if group is None else f"\n{p.group}:")
+            group = p.group
+        print(f"  {p.key:22} {p.title}")
+        print(f"  {'':22} {p.summary}")
+    return 0
 
 
 def _list_outputs(spec, groups: set[str]) -> int:
@@ -304,6 +324,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version",
                         version=f"cycloidgen {__version__}")
     parser.add_argument("--ratio", type=int, help="generate a preset and exit")
+    parser.add_argument("--preset", metavar="KEY",
+                        help="start from a named preset - a ratio, or a whole drive "
+                             "built round a motor; --list-presets names them")
+    parser.add_argument("--list-presets", action="store_true",
+                        help="print the presets and exit")
     parser.add_argument("--output-from", choices=("carrier", "ring"),
                         help="which member turns the load: 'carrier' bolts the "
                              "housing down and reduces by the lobe count, "
@@ -388,7 +413,10 @@ def main(argv: list[str] | None = None) -> int:
                         choices=["quick", "normal", "thorough"])
     args = parser.parse_args(argv)
 
-    headless = (args.out or args.ratio or args.design or args.optimise
+    if args.list_presets:
+        return _list_presets()
+
+    headless = (args.out or args.ratio or args.preset or args.design or args.optimise
                 or args.list_outputs or args.vary)
     if headless:
         import matplotlib

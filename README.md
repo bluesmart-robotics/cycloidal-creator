@@ -50,7 +50,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,457 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,506 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -149,6 +149,8 @@ python -m cycloidgen --ratio 29 --out ./my_gearbox
 python -m cycloidgen --design saved.json --out ./x --no-solids
 python -m cycloidgen --ratio 29 --no-cam-bearing --no-shaft-bearings --out ./x
 python -m cycloidgen --ratio 20 --output-from ring --out ./x   # the housing turns
+python -m cycloidgen --list-presets                            # what --preset takes
+python -m cycloidgen --preset nema23-machined-21 --out ./x     # a whole drive
 ```
 
 Or put a whole grid of designs through it and get a table rather than a folder
@@ -182,6 +184,16 @@ python -m cycloidgen --optimise --ratio 29 --torque 20 --rpm 1500 \
 **Give it a design.** Set the twenty-odd parameters and the app tells you what
 is wrong with them — this is the original mode and everything below still
 applies to it.
+
+**Start from a preset.** The six ratio presets are geometry and nothing else.
+The rest are whole drives built round a motor — a NEMA 17 in a printed drive,
+a NEMA 23 in a machined one — with the motor's curve off its class's
+datasheets, the material and the process, a duty it carries, and the parts
+round the motor that make it buildable: plates thick enough for the motor's
+register to leave the bearing a lip and its screws a full thread. Each is held
+by the tests to analysing with no error, nothing said about its motor, its
+mounting or its bearings, a capacity over its rated torque and its motor's
+margin. The *Preset* box in the app, or `--preset` on the command line.
 
 **Give it requirements.** Ratio, torque, speed, envelope, process, materials, and
 what to optimise for; the search returns a shortlist of geometries that pass
@@ -983,7 +995,8 @@ cycloidgen/
 │               motor (the face it bolts to and the torque it makes),
 │               duty (what the drive is asked to do, over time), fasteners
 │               (the ISO bolts and nuts it is held together with), fits (ISO
-│               286 limits, and the fit a bearing seat takes), designfile
+│               286 limits, and the fit a bearing seat takes), presets (the
+│               ratios, and whole drives built round a motor), designfile
 │               (a saved design, and which build saved it), explain (what each
 │               check tests, why, and what to change), guide (what each
 │               parameter is and how to choose it)
@@ -1015,7 +1028,7 @@ cycloidgen/
 docs/           the API reference and the README's figures
 tools/          what draws the banner, the icon, the logo assets, the
                 installer's bitmaps and the screenshots
-tests/          1,457 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,506 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -1031,7 +1044,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,457 tests, about 700 s. Most of that is CadQuery writing solids; the pure
+1,506 tests, about 700 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

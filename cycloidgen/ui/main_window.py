@@ -57,6 +57,7 @@ from ..core.designfile import (
 )
 from ..core.explain import explain, margin
 from ..core.guide import guide
+from ..core.presets import PRESETS, by_key, matching
 from ..core.spec import (
     GearSpec,
     MotorKind,
@@ -703,8 +704,27 @@ class MainWindow(QMainWindow):
         # leaves a drive that is no longer the preset the box last showed, and a
         # chooser that keeps claiming 15:1 over a 21:1 design is not a small lie.
         self._preset_box.addItem("Custom", None)
-        for r in (10, 15, 21, 29, 39, 59):
-            self._preset_box.addItem(f"{r}:1", r)
+        group = None
+        for p in PRESETS:
+            # A heading per group - the ratios, then a drive per motor class -
+            # that can be read and not chosen.  A separator line would do the
+            # same on paper and disappears into the dark theme.
+            if p.group != group:
+                self._preset_box.addItem(p.group.upper(), None)
+                heading = self._preset_box.model().item(self._preset_box.count() - 1)
+                heading.setEnabled(False)
+                # Bold rather than greyed: the stylesheet draws a disabled item
+                # in the same ink, and a weight reads the same in either theme.
+                font = heading.font()
+                font.setBold(True)
+                heading.setFont(font)
+                group = p.group
+            self._preset_box.addItem(p.title, p.key)
+            self._preset_box.setItemData(self._preset_box.count() - 1,
+                                         p.summary, Qt.ToolTipRole)
+        # All of it at once: a preset list that scrolls hides the motor drives
+        # below the ratios, which is the half of it worth finding.
+        self._preset_box.setMaxVisibleItems(self._preset_box.count())
         self._preset_box.activated.connect(self._apply_preset)
         row.addWidget(self._preset_box, 1)
 
@@ -1815,10 +1835,10 @@ class MainWindow(QMainWindow):
         self._recompute()
 
     def _apply_preset(self) -> None:
-        ratio = self._preset_box.currentData()
-        if ratio is None:                             # the "custom" entry
+        key = self._preset_box.currentData()
+        if key is None:                               # the "custom" entry
             return
-        self._replace_spec(preset(int(ratio)))
+        self._replace_spec(by_key(key).spec())
 
     def _sync_preset_box(self) -> None:
         """Point the box at the preset this design *is*, or at Custom.
@@ -1827,12 +1847,8 @@ class MainWindow(QMainWindow):
         has had its pin radius changed is not the 21:1 preset any more, and
         saying it is would be the same lie one step quieter.
         """
-        index = 0
-        for i in range(1, self._preset_box.count()):
-            ratio = self._preset_box.itemData(i)
-            if ratio == self.spec.lobes and preset(ratio) == self.spec:
-                index = i
-                break
+        found = matching(self.spec)
+        index = 0 if found is None else self._preset_box.findData(found.key)
         blocked = self._preset_box.blockSignals(True)
         self._preset_box.setCurrentIndex(index)
         self._preset_box.blockSignals(blocked)

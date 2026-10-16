@@ -908,6 +908,23 @@ def test_the_preset_box_says_which_preset_this_actually_is(app):
         w.close()
 
 
+def test_the_preset_box_offers_every_preset_and_loads_a_motor_drive(app):
+    from cycloidgen.core.presets import PRESETS, by_key
+
+    w = _window(app)
+    try:
+        offered = [w._preset_box.itemData(i) for i in range(w._preset_box.count())]
+        assert [k for k in offered if k] == [p.key for p in PRESETS]
+        w._preset_box.setCurrentIndex(w._preset_box.findData("nema23-machined-21"))
+        w._apply_preset()
+        _pump(app, 0.3)
+        assert w.spec == by_key("nema23-machined-21").spec()
+        assert w.spec.motor_frame == "NEMA 23"
+        assert w._preset_box.currentText() == "NEMA 23 - 21:1, machined"
+    finally:
+        w.close()
+
+
 # ---------------------------------------------------------------- provenance
 
 
