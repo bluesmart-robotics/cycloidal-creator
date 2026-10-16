@@ -488,7 +488,12 @@ That measured gap then feeds the load model, which answers the question the old
   only comes into mesh once the disc has turned far enough to close it. Contacts
   with a short moment arm need much more rotation than the long ones — so at low
   torque a handful of pins carry everything, and the peak force is several times
-  the ideal share. Capacity is derated accordingly.
+  the ideal share. Capacity is derated accordingly — at the capacity itself,
+  the torque where the busiest pin reaches its allowable *with the pins sharing
+  as they do at that torque*. The safety factor is read at the rated torque,
+  with that torque's sharing, and the two are not one number scaled: a steel
+  drive rated at a tenth of its capacity has twice the pins in mesh at the
+  capacity that it has at its duty.
 - more torque pulls more pins in; a tighter process pulls more pins in. Both are
   visible in the datasheet as *pins carrying load*, and both are tested.
 

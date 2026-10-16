@@ -2462,7 +2462,8 @@ class MainWindow(QMainWindow):
                  "every pin carrying its ideal share"),
                 ("Torque capacity (with clearance)",
                  f"{a.torque_capacity_with_clearance_Nm:.2f} Nm",
-                 f"derated {st.load_concentration:.2f}x for load concentration"),
+                 f"derated {st.load_concentration_at_capacity:.2f}x for load "
+                 f"concentration at that torque"),
                 ("Safety factor", f"{a.pin_safety_factor_with_clearance:.2f}",
                  "on ring contact stress, with clearance"),
                 ("Efficiency", f"{100 * a.efficiency.efficiency:.1f} %",

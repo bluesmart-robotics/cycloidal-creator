@@ -118,6 +118,7 @@ def report_dict(a: DesignAnalysis) -> dict:
             "pins_engaged": a.stiffness.pins_engaged,
             "pins_engaged_ideal": a.stiffness.pins_engaged_ideal,
             "load_concentration": a.stiffness.load_concentration,
+            "load_concentration_at_capacity": a.stiffness.load_concentration_at_capacity,
         },
         "position_tolerance": {
             "tolerance_mm": a.spec.position_tolerance,
@@ -675,6 +676,8 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
             ["Load concentration", f"{st.load_concentration:.2f} x",
              "Capacity after derating",
              f"{a.torque_capacity_with_clearance_Nm:.2f} Nm"],
+            ["At the capacity", f"{st.load_concentration_at_capacity:.2f} x",
+             "", ""],
         ], [42 * mm, 36 * mm, 42 * mm, 36 * mm]),
         Spacer(1, 6),
         Paragraph(

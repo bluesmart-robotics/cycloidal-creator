@@ -125,6 +125,13 @@ _LOAD_EXPONENT = 0.9
 #: through the mesh cycle, so a coarse sweep is enough and keeps this cheap.
 _STIFFNESS_STEPS = 8
 
+#: Most rounds the capacity solve takes, and the relative step it stops at.
+#: Each round closes about three quarters of what is left - the concentration
+#: falls by roughly a quarter for each doubling of the load - so it is done in
+#: five or six; the cap is for a drive whose concentration does not behave.
+_CAPACITY_ROUNDS = 30
+_CAPACITY_TOLERANCE = 1e-4
+
 #: Steps per period for the output stage of the transmission-error sweep.  A
 #: ripple has to be *resolved*, not averaged - a mean over one period converges
 #: whatever the step count, a peak-to-peak only ever comes out too small - so
@@ -216,6 +223,12 @@ class StiffnessResult:
     load_concentration: float          # peak pin force with clearance / without
     max_gap_spread_mm: float           # how unequal the gaps are
 
+    #: The same ratio at the torque capacity rather than at the rated torque,
+    #: which is the one the capacity is derated by: the gaps close as the load
+    #: rises and more pins share it, so it is lower.  Equal to
+    #: ``load_concentration`` when no capacity was asked about.
+    load_concentration_at_capacity: float = 0.0
+
     #: How many rings the position tolerance was sampled over.  One means the
     #: drawing carries no tolerance and the pins are where it says they are, in
     #: which case the three figures below are that one ring and say nothing.
@@ -269,6 +282,9 @@ class _Contacts(NamedTuple):
     #: stops applying: a ring whose pins interfere does not turn, and a
     #: single-rotation solve cannot say what it does instead.
     interference: float = 0.0
+    #: The disc's radius at each contact, which the springs ``c`` were fitted
+    #: with - kept so that they can be fitted again at another load.
+    r_face: np.ndarray | None = None
 
 
 def _ring_contacts(spec: GearSpec, cs, torque_per_disc: float,
@@ -296,7 +312,8 @@ def _ring_contacts(spec: GearSpec, cs, torque_per_disc: float,
         gaps = gaps + (error[loaded] * cs.normals[loaded]).sum(axis=1)
     bite = max(-float(gaps.min()), 0.0)
     gaps = np.maximum(gaps, 0.0)
-    return _Contacts(c=c, arms=arms, gaps=gaps, ideal=ideal, interference=bite)
+    return _Contacts(c=c, arms=arms, gaps=gaps, ideal=ideal, interference=bite,
+                     r_face=r_face)
 
 
 def _output_contacts(spec: GearSpec, phi: float, torque_per_disc: float,
@@ -432,6 +449,8 @@ class _Ring(NamedTuple):
     gap_close: float          # sets the lost motion
     spread: float
     interference: float       # deepest bite into the profile, mm
+    #: The ring stage at each crank angle, as solved, for a second load.
+    stages: tuple = ()
 
 
 def _one_ring(spec: GearSpec, picked, torque_per_disc: float,
@@ -450,10 +469,12 @@ def _one_ring(spec: GearSpec, picked, torque_per_disc: float,
     ring_gap_close: list[float] = []
     bites: list[float] = []
 
+    stages: list[_Contacts] = []
     for cs in picked:
         stage = _ring_contacts(spec, cs, torque_per_disc, ring_error)
         if stage is None:
             continue
+        stages.append(stage)
         c, arms, gaps, ideal = stage[:4]
         bites.append(stage.interference)
         spreads.append(float(gaps.max() - gaps.min()))
@@ -501,16 +522,89 @@ def _one_ring(spec: GearSpec, picked, torque_per_disc: float,
         gap_close=max(ring_gap_close) if ring_gap_close else 0.0,
         spread=float(np.max(spreads)) if spreads else 0.0,
         interference=max(bites) if bites else 0.0,
+        stages=tuple(stages),
     )
 
 
+def _ring_concentration(spec: GearSpec, stages: tuple, built_at: float,
+                        torque_per_disc: float) -> float:
+    """A ring's load concentration at ``torque_per_disc``, off stages solved at
+    ``built_at``: the busiest pin's force against its rigid-disc share,
+    averaged over the crank angles as :func:`_one_ring` averages it.
+
+    The gaps and the moment arms are geometry and do not move with the load;
+    the shares scale with it, and the contact springs are fitted again at the
+    new shares, since the line-contact law is only a power law locally.
+    """
+    scale = torque_per_disc / built_at
+    ratios = []
+    for st in stages:
+        ideal = st.ideal * scale
+        if ideal.max() <= 0:
+            continue
+        c = _fit_compliance(ideal, spec.contact_length, spec.pin_radius, st.r_face,
+                            spec.pin_mat, spec.disc_mat, spec.pin_circle_radius)
+        _theta, forces = _solve_rotation(c, st.arms, st.gaps, torque_per_disc)
+        ratios.append(float(forces.max() / ideal.max()))
+    return float(np.mean(ratios)) if ratios else 1.0
+
+
+def _concentration_at_capacity(spec: GearSpec, rings: list, torque_per_disc: float,
+                               capacity_Nm: float, middle) -> float:
+    """The concentration at the torque the drive can carry once clearance is
+    allowed for.
+
+    The ring contact reaches its allowable at the torque ``T`` where the
+    ideal capacity ``C`` - the rigid-disc share-out's, which goes as the square
+    of the stress - equals ``T`` times the concentration *at* ``T``.  It used
+    to be divided by the concentration at the rated torque instead, and that
+    is the concentration of a lighter load: fewer pins in mesh, a bigger
+    ratio, a capacity a third to a half of what the same model gives at the
+    load it is a capacity of.  The median ring at each load, as the headline
+    uses.
+
+    Solved for ``x = ln T`` by the secant rule on ``x + ln k(e^x) - ln C``,
+    which rises with ``x`` - more torque is always more force on the busiest
+    pin - and is nearly straight, so three or four loads settle it.  It starts
+    from the rated torque, whose concentration is already known, and the old
+    answer.
+    """
+    rated = torque_per_disc
+
+    def miss(x: float) -> float:
+        per_disc = rated * math.exp(x) / spec.output_torque_Nm
+        k = max(middle([_ring_concentration(spec, r.stages, rated, per_disc)
+                        for r in rings]), 1.0)
+        return x + math.log(k) - math.log(capacity_Nm)
+
+    k_rated = max(middle([r.concentration for r in rings]), 1.0)
+    x_was = math.log(spec.output_torque_Nm)
+    m_was = x_was + math.log(k_rated) - math.log(capacity_Nm)
+    x = math.log(capacity_Nm / k_rated)
+    m = miss(x)
+    for _ in range(_CAPACITY_ROUNDS):
+        if abs(m) <= _CAPACITY_TOLERANCE:
+            break
+        slope = (m - m_was) / (x - x_was) if x != x_was else 1.0
+        if not math.isfinite(slope) or slope <= 0.0:
+            slope = 1.0                                  # a plain fixed-point step
+        x_was, m_was = x, m
+        x -= m / slope
+        m = miss(x)
+    return capacity_Nm / math.exp(x)
+
+
 def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS,
-                      samples: int = DEFAULT_SAMPLES) -> StiffnessResult:
+                      samples: int = DEFAULT_SAMPLES,
+                      capacity_Nm: float | None = None) -> StiffnessResult:
     """Torsional stiffness, lost motion and clearance-aware load sharing.
 
     With a position tolerance entered this solves ``samples`` different rings
     and reports the distribution; with none it solves the one perfect ring the
-    drawing describes, and ``samples`` costs nothing.
+    drawing describes, and ``samples`` costs nothing.  ``capacity_Nm`` is the
+    rigid-disc torque capacity; given it, the load sharing is solved again at
+    the torque the clearance-derated capacity turns out to be, which is what
+    :attr:`StiffnessResult.load_concentration_at_capacity` reports.
     """
     torque_total_Nmm = spec.output_torque_Nm * 1000.0
     torque_per_disc = torque_total_Nmm / spec.disc_count
@@ -611,6 +705,11 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS,
     lost_p90 = tail([2.0 * r.gap_close / RAD_PER_ARCMIN + lost_out
                      for r in rings], 90.0)
 
+    at_capacity = middling.concentration
+    if capacity_Nm is not None and math.isfinite(capacity_Nm) and capacity_Nm > 0.0:
+        at_capacity = _concentration_at_capacity(spec, rings, torque_per_disc,
+                                                 capacity_Nm, middle)
+
     return StiffnessResult(
         stiffness_Nm_per_arcmin=to_nm_arcmin(k_series),
         contact_only_Nm_per_arcmin=to_nm_arcmin(k_contact),
@@ -634,6 +733,7 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS,
         pins_engaged_ideal=middling.engaged_ideal,
         load_concentration=middling.concentration,
         max_gap_spread_mm=middling.spread,
+        load_concentration_at_capacity=at_capacity,
         rings_sampled=len(rings),
         stiffness_p10_Nm_per_arcmin=to_nm_arcmin(
             tail([whole_drive(r) for r in rings], 10.0)),

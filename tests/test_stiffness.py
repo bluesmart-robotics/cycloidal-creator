@@ -125,6 +125,55 @@ def test_clearance_concentrates_load_onto_fewer_pins():
     assert result.pins_engaged <= result.pins_engaged_ideal
 
 
+def _steel(ratio: int, torque: float):
+    spec = preset(ratio)
+    spec.disc_material = "Steel 4140 (hardened)"
+    spec.pin_material = "Bearing steel 100Cr6"
+    spec.process = Process.CNC
+    spec.apply_process_defaults()
+    spec.output_torque_Nm = torque
+    return spec
+
+
+@pytest.mark.parametrize("make", [lambda: preset(21), lambda: _steel(21, 25.0),
+                                  lambda: _steel(29, 5.0)])
+def test_the_capacity_with_clearance_is_where_the_safety_factor_is_one(make):
+    """Read back by a second, independent analysis at the capacity itself:
+    the contact sweep and the load sharing both run at that torque rather than
+    being scaled to it.  The capacity used to be the rigid-disc one divided by
+    the concentration at the *rated* torque, and on a steel drive rated at a
+    tenth of its capacity that was the sharing of a load with half the pins
+    out of mesh - 103 Nm against the 177 its own model gives."""
+    from cycloidgen.analysis import analyse
+
+    spec = make()
+    capacity = analyse(spec).torque_capacity_with_clearance_Nm
+    at = spec.model_copy(update={"output_torque_Nm": capacity})
+    assert analyse(at).pin_safety_factor_with_clearance == pytest.approx(1.0, rel=2e-3)
+
+
+def test_at_its_own_torque_the_capacity_solve_reads_the_rated_sharing():
+    """Asked for the torque whose ``T * k(T)`` is the rated torque's own, the
+    solve has to land on the rated torque - so solving the stages again at a
+    new load reproduces the solve they were built with."""
+    spec = _steel(21, 25.0)
+    rated = analyse_stiffness(spec)
+    again = analyse_stiffness(spec, capacity_Nm=spec.output_torque_Nm
+                              * rated.load_concentration)
+    assert again.load_concentration_at_capacity == pytest.approx(
+        rated.load_concentration, rel=1e-6)
+
+
+def test_the_gaps_close_as_the_load_rises():
+    """More pins in mesh at more torque, so a drive rated under its capacity
+    shares the capacity better than its duty, and one rated over it worse."""
+    strong = analyse_stiffness(_steel(21, 25.0), capacity_Nm=400.0)
+    assert strong.load_concentration_at_capacity < strong.load_concentration
+    weak = analyse_stiffness(preset(21), capacity_Nm=1.0)       # PLA rated at 5 Nm
+    assert weak.load_concentration_at_capacity > weak.load_concentration
+    assert analyse_stiffness(preset(21)).load_concentration_at_capacity ==         analyse_stiffness(preset(21)).load_concentration      # none asked for
+
+
 def test_hole_clearance_shows_up_as_lost_motion():
     spec = preset(15)
     loose = spec.model_copy(update={"hole_clearance": 0.6})

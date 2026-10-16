@@ -84,8 +84,11 @@ class DesignAnalysis:
 
     @property
     def torque_capacity_with_clearance_Nm(self) -> float:
-        """Torque capacity derated for the same effect."""
-        return self.torque_capacity_Nm / max(self.stiffness.load_concentration, 1.0)
+        """Torque capacity derated for the same effect - at the capacity, where
+        more of the gaps have closed than at the rated torque, and so by
+        :attr:`StiffnessResult.load_concentration_at_capacity`."""
+        return self.torque_capacity_Nm / max(
+            self.stiffness.load_concentration_at_capacity, 1.0)
 
 
 #: What each part that holds a bearing is called in a sentence.
@@ -99,7 +102,8 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     """Geometry checks plus the full load/efficiency/bearing study."""
     rep = validate(spec)
     contact = analyse_contacts(spec)
-    stiff = analyse_stiffness(spec)
+    capacity = torque_capacity(spec, contact=contact)
+    stiff = analyse_stiffness(spec, capacity_Nm=capacity)
     te = analyse_transmission_error(spec)
     # Efficiency and temperature come out together, because with a lubricant in
     # the design they decide each other: friction heats the oil, the hot oil
@@ -123,7 +127,6 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # fatigue strength goes down with it.
     fatigue = analyse_fatigue(spec, mass.web_shear_MPa, mass.min_web_mm,
                               temperature_C=therm.temperature_C)
-    capacity = torque_capacity(spec, contact=contact)
     # After the efficiency solve rather than beside it: what the motor is asked
     # for is the input torque *including* the loss, and on a printed drive with
     # fixed pins the loss is nearly half of it.
@@ -228,13 +231,16 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                 spec.position_tolerance, spec.profile_clearance)
 
     if stiff.load_concentration > 1.5:
+        at_capacity = max(stiff.load_concentration_at_capacity, 1.0)
         rep.add(Severity.WARNING, "LOAD_CONCENTRATION",
-                f"Clearance keeps the low-lever-arm pins out of mesh, so about "
-                f"{stiff.pins_engaged:.1f} of the {stiff.pins_engaged_ideal:.0f} "
-                f"pins the ideal model loads actually carry. Peak pin force is "
-                f"{stiff.load_concentration:.1f}x the ideal share, which derates "
-                f"the torque capacity to "
-                f"{capacity / stiff.load_concentration:.2f} Nm.",
+                f"Clearance keeps the low-lever-arm pins out of mesh, so at the "
+                f"rated torque about {stiff.pins_engaged:.1f} of the "
+                f"{stiff.pins_engaged_ideal:.0f} pins the ideal model loads "
+                f"actually carry, and the peak pin force is "
+                f"{stiff.load_concentration:.1f}x the ideal share. The gaps "
+                f"close as the load rises; at the capacity it is "
+                f"{at_capacity:.1f}x, which derates the torque capacity to "
+                f"{capacity / at_capacity:.2f} Nm.",
                 stiff.load_concentration, 1.5)
 
     # ---- sliding duty and heat ----------------------------------------------

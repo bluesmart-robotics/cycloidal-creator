@@ -122,8 +122,14 @@ _WEIGHTS: dict[Objective, tuple[float, float, float, float, float]] = {
     Objective.PRECISION:  (0.3, 0.2, 0.2, 1.5, 0.0),
 }
 
-#: Capacity past this multiple of the requirement stops earning score - a drive
-#: three times stronger than it needs to be is just heavy.
+#: Strength past this multiple of the requirement stops earning score - a drive
+#: three times stronger than it needs to be is just heavy.  Strength here is the
+#: square of the safety factor at the rated torque: the load the busiest pin
+#: could take with the pins sharing it as they do at the duty, which is the
+#: margin the safety-factor limit is stated on.  Not the torque capacity, which
+#: is worked at its own load, where more pins are in mesh - a drive just inside
+#: the safety-factor limit already has three or four times the rated torque of
+#: capacity, and a ceiling on that would pay nothing for strength at all.
 _CAPACITY_CEILING = 2.0
 
 #: ``Requirements.ratio`` set to this means "work it out from the motor".
@@ -660,7 +666,8 @@ def _fast_metrics(spec: GearSpec) -> dict | None:
     # reporting one.  A position tolerance still has to be in it - it is what
     # decides the load sharing, and a search blind to it would happily pick a
     # design that only works on paper - but six rings is enough to rank by.
-    stiff = analyse_stiffness(spec, steps=2, samples=6)
+    capacity = torque_capacity(spec, contact=contact)
+    stiff = analyse_stiffness(spec, steps=2, samples=6, capacity_Nm=capacity)
     # Off the contact study already in hand: weighing the holes as bored needs
     # the bearings, and working the loads out a second time to get them would
     # double the cost of the commonest call in the search.
@@ -669,9 +676,11 @@ def _fast_metrics(spec: GearSpec) -> dict | None:
                                ring_pin_load_N=contact.max_pin_force_N)
     mass = analyse_mass(spec, seat_bores(spec, bearings), bearings)
 
+    # The safety factor at the rated torque, the capacity at the capacity: the
+    # two loads share their pins differently, and each is read at its own.
     concentration = max(stiff.load_concentration, 1.0)
     return {
-        "capacity": torque_capacity(spec, contact=contact) / concentration,
+        "capacity": capacity / max(stiff.load_concentration_at_capacity, 1.0),
         "safety": contact.pin_safety_factor / math.sqrt(concentration),
         "efficiency": eff.efficiency,
         "mass_g": mass.total_mass_g,
@@ -694,7 +703,7 @@ def _score(req: Requirements, spec: GearSpec, m: dict,
     the score by a constant, so the ranking depends on the weights alone and not
     on any arbitrary normalising constant.
     """
-    margin = m["capacity"] / max(req.output_torque_Nm, 1e-9)
+    margin = m["safety"] ** 2
     if m["safety"] < req.min_safety_factor:
         tally.hit("not enough margin on contact stress")
         return None
