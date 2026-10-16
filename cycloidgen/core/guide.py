@@ -191,6 +191,18 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "softest of them. Six millimetres is a reasonable printed default.",
         "Diameter and mass, and both go up faster than the wall does because "
         "it is at the outside."),
+    "housing_shape": ParameterGuide(
+        "The outline of the housing and its two end plates: round, or square "
+        "with its corners rounded to the wall.",
+        "Round is the lightest and the drive the rest of this app was first "
+        "built as. Square is what a gearhead on a stepper looks like: flat "
+        "sides to bolt to or stand it on, the size across the flats the same "
+        "as the round one's diameter. Its tie bolts go in the corners - four "
+        "of them, whatever the tie-bolt count says - where they have a wall "
+        "of metal all round them instead of half a wall.",
+        "The corners are extra metal: more mass and a little more surface to "
+        "shed heat from. The ring's stiffness is still worked out on the round "
+        "it contains, which the corners only add to."),
     "input_shaft_diameter": ParameterGuide(
         "The shaft the cam is cut on and the motor drives.",
         "From the input torque - which is the output torque divided by the "

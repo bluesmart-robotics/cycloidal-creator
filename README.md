@@ -237,7 +237,7 @@ which writes everything or everything but the solids.
 | `NOTICE.txt` | always | What these files are not: preliminary sizing from stated models, geometry that has not been proven against a made part. Written into every bundle whichever groups are selected, because it is the sheet that travels with a STEP file to somebody who never ran the app |
 | `disc.dxf` | drawings | Drawing of the whole drive: disc profile as a closed LWPOLYLINE sampled to the chord tolerance, plus bore, output holes, ring pins and housing, on separate layers |
 | `disc.svg` | drawings | Same drawing, 1 unit = 1 mm |
-| `dxf/` | drawings | One cutting file per part — each disc on its own, the ring plate, a carrier drilling template drilled for the *press fit* rather than for the disc's running hole, and the two end plates with their tie-bolt circle and motor pattern |
+| `dxf/` | drawings | One cutting file per part — each disc on its own, the ring plate, a carrier drilling template drilled for the *press fit* rather than for the disc's running hole, and the two end plates with their tie bolts and motor pattern |
 | `sketch/` | drawings | The same disc outline as **one closed cubic spline** instead of the cutting file's ~1,800 vertices — a curve a CAD package can offset, dimension and build features against. Fitted to the design's own chord tolerance and stamped with the deviation it reached, with the centre marks and bolt circle the disc never had. Not a cutting file: two outlines in one file is a part cut twice |
 | `sheets/` | drawings | **Dimensioned drawings**, an A3 PDF per part for the shop that makes it: a view from outside and a section, every size, which face a seat is bored from and how deep, and the tolerances that matter — each bearing seat's ISO 286 fit, chosen from whether its load turns round the outer ring, and each hole pattern's position tolerance, from the hole and the screw through it. Datums, a title block, ISO first angle. The two end plates so far |
 | `assembly.step` | solids | Full gearbox: housing and its two end plates, ring pins, phased discs, eccentric shaft, output flange with its bearing boss, every bearing that fits, coloured. Bought parts drawn as the parts: a ball bearing as two rings with raceways and a pitch circle of balls, a drawn cup as its cup and needles, the tie bolts threaded with a broken head and a drilled socket, the nuts chamfered. Inside corners where a bearing ring sits are radiused under the ring's own chamfer |
@@ -430,6 +430,21 @@ assembly with the barrel, the plate's seat indicated concentric with the pin
 circle within the profile clearance; printed, the plate's holes are printed
 the design's hole allowance over the pin. `plate_dowels` turns them off, and
 `PLATES_NOT_LOCATED` then says how far off the crank's axis can sit.
+
+**A square housing** (`housing_shape`) is the outline a gearhead on a stepper
+has: flat sides to bolt to or stand it on, as wide across the flats as the round
+housing is across, the corners rounded to the wall. Its tie bolts go into the
+corners - four of them, whatever `housing_bolt_count` says - each on its corner
+arc's centre, where the arc and both flats are a wall away. A bolt there has the
+wall less its own radius round it rather than half of what is left either side
+of a bolt down the middle of the wall: 3.75 mm in the default wall, against
+0.75. The output bolts and the dowels stay on the wall's middle circle, the first
+output bolt on a flat; the dowels are placed round that circle, the first where
+there is most metal and the second nearest opposite, never where one of the
+eight ways a square plate turns or flips onto its bolts would bring the pair
+back. Mass, cooling area and inertia are worked from the outline's own area,
+perimeter and polar moment; the ring's torsional stiffness is still that of the
+round it contains, which the corners only add to.
 
 > **Sign warning.** The equivalent `psi` formulation needs a *leading minus*:
 > `psi(t) = -atan2(sin(N·t), R/(E·Np) - cos(N·t))`. The positive-sign variant is

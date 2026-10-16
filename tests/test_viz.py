@@ -897,3 +897,32 @@ def test_a_drive_with_a_motor_matches_its_solids(frame, ring, direct):
             bought = part.name.startswith("motor_") or part.name == "coupling"
             assert volumes[i] == pytest.approx(solids[part.name].val().Volume(),
                                                rel=0.05 if bought else 0.03), part.name
+
+
+@pytest.mark.parametrize("ring", [False, True])
+def test_a_square_housing_matches_its_solids(ring):
+    """The outline, the corner bolts and the dowels between them: the preview
+    and the STEP file are one square drive.  And every part watertight, since
+    a square plate's outline is a loop the round one's circle never was."""
+    from cycloidgen.core.spec import HousingShape, OutputMember
+    from cycloidgen.viz.vtkbridge import closed_polydata
+
+    s = preset(21)
+    s.housing_shape = HousingShape.SQUARE
+    if ring:
+        s.output_member = OutputMember.RING
+    mesh = build_mesh(s)
+    volumes = _part_volumes(mesh)
+    solids = {**solid.parts(s), "tie_bolts": solid.tie_bolts(s),
+              "plate_dowels": solid.plate_dowels(s)}
+    names = {"housing", "input_end_plate", "output_end_plate", "tie_bolts",
+             "plate_dowels"} | ({"output_flange"} if ring else set())
+    seen = set()
+    for i, part in enumerate(mesh.parts):
+        if part.name in names:
+            seen.add(part.name)
+            assert volumes[i] == pytest.approx(solids[part.name].val().Volume(),
+                                               rel=0.03), part.name
+        holes, nonmanifold = _edge_counts(closed_polydata(mesh, part))
+        assert not holes and not nonmanifold, part.name
+    assert seen == names

@@ -58,7 +58,8 @@ BOUGHT_GROUPS = frozenset({"bearings", "fasteners"})
 SOLID_ONLY = (
     "barrel_bottom", "barrel_height", "base_plate_bottom", "disc_hole_phases",
     "disc_phases", "discs_are_identical", "dxf_chord_tolerance", "edge_chamfer",
-    "edge_break", "rim_land",
+    "edge_break", "rim_land", "square_housing", "housing_corner_radius",
+    "tie_bolt_centres",
     "has_motor_face", "housing_wall", "input_flat", "motor_face",
     "motor_bolt_centres", "motor_side", "coupled", "plate_face_z",
     "motor_mount_hole", "motor_mount_flange", "motor_hub_wall", "window_span",

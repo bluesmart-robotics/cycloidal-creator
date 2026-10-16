@@ -552,10 +552,13 @@ def tie_bolt_holes(spec: GearSpec) -> list[np.ndarray]:
     as a stack of parts that could not be bolted together.
     """
     r = spec.housing_bolt_diameter / 2.0
-    return [_circle(spec.housing_bolt_radius * math.cos(a),
-                    spec.housing_bolt_radius * math.sin(a), r, 12)
-            for a in (2.0 * np.pi * k / max(spec.housing_bolt_count, 1)
-                      for k in range(spec.housing_bolt_count))]
+    return [_circle(x, y, r, 12) for x, y in spec.tie_bolt_centres]
+
+
+def housing_outline(spec: GearSpec) -> np.ndarray:
+    """The housing's outline as a loop: the circle it always was at the same
+    96 points, or the square with its corners rounded."""
+    return np.asarray(spec.housing_outline(96), float)
 
 
 def motor_bolt_holes(spec: GearSpec) -> list[np.ndarray]:
@@ -702,7 +705,7 @@ def build_mesh(spec: GearSpec,
         # them, and it is what the frame turns inside.  The pockets run its
         # whole length, which is what a bore broached in one setup looks like
         # and is why this is one prism.
-        b.prism(_circle(0.0, 0.0, spec.housing_outer_radius, 96),
+        b.prism(housing_outline(spec),
                 (pocketed_bore(spec.pin_circle_radius, spec.pin_radius,
                                spec.pin_count,
                                integral=spec.ring_pins_integral),
@@ -910,7 +913,7 @@ def build_mesh(spec: GearSpec,
             # The base the gearbox is bolted down by, on the end of the boss.
             # Housing-sized, because it is the face of the machine at that end
             # and because a NEMA pattern needs the width.
-            base_outer = _circle(0.0, 0.0, spec.housing_outer_radius, 96)
+            base_outer = housing_outline(spec)
             motor_holes = [] if spec.coupled else motor_bolt_holes(spec)
             floor = spec.base_plate_bottom
             recess = 0.0 if spec.coupled else _pilot_recess(spec, bores.hub)
@@ -997,7 +1000,7 @@ def build_mesh(spec: GearSpec,
         with b.part(name, label, "end_plates", PART_COLOURS["end_plates"],
                     explode=apart):
             bolts = _plate_bolt_holes(spec, motor)
-            outer = _circle(0.0, 0.0, spec.housing_outer_radius, 96)
+            outer = housing_outline(spec)
             top = z0 + spec.plate_thickness
             recess = (_pilot_recess(spec, bore)
                       if motor and not spec.ground_frame_fitted
@@ -1056,10 +1059,7 @@ def build_mesh(spec: GearSpec,
     if spec.housing_bolt_count:
         size = spec.tie_bolt_size
         z0 = spec.tie_bolt_bottom
-        centres = [(spec.housing_bolt_radius * math.cos(a),
-                    spec.housing_bolt_radius * math.sin(a), a)
-                   for a in (2.0 * np.pi * k / spec.housing_bolt_count
-                             for k in range(spec.housing_bolt_count))]
+        centres = [(x, y, math.atan2(y, x)) for x, y in spec.tie_bolt_centres]
         if size is None:
             shank = TIE_BOLT_NOMINAL * spec.housing_bolt_diameter
             with b.part("tie_bolts", "Tie bolts", "fasteners",
@@ -1355,6 +1355,8 @@ def mesh_fingerprint(spec: GearSpec,
         spec.end_cap_bottom, spec.end_cap_top, spec.cap_boss_top,
         spec.shaft_overhang, spec.housing_bolt_count, spec.housing_bolt_diameter,
         spec.housing_bolt_radius, spec.motor_frame,
+        # Square or round, which moves the outline and the bolts with it.
+        spec.housing_shape,
         # Decides both the bore's shape and whether there is a pins part at all.
         spec.ring_pins_integral,
         # Which member turns: it moves the motor pattern off one part and onto

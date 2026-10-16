@@ -426,15 +426,21 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # so a bolt too big for that wall breaks *into the pockets and off the rim
     # at the same moment* - asking about the two sides separately would have
     # been an inner test and an outer branch that could never run.
-    if spec.housing_bolt_count and \
-            spec.housing_bolt_diameter >= spec.housing_wall:
+    # In a square housing the bolts are in the corners, where the arc and both
+    # flat sides are a wall away and the pockets are far off: there the same
+    # question is whether the hole is wider than twice that wall.
+    if spec.tie_bolt_centres and spec.rim_land <= 0.0:
+        where = ("It sits on its corner's centre, so at this size it breaks out "
+                 "through the corner." if spec.square_housing else
+                 "It runs up the middle of that wall, so at this size it breaks "
+                 "into the ring-pin pockets on one side and out through the rim "
+                 "on the other.")
         rep.add(Severity.ERROR, "HOUSING_BOLT_CLASH",
                 f"A {spec.housing_bolt_diameter:g} mm tie bolt does not fit in a "
-                f"{spec.housing_wall:g} mm housing wall. It runs up the middle of "
-                f"that wall, so at this size it breaks into the ring-pin pockets "
-                f"on one side and out through the rim on the other. Thicken the "
+                f"{spec.housing_wall:g} mm housing wall. {where} Thicken the "
                 f"wall or use a smaller bolt.",
-                spec.housing_bolt_diameter, spec.housing_wall)
+                spec.housing_bolt_diameter,
+                spec.housing_wall * (2.0 if spec.square_housing else 1.0))
 
     # The output face's own bolts, which exist only on a ring-output drive: the
     # turning member there is a barrel, and a barrel has nowhere to grip, so the
@@ -451,18 +457,27 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                     f"behind it but the ring-pin pockets on one side and open "
                     f"air on the other. Thicken the wall or use a smaller bolt.",
                     spec.output_bolt_diameter, spec.housing_wall)
-        elif spec.housing_bolt_count:
-            ties = [2.0 * math.pi * j / spec.housing_bolt_count
-                    for j in range(spec.housing_bolt_count)]
-            outs = [spec.output_bolt_phase + 2.0 * math.pi * k / spec.output_bolt_count
-                    for k in range(spec.output_bolt_count)]
-            closest = min(min(abs(o - t) % (2.0 * math.pi),
-                              2.0 * math.pi - abs(o - t) % (2.0 * math.pi))
-                          for o in outs for t in ties)
-            gap = 2.0 * spec.output_face_bolt_radius * math.sin(closest / 2.0)
+        elif spec.tie_bolt_centres:
+            # Centre to centre, whichever outline: on a round housing the two
+            # patterns share a circle and this is the chord between them; on a
+            # square one the tie bolts are in the corners, off that circle.
+            r = spec.output_face_bolt_radius
+            outs = [(r * math.cos(a), r * math.sin(a))
+                    for a in (spec.output_bolt_phase
+                              + 2.0 * math.pi * k / spec.output_bolt_count
+                              for k in range(spec.output_bolt_count))]
+            gap = min(math.hypot(ox - tx, oy - ty)
+                      for ox, oy in outs for tx, ty in spec.tie_bolt_centres)
             metal = gap - (spec.output_bolt_diameter
                            + spec.housing_bolt_diameter) / 2.0
-            if metal <= 0.0:
+            if metal <= 0.0 and spec.square_housing:
+                rep.add(Severity.ERROR, "OUTPUT_BOLT_CLASH",
+                        "An output bolt lands on a diagonal and runs into the "
+                        "corner tie bolt outside it. A count of output bolts "
+                        "that is not a multiple of eight keeps every one off "
+                        "the diagonals; a thicker wall moves the corners out.",
+                        metal, 0.0)
+            elif metal <= 0.0:
                 rep.add(Severity.ERROR, "OUTPUT_BOLT_CLASH",
                         f"The {spec.output_bolt_count} output bolts and the "
                         f"{spec.housing_bolt_count} tie bolts share one circle "
@@ -471,9 +486,11 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                         f"other, so the two patterns interleave.",
                         metal, 0.0)
             elif metal < 1.5:
+                where = ("in the corner outside it" if spec.square_housing
+                         else "beside it on the same circle")
                 rep.add(Severity.WARNING, "OUTPUT_BOLT_CLASH",
                         f"Only {metal:.2f} mm of metal between an output bolt "
-                        f"and the tie bolt beside it on the same circle.",
+                        f"and the tie bolt {where}.",
                         metal, 1.5)
 
     # The plates carry the shaft supports and the output bearing, so they set
@@ -871,13 +888,16 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     size = spec.tie_bolt_size
     if spec.ground_frame_fitted and size is not None and spec.tie_screw_length:
         proud = spec.tie_screw_length - spec.tie_bolt_length
+        ties = spec.tie_bolt_centres
+        where = (f"at the corners of a {2 * abs(ties[0][0]):.1f} mm square"
+                 if spec.square_housing else
+                 f"on a {2 * spec.housing_bolt_radius:.1f} mm circle")
         rep.add(Severity.WARNING, "TIE_NUTS_ON_OUTPUT_FACE",
                 f"The input end plate turns and is what the driven machine bolts "
-                f"to, and the {spec.housing_bolt_count} tie-bolt nuts are on it: "
-                f"they and the screw ends past them stand {proud:.1f} mm proud on "
-                f"a {2 * spec.housing_bolt_radius:.1f} mm circle. Space the driven "
-                f"part clear of them, or tap the plate for the screws and lose "
-                f"the nuts.", proud, 0.0)
+                f"to, and the {len(ties)} tie-bolt nuts are on it: they and the "
+                f"screw ends past them stand {proud:.1f} mm proud {where}. Space "
+                f"the driven part clear of them, or tap the plate for the screws "
+                f"and lose the nuts.", proud, 0.0)
 
     return DesignAnalysis(spec=spec, report=rep, contact=contact, efficiency=eff,
                           stiffness=stiff, transmission_error=te, thermal=therm,

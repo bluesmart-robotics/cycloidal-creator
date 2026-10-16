@@ -43,8 +43,9 @@ def _write(out: Output, spec: GearSpec, directory: Path, analysis) -> list[Path]
         from .. import notice
         target.write_text(
             notice.file_text(f"Cycloidal drive, {spec.ratio}:1, "
-                             f"{2 * spec.housing_outer_radius:.0f} mm outside "
-                             f"diameter."),
+                             f"{2 * spec.housing_outer_radius:.0f} mm "
+                             + ("square." if spec.square_housing
+                                else "outside diameter.")),
             encoding="utf-8")
         return [target]
     if out.key == "assembly_dxf":

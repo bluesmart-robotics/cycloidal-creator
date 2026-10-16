@@ -160,7 +160,8 @@ _NOTHING_PINNED = (
 #: qualification attached rather than plain readings.
 _HEADER_STATS: tuple[tuple[str, str, str], ...] = (
     ("ratio", "RATIO", "Reduction: input turns per output turn"),
-    ("od", "OD", "Outside diameter, across the housing"),
+    ("od", "OD", "Outside diameter, across the housing - across the flats on a "
+                 "square one"),
     ("length", "LENGTH", "Envelope length: the barrel plus both end plates"),
     ("mass", "MASS", "Assembled mass of every made part"),
     ("capacity", "CAPACITY",
@@ -2526,7 +2527,9 @@ class MainWindow(QMainWindow):
                  f"shear safety factor {m.web_safety_factor:.1f}"),
             ]),
             ("Envelope", [
-                ("Outer diameter", self._length(2 * s.housing_outer_radius), ""),
+                ("Outer diameter", self._length(2 * s.housing_outer_radius),
+                 f"square, across the flats; corners R{s.housing_corner_radius:g}"
+                 if s.square_housing else ""),
                 ("Overall length", self._length(s.envelope_length),
                  "barrel and both end plates"
                  + (", plus the base it is bolted down by - and the barrel is "
@@ -2584,7 +2587,8 @@ class MainWindow(QMainWindow):
         self._fill_compare()
         self.tabs.setCurrentWidget(self._compare_page)
         self._say(f"pinned {self.spec.ratio}:1, "
-                  f"{2 * self.spec.housing_outer_radius:.1f} mm OD as the "
+                  f"{2 * self.spec.housing_outer_radius:.1f} mm "
+                  f"{'square' if self.spec.square_housing else 'OD'} as the "
                   f"comparison reference", seconds=4)
 
     def _clear_reference(self) -> None:
@@ -2610,7 +2614,8 @@ class MainWindow(QMainWindow):
         ref, cur = self._pinned_analysis, self.analysis
         self._compare_note.setText(
             f"Reference: {self._pinned.ratio}:1, "
-            f"{2 * self._pinned.housing_outer_radius:.1f} mm OD. "
+            f"{2 * self._pinned.housing_outer_radius:.1f} mm "
+            f"{'square' if self._pinned.square_housing else 'OD'}. "
             f"Green is better, red is worse, on the quantity's own terms.")
 
         rows = [

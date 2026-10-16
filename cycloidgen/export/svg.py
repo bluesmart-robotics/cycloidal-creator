@@ -20,6 +20,17 @@ def _path_d(points: np.ndarray) -> str:
     return f"{head} {body} Z"
 
 
+def _outline(spec: GearSpec) -> str:
+    """The housing's outline: a circle, or a square with its corners rounded."""
+    r = spec.housing_outer_radius
+    if not spec.square_housing:
+        return f'<circle cx="0" cy="0" r="{r:.4f}" stroke="#999" {_STROKE}/>'
+    rc = spec.housing_corner_radius
+    return (f'<rect x="{-r:.4f}" y="{-r:.4f}" width="{2 * r:.4f}" '
+            f'height="{2 * r:.4f}" rx="{rc:.4f}" ry="{rc:.4f}" stroke="#999" '
+            f'{_STROKE}/>')
+
+
 def svg_document(spec: GearSpec) -> str:
     """Build the SVG as a string."""
     p = prof.profile_from_spec(spec)
@@ -31,8 +42,7 @@ def svg_document(spec: GearSpec) -> str:
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}mm" height="{size}mm" '
         f'viewBox="{-extent:.3f} {-extent:.3f} {size:.3f} {size:.3f}">',
         '<g transform="scale(1,-1)">',
-        f'<circle cx="0" cy="0" r="{spec.housing_outer_radius:.4f}" '
-        f'stroke="#999" {_STROKE}/>',
+        _outline(spec),
         f'<circle cx="0" cy="0" r="{spec.pin_circle_radius:.4f}" stroke="#bbb" '
         f'stroke-dasharray="2,2" {_STROKE}/>',
         f'<path d="{_path_d(p.points)}" stroke="#0a7" stroke-width="0.5" fill="none"/>',

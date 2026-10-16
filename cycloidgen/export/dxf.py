@@ -86,6 +86,21 @@ def _polar(radius: float, count: int,
             for k in range(count)]
 
 
+def _housing_outline(msp, spec: GearSpec) -> None:
+    """The housing's outline on the HOUSING layer: a circle, or a square with
+    its corners as true arcs - a closed polyline with bulges, which every CAM
+    package reads as the arcs they are rather than as a run of chords."""
+    r = spec.housing_outer_radius
+    if not spec.square_housing:
+        msp.add_circle((0, 0), r, dxfattribs={"layer": "HOUSING"})
+        return
+    c = r - spec.housing_corner_radius
+    b = float(np.tan(np.pi / 8.0))              # a quarter turn, counter-clockwise
+    msp.add_lwpolyline([(r, -c, 0.0), (r, c, b), (c, r, 0.0), (-c, r, b),
+                        (-r, c, 0.0), (-r, -c, b), (-c, -r, 0.0), (c, -r, b)],
+                       format="xyb", close=True, dxfattribs={"layer": "HOUSING"})
+
+
 def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
                motor_face: bool = False, shoulders=()) -> Path:
     """One of the two plates that close the housing, as a drilling drawing.
@@ -100,11 +115,13 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
     """
     doc, msp = _new_doc()
     r = spec.housing_outer_radius
-    msp.add_circle((0, 0), r, dxfattribs={"layer": "HOUSING"})
+    _housing_outline(msp, spec)
     msp.add_circle((0, 0), max(bore, 1e-3) / 2.0, dxfattribs={"layer": "DISC_BORE"})
     _cross(msp, (0.0, 0.0), size=max(bore / 2.0, 1.0) + 3.0)
 
-    note = f"{name.replace('_', ' ')}  OD {2 * r:g}  bore {bore:g}"
+    outline = (f"{2 * r:g} square R{spec.housing_corner_radius:g}"
+               if spec.square_housing else f"OD {2 * r:g}")
+    note = f"{name.replace('_', ' ')}  {outline}  bore {bore:g}"
 
     # The lip that holds the bearing in: the seat is bored from the inside to
     # a depth and the hole carries on through at the lip's size.  On its own
@@ -130,17 +147,21 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
         note += (f"  |  2 x {spec.plate_dowel_hole:g} dowel"
                  + ("" if spec.printed else " H7, ream on assembly"))
 
-    if spec.housing_bolt_count:
-        msp.add_circle((0, 0), spec.housing_bolt_radius,
-                       dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
-        for c in _polar(spec.housing_bolt_radius, spec.housing_bolt_count):
+    if spec.tie_bolt_centres:
+        ties = spec.tie_bolt_centres
+        if not spec.square_housing:
+            msp.add_circle((0, 0), spec.housing_bolt_radius,
+                           dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
+        for c in ties:
             msp.add_circle(c, spec.housing_bolt_diameter / 2.0,
                            dxfattribs={"layer": "BOLTS"})
             _cross(msp, c)
         size = spec.tie_bolt_size
         named = f" ({size.name})" if size else ""
-        note += (f"  |  {spec.housing_bolt_count} x {spec.housing_bolt_diameter:g}"
-                 f"{named} tie on BC {2 * spec.housing_bolt_radius:g}")
+        where = (f"{2 * abs(ties[0][0]):g} square" if spec.square_housing
+                 else f"BC {2 * spec.housing_bolt_radius:g}")
+        note += (f"  |  {len(ties)} x {spec.housing_bolt_diameter:g}"
+                 f"{named} tie on {where}")
 
     # ``motor_face`` marks the input-side plate rather than promising a motor.
     # On a ring-output drive that face turns, so the motor has moved to the
@@ -151,9 +172,10 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
             msp.add_circle(c, spec.output_bolt_diameter / 2.0,
                            dxfattribs={"layer": "MOTOR"})
             _cross(msp, c)
+        clocked = ("the first on the +X flat" if spec.square_housing else
+                   f"{np.degrees(spec.output_bolt_phase):.1f} deg off the tie bolts")
         note += (f"  |  {spec.output_bolt_count} x {spec.output_bolt_diameter:g} "
-                 f"output on BC {2 * spec.output_face_bolt_radius:g}, "
-                 f"{np.degrees(spec.output_bolt_phase):.1f} deg off the tie bolts")
+                 f"output on BC {2 * spec.output_face_bolt_radius:g}, {clocked}")
     elif motor_face and spec.has_motor_face and not spec.coupled:
         frame = spec.motor_face
         if frame.pilot_diameter > bore:
@@ -217,7 +239,7 @@ def write_dxf(spec: GearSpec, path: str | Path) -> Path:
 
     msp.add_circle((0, 0), spec.pin_circle_radius,
                    dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
-    msp.add_circle((0, 0), spec.housing_outer_radius, dxfattribs={"layer": "HOUSING"})
+    _housing_outline(msp, spec)
 
     msp.add_text(
         f"cycloidal drive  i={spec.ratio}:1  N={spec.lobes} lobes / {spec.pin_count} pins  "
@@ -272,7 +294,7 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
 
     # ---- ring plate: the housing bore and its pin pockets -------------------
     doc, msp = _new_doc()
-    msp.add_circle((0, 0), spec.housing_outer_radius, dxfattribs={"layer": "HOUSING"})
+    _housing_outline(msp, spec)
     msp.add_circle((0, 0), spec.pin_circle_radius, dxfattribs={"layer": "DISC_BORE"})
     for k in range(spec.pin_count):
         a = 2.0 * np.pi * k / spec.pin_count

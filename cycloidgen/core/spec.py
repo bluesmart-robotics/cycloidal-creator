@@ -282,6 +282,21 @@ class OffsetMode(str, Enum):
     BOTH = "both"                 # split evenly between the two
 
 
+class HousingShape(str, Enum):
+    """The outline of the housing and its two end plates.
+
+    Round is the shape the drive has always had: a barrel, its tie bolts on a
+    circle down the middle of its wall.  Square is the outline a gearhead for a
+    stepper has - flat sides to bolt to or stand on - and its corners are where
+    the metal is, so the tie bolts go there: four of them, each with a wall's
+    worth of metal round it instead of half of what is left either side of a
+    bolt on the circle.
+    """
+
+    ROUND = "round"
+    SQUARE = "square"
+
+
 class OutputMember(str, Enum):
     """Which member the load is taken from - and so which one is bolted down.
 
@@ -424,6 +439,9 @@ class GearSpec(BaseModel):
 
     # ---- housing / shaft ------------------------------------------------------
     housing_wall: float = Field(6.0, gt=0)
+    housing_shape: HousingShape = Field(
+        HousingShape.ROUND,
+        description="round, or square with the tie bolts in its corners")
     input_shaft_diameter: float = Field(10.0, gt=0)
     eccentric_cam_diameter: float | None = Field(
         None, description="cam OD; defaults to the bore less a 4 mm bearing wall"
@@ -1030,7 +1048,9 @@ class GearSpec(BaseModel):
         a circle and are kept apart by angle instead - see
         :attr:`output_bolt_phase` - and when they cannot be, the
         ``OUTPUT_BOLT_CLASH`` check says so rather than the model quietly
-        drawing one hole through another.
+        drawing one hole through another.  A square housing keeps the circle
+        - the middle of its wall at the flats - and its tie bolts go out into
+        the corners, off it.
         """
         return self.housing_bolt_radius
 
@@ -1040,10 +1060,12 @@ class GearSpec(BaseModel):
 
         Zero when there are no tie bolts to miss.  With the usual six of each
         this puts an output hole exactly between every pair of tie bolts, which
-        is as far from them as the circle allows.
+        is as far from them as the circle allows.  Zero on a square housing
+        too: its tie bolts are on the diagonals, so the first output bolt goes
+        on the middle of a flat, as far from two corners as it can be.
         """
         import math
-        if not self.housing_bolt_count:
+        if not self.housing_bolt_count or self.square_housing:
             return 0.0
         return math.pi / self.housing_bolt_count
 
@@ -1425,8 +1447,111 @@ class GearSpec(BaseModel):
         which is what an edge break on the rim has to stay within."""
         if not self.housing_bolt_count:
             return self.housing_wall
+        if self.square_housing:
+            # A corner bolt sits on its corner's centre: the arc is as far
+            # from it as the two flat sides are.
+            return self.housing_corner_radius - self.housing_bolt_diameter / 2.0
         return (self.housing_outer_radius - self.housing_bolt_radius
                 - self.housing_bolt_diameter / 2.0)
+
+    # ---- the outline ------------------------------------------------------------
+    #
+    # Everything that draws, weighs or cools the housing and its end plates reads
+    # these rather than a radius, so the square and the round are one question.
+    # ``housing_outer_radius`` stays what it was: the round housing's radius, and
+    # the square's half-width across the flats - the same metal past the pin
+    # pockets either way, at the thinnest place.
+    @property
+    def square_housing(self) -> bool:
+        return self.housing_shape is HousingShape.SQUARE
+
+    @property
+    def housing_corner_radius(self) -> float:
+        """A square housing's corners are rounded to a wall; a round one's
+        "corner" is its radius."""
+        if self.square_housing:
+            return self.housing_wall
+        return self.housing_outer_radius
+
+    def housing_outline(self, segments: int = 96) -> list[tuple[float, float]]:
+        """The outline, counter-clockwise from the +x axis, as points: a circle
+        of ``segments``, or a square with its corners rounded, a quarter of
+        ``segments`` to each corner."""
+        r = self.housing_outer_radius
+        if not self.square_housing:
+            return [(r * math.cos(2.0 * math.pi * k / segments),
+                     r * math.sin(2.0 * math.pi * k / segments))
+                    for k in range(segments)]
+        rc = self.housing_corner_radius
+        c = r - rc
+        n = max(segments // 4, 6)
+        points = []
+        for cx, cy, start in ((c, c, 0.0), (-c, c, 0.5 * math.pi),
+                              (-c, -c, math.pi), (c, -c, 1.5 * math.pi)):
+            for k in range(n + 1):
+                a = start + 0.5 * math.pi * k / n
+                points.append((cx + rc * math.cos(a), cy + rc * math.sin(a)))
+        return points
+
+    @property
+    def housing_section_area(self) -> float:
+        """The area inside the outline, mm^2."""
+        r = self.housing_outer_radius
+        if not self.square_housing:
+            return math.pi * r * r
+        rc = self.housing_corner_radius
+        return 4.0 * r * r - (4.0 - math.pi) * rc * rc
+
+    @property
+    def housing_polar_area_moment(self) -> float:
+        """``integral r^2 dA`` over the outline, about the axis, mm^4.
+
+        The square's is a square's, ``(2r)^4 / 6``, less what rounding takes
+        off each corner: the corner square of side ``rc`` less the quarter disc
+        that replaces it, both about the axis rather than about themselves.
+        """
+        r = self.housing_outer_radius
+        if not self.square_housing:
+            return math.pi * r ** 4 / 2.0
+        rc = self.housing_corner_radius
+        a = r - rc
+        corner_square = 2.0 * rc * (r ** 3 - a ** 3) / 3.0
+        quarter = (math.pi * rc ** 4 / 8.0 + 4.0 * a * rc ** 3 / 3.0
+                   + math.pi * a * a * rc * rc / 2.0)
+        return (2.0 * r) ** 4 / 6.0 - 4.0 * (corner_square - quarter)
+
+    @property
+    def housing_perimeter(self) -> float:
+        """Round the outline, mm."""
+        r = self.housing_outer_radius
+        if not self.square_housing:
+            return 2.0 * math.pi * r
+        rc = self.housing_corner_radius
+        return 8.0 * r - (8.0 - 2.0 * math.pi) * rc
+
+    @property
+    def housing_size_text(self) -> str:
+        """What the outline is called on a bill or a title block."""
+        size = f"{2 * self.housing_outer_radius:.1f}"
+        return f"{size} square" if self.square_housing else f"{size} dia"
+
+    @property
+    def tie_bolt_centres(self) -> list[tuple[float, float]]:
+        """Where the tie bolts go through the plates and the barrel.
+
+        Round: ``housing_bolt_count`` of them on the wall's middle circle from
+        the +x axis.  Square: four, one on each rounded corner's centre, where
+        the corner's arc and both flat sides are a wall away.
+        """
+        n = self.housing_bolt_count
+        if not n:
+            return []
+        if self.square_housing:
+            c = self.housing_outer_radius - self.housing_corner_radius
+            return [(c, c), (-c, c), (-c, -c), (c, -c)]
+        r = self.housing_bolt_radius
+        return [(r * math.cos(2.0 * math.pi * k / n), r * math.sin(2.0 * math.pi * k / n))
+                for k in range(n)]
 
     # ---- the dowels that locate the end plates on the barrel -------------------
     #
@@ -1449,13 +1574,8 @@ class GearSpec(BaseModel):
         """Every hole through the input end plate but its bore and the dowels':
         ``(x, y, diameter, what)``, at its widest - a counterbore or a nut's
         pocket where it has one, since that is the metal it takes."""
-        holes = []
-        n = self.housing_bolt_count
-        for k in range(n):
-            a = 2.0 * math.pi * k / n
-            holes.append((self.housing_bolt_radius * math.cos(a),
-                          self.housing_bolt_radius * math.sin(a),
-                          self.housing_bolt_diameter, "a tie bolt"))
+        holes = [(x, y, self.housing_bolt_diameter, "a tie bolt")
+                 for x, y in self.tie_bolt_centres]
         if self.ground_frame_fitted and self.output_bolt_count:
             r, m = self.output_face_bolt_radius, self.output_bolt_count
             for k in range(m):
@@ -1493,7 +1613,9 @@ class GearSpec(BaseModel):
         """
         if not self.plate_dowel_diameter:
             return ()
-        n = self.housing_bolt_count or 6
+        if self.square_housing:
+            return self._square_dowel_angles()
+        n = len(self.tie_bolt_centres) or 6
         pitch = 2.0 * math.pi / n
         first = 0.25 * pitch
         candidates = [(k + 0.25) * pitch for k in range(1, n) if 2 * k != n]
@@ -1506,6 +1628,42 @@ class GearSpec(BaseModel):
             return metal >= 1.0, -abs(apart - math.pi), metal
 
         return (first, max(candidates, key=merit))
+
+    def _square_dowel_angles(self) -> tuple[float, float]:
+        """The two dowels on a square housing's plates.
+
+        Its tie bolts are off the dowels' circle, out in the corners, so the
+        quarter-pitch rule has nothing to measure from: the circle is searched
+        instead, every 15 degrees.  The first dowel goes where the most metal
+        is round it; the second as the round rule puts it - a millimetre clear,
+        then nearest opposite - and the pair may not come back onto itself
+        under any of the eight ways a square plate can be turned or flipped
+        onto its bolts.
+        """
+        grid = [math.radians(15.0 * k) for k in range(24)]
+        first = max(grid, key=lambda a: round(self.plate_dowel_metal(a)[0], 9))
+
+        def near(x: float, y: float) -> bool:
+            return abs(math.remainder(x - y, 2.0 * math.pi)) < 1e-9
+
+        def on_itself(a: float, b: float) -> bool:
+            for k in range(4):
+                turn = 0.5 * math.pi * k
+                # Turned a quarter at a time, and flipped across each axis of
+                # symmetry; leaving it as it is is not a way of getting it wrong.
+                images = [(turn - a, turn - b)] + ([(a + turn, b + turn)] if k else [])
+                for p, q in images:
+                    if (near(p, a) and near(q, b)) or (near(p, b) and near(q, a)):
+                        return True
+            return False
+
+        def merit(angle: float) -> tuple[bool, float, float]:
+            metal = self.plate_dowel_metal(angle)[0]
+            apart = abs(math.remainder(angle - first, 2.0 * math.pi))
+            return metal >= 1.0, -abs(apart - math.pi), metal
+
+        return (first, max((a for a in grid
+                            if a != first and not on_itself(first, a)), key=merit))
 
     @property
     def plate_dowel_centres(self) -> list[tuple[float, float]]:
@@ -1807,9 +1965,8 @@ class GearSpec(BaseModel):
         conduct some heat away as well, which this deliberately ignores - it is
         the pessimistic, free-standing case.
         """
-        import math
-        r = self.housing_outer_radius
-        return 2.0 * math.pi * r * self.envelope_length + 2.0 * math.pi * r * r
+        return (self.housing_perimeter * self.envelope_length
+                + 2.0 * self.housing_section_area)
 
     # ---------------------------------------------------------------- helpers --
     @property

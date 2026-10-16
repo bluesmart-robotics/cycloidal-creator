@@ -399,7 +399,8 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
         Paragraph(f"Cycloidal drive {s.ratio}:1", h1),
         Paragraph(
             f"{s.lobes} lobes / {s.pin_count} ring pins &middot; "
-            f"{2 * s.housing_outer_radius:.1f} mm outside diameter &middot; "
+            f"{2 * s.housing_outer_radius:.1f} mm "
+            f"{'square' if s.square_housing else 'outside diameter'} &middot; "
             f"{s.disc_count} disc(s) &middot; {s.process.value} &middot; "
             f"generated {datetime.now():%Y-%m-%d %H:%M} "
             f"by cycloidgen {__version__}", body),

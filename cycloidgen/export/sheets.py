@@ -170,6 +170,25 @@ class PlateFeatures:
     mount: Mount | None
     edge_break: float
     printed: bool
+    #: A square plate's corner radius - its side is ``outside_diameter``, the
+    #: width across the flats; None on a round plate.
+    corner_radius: float | None = None
+
+    @property
+    def reach(self) -> float:
+        """How far the outline reaches from the axis: the radius, or a square's
+        corner."""
+        R = self.outside_diameter / 2.0
+        if self.corner_radius is None:
+            return R
+        return math.sqrt(2.0) * (R - self.corner_radius) + self.corner_radius
+
+    @property
+    def outside_text(self) -> str:
+        """The outline's size as the section states it."""
+        if self.corner_radius is None:
+            return f"Ø{_fmt(self.outside_diameter)}"
+        return f"{_fmt(self.outside_diameter)} A/F"
 
 
 def _turning_rpm(spec: GearSpec) -> float:
@@ -246,15 +265,14 @@ def plate_features(spec: GearSpec, name: str) -> PlateFeatures:
 
     # ---- hole patterns --------------------------------------------------------
     patterns: list[Pattern] = []
-    if spec.housing_bolt_count:
+    if spec.tie_bolt_centres:
         size = spec.tie_bolt_size
-        n = spec.housing_bolt_count
-        r = spec.housing_bolt_radius
+        ties = tuple(spec.tie_bolt_centres)
+        square = 2.0 * abs(ties[0][0]) if spec.square_housing else None
         patterns.append(Pattern(
-            label="tie bolts",
-            centres=tuple((r * math.cos(2 * math.pi * k / n),
-                           r * math.sin(2 * math.pi * k / n)) for k in range(n)),
-            hole=spec.housing_bolt_diameter, circle=2.0 * r, square=None,
+            label="tie bolts", centres=ties,
+            hole=spec.housing_bolt_diameter,
+            circle=None if square else 2.0 * spec.housing_bolt_radius, square=square,
             screw=size.name if size else "",
             position=_position(spec.housing_bolt_diameter,
                                size.d if size else None, fixed=False),
@@ -315,7 +333,8 @@ def plate_features(spec: GearSpec, name: str) -> PlateFeatures:
         seat=seat, through=through, lip=lip_z, register=register,
         patterns=tuple(patterns), mount=mount,
         edge_break=plate_edge_break(spec, bores.shoulders, name),
-        printed=printed)
+        printed=printed,
+        corner_radius=spec.housing_corner_radius if spec.square_housing else None)
 
 
 def _motor_pattern(spec: GearSpec, located: bool, recessed: bool) -> Pattern:
@@ -482,7 +501,10 @@ def _front(f: PlateFeatures, mirror: float) -> list:
         return (-mirror * p[1], p[0])
 
     R = f.outside_diameter / 2.0
-    items: list = [Circle((0.0, 0.0), R)]
+    if f.corner_radius is None:
+        items: list = [Circle((0.0, 0.0), R)]
+    else:
+        items = [Polyline(tuple(uv(p) for p in _rounded_square(R, f.corner_radius)))]
     items += [Segment((-R - 6.0, 0.0), (R + 6.0, 0.0), CENTRE)]
     m = f.mount
     if m is not None:
@@ -524,6 +546,18 @@ def _front(f: PlateFeatures, mirror: float) -> list:
                          c[1] + rr * math.sin(math.radians(30 + 60 * k)))
                         for k in range(6)), kind=HIDDEN))
     return items
+
+
+def _rounded_square(half: float, corner: float) -> list[tuple[float, float]]:
+    """A square ``2 * half`` across the flats with its corners rounded, as the
+    points of a closed outline - each corner's arc in 24 chords."""
+    c = half - corner
+    points = []
+    for cx, cy, start in ((c, c, 0.0), (-c, c, 90.0), (-c, -c, 180.0), (c, -c, 270.0)):
+        for k in range(25):
+            a = math.radians(start + 90.0 * k / 24)
+            points.append((cx + corner * math.cos(a), cy + corner * math.sin(a)))
+    return points
 
 
 def _pattern_lines(p: Pattern, f: PlateFeatures) -> tuple[str, ...]:
@@ -588,7 +622,7 @@ def plate_sheet(spec: GearSpec, name: str) -> Sheet:
     slots = iter((135.0, -135.0, 45.0, -45.0, 160.0, -160.0))
     for p in f.patterns:
         a = next(slots)
-        knee = _slot(s, R, a)
+        knee = _slot(s, f.reach, a)
         knee_view = (knee[0] / s, knee[1] / s)
         holes = [(-mirror * c[1], c[0]) for c in p.centres]
         hole = max(holes, key=lambda q, a=a: q[0] * math.cos(math.radians(a))
@@ -598,7 +632,7 @@ def plate_sheet(spec: GearSpec, name: str) -> Sheet:
         front.items.append(Callout(_towards(hole, p.hole / 2.0, knee_view),
                                    _pattern_lines(p, f), frame=frame, knee=knee))
     if f.register is not None:
-        knee = _slot(s, R, next(slots))
+        knee = _slot(s, f.reach, next(slots))
         front.items.append(Callout(
             _towards((0.0, 0.0), f.register.diameter / 2.0, (knee[0] / s, knee[1] / s)),
             (f"Ø{_fmt(f.register.diameter)} H7 x {_fmt(f.register.depth)} DEEP",
@@ -616,7 +650,7 @@ def plate_sheet(spec: GearSpec, name: str) -> Sheet:
     items.append(Linear((0.0, R), (f.thickness, R), "h", 10.0, _fmt(f.thickness)))
     right = s * height + 10.0
     items.append(Linear((f.thickness, -R), (f.thickness, R), "v",
-                        right - s * f.thickness, f"Ø{_fmt(f.outside_diameter)}"))
+                        right - s * f.thickness, f.outside_text))
     right += 10.0
     if f.seat is not None:
         d = f.seat.diameter / 2.0
@@ -686,6 +720,11 @@ def plate_sheet(spec: GearSpec, name: str) -> Sheet:
     else:
         notes.append(f"Dimensions in millimetres. Tolerancing ISO 8015; untoleranced "
                      f"sizes to {_GENERAL[spec.process]}.")
+    if f.corner_radius is not None:
+        notes.append(f"Square, {_fmt(f.outside_diameter)} x "
+                     f"{_fmt(f.outside_diameter)} across the flats, corners "
+                     f"R{_fmt(f.corner_radius)}: the barrel's outline, so the "
+                     f"two are flush all round.")
     notes.append("A is the inside face: it bolts to the ring housing and runs "
                  "against the discs. B is the axis of the bearing seat"
                  + (", C the axis of the bore the motor's spigot locates in."
@@ -749,8 +788,9 @@ def plate_sheet(spec: GearSpec, name: str) -> Sheet:
         process=spec.process.value, quantity=1, mass_g=_plate_mass(spec, name),
         scale=_scale_text(s), general=general, views=[front, section],
         notes=notes,
-        design=(f"{spec.ratio}:1, {f.outside_diameter:.0f} mm OD, "
-                f"{member} output"),
+        design=(f"{spec.ratio}:1, {f.outside_diameter:.0f} mm "
+                + ("square" if f.corner_radius is not None else "OD")
+                + f", {member} output"),
         warning=f"{notice.HEADLINE.upper()} - {notice.SHORT}")
 
 

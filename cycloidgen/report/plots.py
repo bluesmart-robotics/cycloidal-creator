@@ -188,6 +188,16 @@ def _circle(x, y, r, color, lw, dashed: bool = False, alpha: float = 1.0) -> Cir
                   linestyle=(0, (4, 3)) if dashed else "solid", alpha=alpha, zorder=2)
 
 
+def _housing(spec: GearSpec, color, lw, dashed: bool = False,
+             alpha: float = 1.0) -> Circle | Polygon:
+    """The housing's outline: the circle it always was, or a rounded square."""
+    if not spec.square_housing:
+        return _circle(0, 0, spec.housing_outer_radius, color, lw, dashed, alpha)
+    return Polygon(np.asarray(spec.housing_outline(96)), closed=True, fill=False,
+                   edgecolor=color, linewidth=lw,
+                   linestyle=(0, (4, 3)) if dashed else "solid", alpha=alpha, zorder=2)
+
+
 @dataclass(frozen=True)
 class Overlays:
     """What the drawing shows beyond the outlines.
@@ -240,6 +250,7 @@ class ProfileView:
         self._overlays = Overlays()
         self._crank = 0.0
         self._ring_pins: list = []
+        self._squares: list = []
         self._pin_labels: list = []
         # `tight_layout` solves for the figure size it is run at and writes the
         # answer down as *fractions*.  Embedded in a window the figure is then
@@ -320,20 +331,32 @@ class ProfileView:
 
         reference = self._reference
         self._ghost = None
+        # A square outline is not concentric with itself turned, so on a drive
+        # whose housing turns it has to be turned with it: (artist, outline,
+        # spec) for each one that does.
+        self._squares = []
         if reference is not None:
             # underneath everything, in the muted ink: it is context, not content
             self._ref_profile = prof.profile_from_spec(reference)
             (self._ghost,) = ax.plot([], [], color=t["muted"], linewidth=1.2,
                                      linestyle=(0, (5, 3)), zorder=1)
-            ax.add_artist(_circle(0, 0, reference.housing_outer_radius, t["muted"],
-                                  0.8, dashed=True, alpha=0.7))
+            ghost_housing = _housing(reference, t["muted"], 0.8, dashed=True,
+                                     alpha=0.7)
+            ax.add_artist(ghost_housing)
+            if reference.square_housing:
+                self._squares.append((ghost_housing, ghost_housing.get_xy(),
+                                      reference))
 
         # The barrel and the pin circle are concentric, so they read the same
         # whichever way the housing is turning.  The pins do not: on a
         # ring-output drive they are the part that moves, and drawing them
         # nailed down would be drawing the wrong mechanism - the readout would
-        # claim an output angle with nothing on screen turning by it.
-        ax.add_artist(_circle(0, 0, spec.housing_outer_radius, t["muted"], 0.8))
+        # claim an output angle with nothing on screen turning by it.  Nor
+        # does a square barrel, which turns with them.
+        housing = _housing(spec, t["muted"], 0.8)
+        ax.add_artist(housing)
+        if spec.square_housing:
+            self._squares.append((housing, housing.get_xy(), spec))
         ax.add_artist(_circle(0, 0, spec.pin_circle_radius, t["grid"], 0.8, dashed=True))
         self._ring_pins = []
         self._pin_labels = []
@@ -401,16 +424,23 @@ class ProfileView:
 
         self._build_overlays(ax, t, series)
 
-        lim = spec.housing_outer_radius * 1.05
+        def reach(s: GearSpec) -> float:
+            # A square turning in a ring-output drive sweeps its corners round.
+            if s.square_housing:
+                return float(np.max(np.hypot(*np.asarray(s.housing_outline(96)).T)))
+            return s.housing_outer_radius
+
+        lim = reach(spec) * 1.05
         if reference is not None:
-            lim = max(lim, reference.housing_outer_radius * 1.05)
+            lim = max(lim, reach(reference) * 1.05)
         ax.set_xlim(-lim, lim)
         ax.set_ylim(-lim, lim)
         ax.set_aspect("equal")
         ax.axis("off")
         od = _unit_for(_units).text(2 * spec.housing_outer_radius, 1)
+        size = f"{od} square" if spec.square_housing else f"OD {od}"
         ax.set_title(f"{spec.ratio}:1   {spec.lobes} lobes / {spec.pin_count} pins   "
-                     f"OD {od}",
+                     f"{size}",
                      color=t["ink"], fontsize=10, pad=8)
         # The design's own speed, which is *not* the speed of the animation: the
         # playback rate is wall-clock and says nothing about the machine.  A
@@ -545,6 +575,10 @@ class ProfileView:
             a = 2.0 * np.pi * k / spec.pin_count + frame
             pin.set_center((spec.pin_circle_radius * np.cos(a),
                             spec.pin_circle_radius * np.sin(a)))
+        for artist, outline, owner in self._squares:
+            a = owner.frame_spin * phi
+            c, s = np.cos(a), np.sin(a)
+            artist.set_xy(outline @ np.array([[c, s], [-s, c]]))
         for k, label in enumerate(self._pin_labels):
             a = 2.0 * np.pi * k / spec.pin_count + frame
             label.set_position((spec.pin_circle_radius * np.cos(a),

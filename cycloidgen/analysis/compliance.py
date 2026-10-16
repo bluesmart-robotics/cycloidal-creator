@@ -249,6 +249,9 @@ def analyse_parts(spec: GearSpec) -> PartStiffness:
     # ---- housing barrel -----------------------------------------------------
     # Annulus from the pin bore out to the skin, less the half-round pockets the
     # pins sit in - they are cut at the bore, where the material earns the most.
+    # A square housing is the round one it contains plus four corners, which
+    # stiffen it - by less than their polar moment says, since a section that
+    # is not round warps - so they are left out, on the safe side.
     r_i, r_o = spec.pin_circle_radius, spec.housing_outer_radius
     polar = 0.5 * math.pi * (r_o ** 4 - r_i ** 4)
     polar -= spec.pin_count * (0.5 * math.pi * spec.pin_radius ** 2) * r_i ** 2

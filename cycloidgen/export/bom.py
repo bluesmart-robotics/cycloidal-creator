@@ -81,7 +81,7 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
     # ---- made parts ---------------------------------------------------------
     items.append(BomItem(
         part="Ring housing", quantity=1, material=s.housing_material,
-        size=f"{2 * s.housing_outer_radius:.1f} dia x {s.barrel_height:g} mm",
+        size=f"{s.housing_size_text} x {s.barrel_height:g} mm",
         mass_each_g=m.housing_mass_g, source="make",
         note=f"{s.pin_count} "
              + ("pins formed with it" if s.ring_pins_integral else "pin pockets")
@@ -99,7 +99,7 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         items.append(BomItem(
             part="Input end plate, with motor mount", quantity=1,
             material=s.housing_material,
-            size=f"{2 * s.housing_outer_radius:.1f} dia x {s.plate_thickness:g} mm, "
+            size=f"{s.housing_size_text} x {s.plate_thickness:g} mm, "
                  f"mount {2 * outer:.1f} mm x {height:.1f} mm to a "
                  f"{s.motor_face.name} flange",
             mass_each_g=plain + mount, source="make",
@@ -108,13 +108,13 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
                  f"for its screws"))
         items.append(BomItem(
             part="Output end plate", quantity=1, material=s.housing_material,
-            size=f"{2 * s.housing_outer_radius:.1f} dia x {s.plate_thickness:g} mm",
+            size=f"{s.housing_size_text} x {s.plate_thickness:g} mm",
             mass_each_g=plain, source="make",
             note=f"bored {bores.output_plate:.1f} for the output bearing"))
     else:
         items.append(BomItem(
             part="Housing end plate", quantity=2, material=s.housing_material,
-            size=f"{2 * s.housing_outer_radius:.1f} dia x {s.plate_thickness:g} mm",
+            size=f"{s.housing_size_text} x {s.plate_thickness:g} mm",
             mass_each_g=m.plates_mass_g / 2.0, source="make",
             note=f"input side bored {bores.input_plate:.1f} for the "
                  + ("second output bearing" if s.ground_frame_fitted
@@ -133,7 +133,7 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         note=f"{s.output_pin_count} pin seats on a "
              f"{2 * s.output_bolt_circle_radius:g} mm circle"
              + ("; one part with the base the drive is bolted down by, on the "
-                f"end of the boss - {2 * s.housing_outer_radius:.1f} dia x "
+                f"end of the boss - {s.housing_size_text} x "
                 f"{s.plate_thickness:g} mm" if s.ground_frame_fitted else "")))
 
     if s.ground_frame_fitted:
@@ -229,33 +229,36 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
     # Named by size and length when the hole is one the table knows - what a
     # supplier is actually asked for - and by the hole when it is not.
     bolt = s.tie_bolt_size
-    if s.housing_bolt_count and bolt is not None and s.tie_screw_length is not None:
+    ties = len(s.tie_bolt_centres)
+    tie_where = (f"at the corners of a {2 * abs(s.tie_bolt_centres[0][0]):.1f} mm square"
+                 if ties and s.square_housing else
+                 f"on a {2 * s.housing_bolt_radius:.1f} mm circle")
+    if ties and bolt is not None and s.tie_screw_length is not None:
         # The two halves of `tie_bolt_mass_g`, which is what the mass model
         # adds up - so the lines and the total cannot disagree.
         density = s.pin_mat.density_g_cm3 / 1000.0
         screw_g = screw_volume(bolt, s.tie_screw_length) * density
         nut_g = nut_volume(bolt) * density
         items.append(BomItem(
-            part="Tie bolt", quantity=s.housing_bolt_count, material=s.pin_material,
+            part="Tie bolt", quantity=ties, material=s.pin_material,
             size=f"{bolt.name} x {s.tie_screw_length:g} socket head cap screw, "
                  f"ISO 4762",
             mass_each_g=screw_g, source="buy",
             note=f"head on the output end plate, through it, the barrel and the "
-                 f"input end plate, on a {2 * s.housing_bolt_radius:.1f} mm "
-                 f"circle; {s.tie_bolt_length:.0f} mm of grip"))
+                 f"input end plate, {tie_where}; {s.tie_bolt_length:.0f} mm of "
+                 f"grip"))
         items.append(BomItem(
-            part="Tie bolt nut", quantity=s.housing_bolt_count,
+            part="Tie bolt nut", quantity=ties,
             material=s.pin_material, size=f"{bolt.name} hexagon nut, ISO 4032",
             mass_each_g=nut_g, source="buy",
             note="on the input end plate's outside face"))
-    elif s.housing_bolt_count:
+    elif ties:
         items.append(BomItem(
-            part="Tie bolt", quantity=s.housing_bolt_count, material=s.pin_material,
+            part="Tie bolt", quantity=ties, material=s.pin_material,
             size=f"{s.housing_bolt_diameter:g} mm clearance, about "
                  f"{s.tie_bolt_length:.0f} mm under the head",
             mass_each_g=0.0, source="buy",
-            note=f"through both end plates into the barrel, on a "
-                 f"{2 * s.housing_bolt_radius:.1f} mm circle"))
+            note=f"through both end plates into the barrel, {tie_where}"))
 
     # An outrunner drives through its can, bolted to a hub on the shaft's end.
     if s.rotor_hub is not None:
@@ -285,10 +288,13 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
             size=f"{s.plate_dowel_diameter:g} m6 x {s.plate_dowel_length:g} dowel "
                  f"pin, ISO 8734",
             mass_each_g=plate_dowel_mass_g(s), source="buy",
-            note=f"two at each end, pressed into the barrel and a tight slide in "
-                 f"the plate, on the {2 * s.housing_bolt_radius:.1f} mm tie-bolt "
-                 f"circle - they, not the bolts, are what put the plates' "
-                 f"bearing seats on the ring's axis"))
+            note="two at each end, pressed into the barrel and a tight slide in "
+                 "the plate, "
+                 + (f"on a {2 * s.housing_bolt_radius:.1f} mm circle down the "
+                    f"middle of the wall" if s.square_housing else
+                    f"on the {2 * s.housing_bolt_radius:.1f} mm tie-bolt circle")
+                 + " - they, not the bolts, are what put the plates' "
+                   "bearing seats on the ring's axis"))
 
     if s.ground_frame_fitted and s.output_bolt_count:
         items.append(BomItem(

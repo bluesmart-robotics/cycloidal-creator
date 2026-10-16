@@ -164,21 +164,55 @@ def _concave(body: cq.Shape, edge: cq.Edge, step: float = 1e-3) -> bool:
             and body.isInside(p + b * step - a * step))
 
 
+def _outline_prism(spec: GearSpec, z0: float, height: float) -> cq.Workplane:
+    """The housing's outline from ``z0``, ``height`` tall: a cylinder, or a
+    square prism with its upright edges rounded to the corner radius - true
+    arcs, so the solid encloses what the mass model's area says."""
+    r = spec.housing_outer_radius
+    wp = cq.Workplane("XY").workplane(offset=z0)
+    if not spec.square_housing:
+        return wp.circle(r).extrude(height)
+    return (wp.rect(2.0 * r, 2.0 * r).extrude(height)
+            .edges("|Z").fillet(spec.housing_corner_radius))
+
+
+def _on_outline(spec: GearSpec, p: cq.Vector) -> bool:
+    """Whether a point lies on a square housing's outline, seen along the axis."""
+    r, rc = spec.housing_outer_radius, spec.housing_corner_radius
+    c = r - rc
+    x, y = abs(p.x), abs(p.y)
+    if x > c + 1e-6 and y > c + 1e-6:
+        return abs((x - c) ** 2 + (y - c) ** 2 - rc * rc) < 1e-4
+    return abs(x - r) < 1e-6 or abs(y - r) < 1e-6
+
+
 def _break_edges(wp: cq.Workplane, radii: Sequence[float],
-                 size: float) -> cq.Workplane:
+                 size: float, outline: GearSpec | None = None) -> cq.Workplane:
     """Chamfer the outside circular edges of ``wp`` that lie on ``radii``.
 
     Chosen by radius rather than by face, because a radius is what names a
     feature here - the rim, a bearing seat, a shaft end - whichever face of the
     part it turns up on, and the inside corners at the same radius are dropped
-    by :func:`_convex` rather than listed.
+    by :func:`_convex` rather than listed.  A square housing's rim is not a
+    radius: ``outline`` breaks every edge that lies on it instead.
     """
     if size <= 0.0:
         return wp
     body = wp.val()
+
+    def on_rim(e: cq.Edge) -> bool:
+        if outline is None or not outline.square_housing:
+            return False
+        # In a face's plane: the seams down the corners, where a flat side runs
+        # into its arc, are on the outline too but are no edge at all.
+        ends = (e.positionAt(0.0), e.positionAt(1.0))
+        return (abs(ends[0].z - ends[1].z) < 1e-6
+                and all(_on_outline(outline, e.positionAt(t)) for t in (0.0, 0.5, 1.0)))
+
     edges = [e for e in body.Edges()
-             if e.geomType() == "CIRCLE"
-             and any(abs(e.radius() - r) < 1e-6 for r in radii)
+             if ((e.geomType() == "CIRCLE"
+                  and any(abs(e.radius() - r) < 1e-6 for r in radii))
+                 or on_rim(e))
              and _convex(body, e)]
     if not edges:
         return wp
@@ -320,10 +354,9 @@ def ring_housing(spec: GearSpec) -> cq.Workplane:
     printed with its pins on is ``cut`` against ``union``.
     """
     z0, h = spec.barrel_bottom, spec.barrel_height
-    body = (cq.Workplane("XY").workplane(offset=z0)
-            .circle(spec.housing_outer_radius)
-            .circle(spec.pin_circle_radius)
-            .extrude(h))
+    body = _outline_prism(spec, z0, h).cut(
+        cq.Workplane("XY").workplane(offset=z0 - 1.0)
+        .circle(spec.pin_circle_radius).extrude(h + 2.0))
     pins = (cq.Workplane("XY").workplane(offset=z0)
             .polarArray(spec.pin_circle_radius, 0, 360, spec.pin_count)
             .circle(spec.pin_radius)
@@ -334,12 +367,11 @@ def ring_housing(spec: GearSpec) -> cq.Workplane:
     # clamping.  Both plates were drilled for them and the bill of materials
     # orders them; the barrel was not, so the exported assembly was a gearbox
     # whose six tie bolts land on solid wall.
-    if spec.housing_bolt_count:
-        bolts = (cq.Workplane("XY").workplane(offset=z0)
-                 .polarArray(spec.housing_bolt_radius, 0, 360,
-                             spec.housing_bolt_count)
+    if spec.tie_bolt_centres:
+        bolts = (cq.Workplane("XY").workplane(offset=z0 - 1.0)
+                 .pushPoints(spec.tie_bolt_centres)
                  .circle(spec.housing_bolt_diameter / 2.0)
-                 .extrude(h))
+                 .extrude(h + 2.0))
         body = body.cut(bolts)
     # The dowels that locate the plates, pressed in from each end: one hole the
     # whole length, so a dowel can be driven out from the other end.
@@ -348,7 +380,7 @@ def ring_housing(spec: GearSpec) -> cq.Workplane:
     # disc runs; and the rim's break stops at half the metal between it and the
     # tie-bolt holes, which on the default wall is under a millimetre.
     return _break_edges(body, [spec.housing_outer_radius],
-                        min(spec.edge_chamfer, _rim_land(spec) / 2.0))
+                        min(spec.edge_chamfer, _rim_land(spec) / 2.0), outline=spec)
 
 
 def ring_pins(spec: GearSpec, placements: Sequence[BearingPlacement] = ()) -> cq.Workplane:
@@ -657,10 +689,8 @@ def output_flange(spec: GearSpec,
         # the base was not: it came out one millimetre below the boss it stands
         # on, which is a part in two pieces.  The volume was right, which is why
         # nothing caught it, and a printer would have made two.
-        base = (cq.Workplane("XY")
-                .workplane(offset=spec.base_plate_bottom + CARRIER_DROP)
-                .circle(spec.housing_outer_radius)
-                .extrude(spec.plate_thickness))
+        base = _outline_prism(spec, spec.base_plate_bottom + CARRIER_DROP,
+                              spec.plate_thickness)
         if spec.coupled:
             base = base.union(_motor_mount(spec, "output_flange", -1.0))
         elif spec.has_motor_face:
@@ -698,7 +728,9 @@ def output_flange(spec: GearSpec,
              *_lips(bores.shoulders, "output_flange")]
     if spec.ground_frame_fitted:
         radii.append(spec.housing_outer_radius)
-    return _round_inside(_break_edges(body, radii, min(spec.edge_chamfer, t / 4.0)))
+    return _round_inside(_break_edges(body, radii, min(spec.edge_chamfer, t / 4.0),
+                                      outline=spec if spec.ground_frame_fitted
+                                      else None))
 
 
 def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = (),
@@ -774,16 +806,15 @@ def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
     is what the driven machine bolts to instead - the same plate, the opposite
     end of the power flow.
     """
-    plate = (cq.Workplane("XY")
-             .circle(spec.housing_outer_radius)
-             .circle(max(bore, 1e-3) / 2.0)
-             .extrude(spec.plate_thickness))
+    plate = _outline_prism(spec, 0.0, spec.plate_thickness).cut(
+        cq.Workplane("XY").workplane(offset=-1.0)
+        .circle(max(bore, 1e-3) / 2.0).extrude(spec.plate_thickness + 2.0))
 
-    if spec.housing_bolt_count:
-        plate = (plate.faces(">Z").workplane()
-                 .polarArray(spec.housing_bolt_radius, 0, 360,
-                             spec.housing_bolt_count)
-                 .hole(spec.housing_bolt_diameter))
+    if spec.tie_bolt_centres:
+        plate = plate.cut(cq.Workplane("XY").workplane(offset=-1.0)
+                          .pushPoints(spec.tie_bolt_centres)
+                          .circle(spec.housing_bolt_diameter / 2.0)
+                          .extrude(spec.plate_thickness + 2.0))
     plate = _cut_dowel_holes(plate, spec, 0.0, spec.plate_thickness,
                              spec.plate_dowel_hole)
 
@@ -820,7 +851,7 @@ def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
     return _round_inside(_break_edges(
         plate, [spec.housing_outer_radius, max(bore, 1e-3) / 2.0,
                 *_lips(shoulders, host)],
-        plate_edge_break(spec, shoulders, host)))
+        plate_edge_break(spec, shoulders, host), outline=spec))
 
 
 #: A deep-groove ball's diameter as a share of the bearing's radial section,
@@ -1013,12 +1044,7 @@ def plate_dowels(spec: GearSpec) -> cq.Workplane | None:
 
 def _bolt_centres(spec: GearSpec) -> list[tuple[float, float, float]]:
     """Where each tie bolt goes, and the angle it sits at round the axis."""
-    out = []
-    for k in range(spec.housing_bolt_count):
-        a = 2.0 * math.pi * k / spec.housing_bolt_count
-        out.append((spec.housing_bolt_radius * math.cos(a),
-                    spec.housing_bolt_radius * math.sin(a), a))
-    return out
+    return [(x, y, math.atan2(y, x)) for x, y in spec.tie_bolt_centres]
 
 
 def tie_bolts(spec: GearSpec) -> cq.Workplane:
@@ -1046,8 +1072,7 @@ def tie_bolts(spec: GearSpec) -> cq.Workplane:
     if size is None:
         shank = TIE_BOLT_NOMINAL * spec.housing_bolt_diameter
         return (cq.Workplane("XY").workplane(offset=z0)
-                .polarArray(spec.housing_bolt_radius, 0, 360,
-                            spec.housing_bolt_count)
+                .pushPoints(spec.tie_bolt_centres)
                 .circle(shank / 2.0)
                 .extrude(spec.tie_bolt_length))
     length = spec.tie_screw_length or spec.tie_bolt_length
