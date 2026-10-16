@@ -65,6 +65,12 @@ class Bearing:
 BEARING_FILL = 0.65
 
 
+#: Up to 6006, 6906, 6808 and HK3020 the figures are the ones this list has
+#: always had, first-pass and within a tenth of any maker's.  The sizes past
+#: those, which are what a drive with a NEMA 34 on it needs, are NSK's
+#: published ratings for the balls and Koyo's for the drawn cups, as of 2026 -
+#: a current table rates a ball bearing a few percent above an older one, so
+#: next to their neighbours here they flatter slightly rather than not.
 CATALOGUE: list[Bearing] = [
     # thin section, 6800 series
     Bearing("6800", 10, 19, 5, 1.74, 0.915, "ball"),
@@ -76,6 +82,8 @@ CATALOGUE: list[Bearing] = [
     Bearing("6806", 30, 42, 7, 4.62, 3.35, "ball"),
     Bearing("6807", 35, 47, 7, 4.94, 4.00, "ball"),
     Bearing("6808", 40, 52, 7, 5.07, 4.30, "ball"),
+    Bearing("6809", 45, 58, 7, 7.25, 6.15, "ball"),
+    Bearing("6810", 50, 65, 7, 7.05, 6.20, "ball"),
     # 6900 series
     Bearing("6900", 10, 22, 6, 2.70, 1.27, "ball"),
     Bearing("6901", 12, 24, 6, 2.89, 1.46, "ball"),
@@ -84,6 +92,10 @@ CATALOGUE: list[Bearing] = [
     Bearing("6904", 20, 37, 9, 6.37, 3.65, "ball"),
     Bearing("6905", 25, 42, 9, 7.02, 4.30, "ball"),
     Bearing("6906", 30, 47, 9, 7.28, 5.00, "ball"),
+    Bearing("6907", 35, 55, 10, 11.6, 7.25, "ball"),
+    Bearing("6908", 40, 62, 12, 15.0, 10.0, "ball"),
+    Bearing("6909", 45, 68, 12, 15.5, 10.9, "ball"),
+    Bearing("6910", 50, 72, 12, 16.0, 11.7, "ball"),
     # 6000 series
     Bearing("6000", 10, 26, 8, 4.62, 1.96, "ball"),
     Bearing("6001", 12, 28, 8, 5.10, 2.36, "ball"),
@@ -92,6 +104,10 @@ CATALOGUE: list[Bearing] = [
     Bearing("6004", 20, 42, 12, 9.36, 5.00, "ball"),
     Bearing("6005", 25, 47, 12, 10.1, 5.85, "ball"),
     Bearing("6006", 30, 55, 13, 13.3, 8.30, "ball"),
+    Bearing("6007", 35, 62, 14, 17.6, 10.3, "ball"),
+    Bearing("6008", 40, 68, 15, 18.4, 11.5, "ball"),
+    Bearing("6009", 45, 75, 16, 23.0, 15.2, "ball"),
+    Bearing("6010", 50, 80, 16, 24.0, 16.6, "ball"),
     # drawn cup needle rollers, compact and stiff - ideal for the eccentric
     Bearing("HK0808", 8, 12, 8, 4.10, 3.60, "needle"),
     Bearing("HK1010", 10, 14, 10, 5.60, 5.60, "needle"),
@@ -101,6 +117,9 @@ CATALOGUE: list[Bearing] = [
     Bearing("HK2020", 20, 26, 20, 16.5, 20.0, "needle"),
     Bearing("HK2520", 25, 32, 20, 19.6, 25.5, "needle"),
     Bearing("HK3020", 30, 37, 20, 21.6, 30.0, "needle"),
+    Bearing("HK3520", 35, 42, 20, 24.5, 46.8, "needle"),
+    Bearing("HK4020", 40, 47, 20, 25.1, 50.4, "needle"),
+    Bearing("HK4520", 45, 52, 20, 27.2, 58.2, "needle"),
     # The narrow end of the same series.  Without these the catalogue had a hole
     # exactly where a cycloidal drive needs one: an eccentric cam is 15-25 mm on
     # any drive worth building, the bearing on it can be no wider than the disc,

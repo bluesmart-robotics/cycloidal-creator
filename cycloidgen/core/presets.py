@@ -21,8 +21,8 @@ its ratio preset carries - its pressure angle, its load sharing - which are the
 geometry's, not the motor's.
 
 The motor figures are typical of the class rather than one maker's part: a
-48 mm NEMA 17, a 112 mm NEMA 23, as their datasheets give them to within a few
-percent of each other.  Check yours.
+48 mm NEMA 17, a 112 mm NEMA 23, a 114 mm NEMA 34, as their datasheets give
+them to within a few percent of each other.  Check yours.
 """
 from __future__ import annotations
 
@@ -72,6 +72,10 @@ _NEMA23 = (("motor_frame", "NEMA 23"), ("motor_kind", MotorKind.STEPPER),
            ("motor_holding_torque_Nm", 3.0), ("motor_rated_current_A", 4.2),
            ("motor_resistance_ohm", 0.88), ("motor_inductance_mH", 3.4),
            ("motor_steps_per_rev", 200), ("motor_supply_V", 48.0))
+_NEMA34 = (("motor_frame", "NEMA 34"), ("motor_kind", MotorKind.STEPPER),
+           ("motor_holding_torque_Nm", 12.0), ("motor_rated_current_A", 5.0),
+           ("motor_resistance_ohm", 1.1), ("motor_inductance_mH", 7.5),
+           ("motor_steps_per_rev", 200), ("motor_supply_V", 70.0))
 
 # ---- how it is made ---------------------------------------------------------------
 
@@ -115,6 +119,22 @@ PRESETS: tuple[Preset, ...] = (
            "The same motor geared for torque: 24 Nm at 10 rpm, where the "
            "output pins' fatigue sets the limit rather than the motor.", 29,
            (*_MACHINED, *_NEMA23, *_MOTOR_PLATE, *_duty(24.0, 10.0, 29))),
+    Preset("nema34-machined-29", "NEMA 34 - 29:1, machined", "NEMA 34 stepper",
+           "A large machined drive: 80 Nm at 8 rpm off a 70 V driver, on a "
+           "180 mm housing.", 29,
+           (*_MACHINED, *_NEMA34, *_duty(80.0, 8.0, 29),
+            # Bigger than any ratio preset: the 29:1's 60 mm pin circle cannot
+            # carry what this motor turns.
+            ("pin_circle_radius", 80.0), ("pin_radius", 5.0),
+            ("eccentricity", 1.6), ("output_bolt_circle_radius", 48.0),
+            ("output_pin_diameter", 12.0), ("output_pin_count", 8),
+            # The motor's 14 mm shaft goes into the input shaft, so that is
+            # 20 - and a 30 mm cam round it, the HK3020 on that, and discs as
+            # wide as the cup, since no narrower cup that size is listed.
+            ("input_shaft_diameter", 20.0), ("eccentric_cam_diameter", 30.0),
+            ("center_bore_diameter", 37.0), ("disc_thickness", 20.0),
+            # Room for the register, the lip and the flanged motor's nuts.
+            ("end_plate_thickness", 16.0))),
 )
 
 
