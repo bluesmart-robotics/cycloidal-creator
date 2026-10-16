@@ -192,10 +192,13 @@ bolted to a hub on the input shaft, which runs through the motor's hollow
 centre — with the motor's curve off its class's
 datasheets, the material and the process, a duty it carries, and the parts
 round the motor that make it buildable: plates thick enough for the motor's
-register to leave the bearing a lip and its screws a full thread. Each is held
-by the tests to analysing with no error, nothing said about its motor, its
-mounting or its bearings, a capacity over its rated torque and its motor's
-margin. The *Preset* box in the app, or `--preset` on the command line.
+register to leave the bearing a lip and its screws a full thread. A machined
+one is the smallest drive that carries its duty at a safety factor of 1.5 and
+outlasts what its motor can put through the ratio: 83 and 90 mm on a NEMA 23,
+109 mm on a NEMA 34, 86 mm on the 87 mm outrunner. Each is held by the tests to
+analysing with no error, nothing said about its motor, its mounting or its
+bearings, a capacity over its rated torque and its motor's margin. The
+*Preset* box in the app, or `--preset` on the command line.
 
 **Give it requirements.** Ratio, torque, speed, envelope, process, materials, and
 what to optimise for; the search returns a shortlist of geometries that pass

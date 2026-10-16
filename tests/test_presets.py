@@ -54,6 +54,21 @@ def test_a_motor_preset_is_a_drive_its_motor_turns(p):
     assert a.motor.modelled and a.motor.margin >= COMFORTABLE_MARGIN
 
 
+@pytest.mark.parametrize("p", [p for p in MOTOR_PRESETS if not p.spec().printed],
+                         ids=lambda p: p.key)
+def test_a_machined_preset_is_the_size_of_its_job(p):
+    """Strong enough for its duty at the design search's own safety factor,
+    stronger than its motor can make it work - a stall does not take the
+    gearbox with it - and no wider than its motor needs.  They stood two to
+    three times their motors' width once, on their ratio preset's geometry,
+    carrying four to nine times their duty."""
+    spec = p.spec()
+    a = analyse(spec)
+    assert a.pin_safety_factor_with_clearance >= 1.5
+    assert a.torque_capacity_with_clearance_Nm >= a.motor.output_torque_ceiling_Nm
+    assert 2.0 * spec.housing_outer_radius <= 1.65 * spec.motor_face.body_width
+
+
 @pytest.mark.parametrize("p", MOTOR_PRESETS, ids=lambda p: p.key)
 def test_its_summary_states_its_duty(p):
     """The line in the list is what somebody chooses by, so it has to be the
@@ -61,6 +76,9 @@ def test_its_summary_states_its_duty(p):
     spec = p.spec()
     assert f"{spec.output_torque_Nm:g} Nm" in p.summary
     assert f"{spec.output_rpm:g} rpm" in p.summary
+    # and the size, where it states one
+    if "mm housing" in p.summary:
+        assert f" {2.0 * spec.housing_outer_radius:g} mm housing" in p.summary
 
 
 def test_a_preset_is_a_fresh_design_every_time():

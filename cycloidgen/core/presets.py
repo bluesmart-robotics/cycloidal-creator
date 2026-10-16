@@ -14,11 +14,23 @@ rated at what its plastic carries and its motor turns it with plenty to spare,
 a machined one at what its motor can turn with the margin the motor check asks
 for.
 
+A machined preset is the size its job needs.  They began on their ratio
+preset's geometry, a pin circle of 55 to 80 mm, and stood two to three times
+the width of their motors carrying four to nine times their duty.  Each is now
+the smallest drive the design search and a pass of the full analysis found
+that carries its duty at the search's own safety factor of 1.5 and outlasts
+what its motor can put through the ratio - so a stall does not take the
+gearbox with it - with ISO 8734 dowels for pins and the cam turned to a
+catalogue bearing's bore.  The printed ones are still on their ratio preset's
+geometry: on the printed contact model a smaller drive does not carry their
+duty.
+
 ``tests/test_presets.py`` holds every motor preset to analysing with no error,
 no warning about its motor, its mounting or its bearings, a capacity over its
-rated torque and its motor's margin.  The warnings it does carry are the ones
-its ratio preset carries - its pressure angle, its load sharing - which are the
-geometry's, not the motor's.
+rated torque and its motor's margin, and a machined one to that safety factor,
+that capacity and a width in proportion to its motor's.  The warnings they do
+carry are the ones their geometry carries - the load sharing, the parts round
+the mesh being softer than the mesh - which are not the motor's.
 
 The motor figures are typical of the class rather than one maker's part: a
 48 mm NEMA 17, a 112 mm NEMA 23, a 114 mm NEMA 34, as their datasheets give
@@ -120,34 +132,60 @@ PRESETS: tuple[Preset, ...] = (
            (*_PRINTED, *_NEMA17, *_MOTOR_PLATE, *_duty(1.5, 15.0, 21))),
     Preset("nema23-machined-21", "NEMA 23 - 21:1, machined", "NEMA 23 stepper",
            "Steel discs in an aluminium housing: 25 Nm at 15 rpm off a 48 V "
-           "driver.", 21,
-           (*_MACHINED, *_NEMA23, *_MOTOR_PLATE, *_duty(25.0, 15.0, 21))),
+           "driver, on an 83 mm housing.", 21,
+           (*_MACHINED, *_NEMA23, *_MOTOR_PLATE, *_duty(25.0, 15.0, 21),
+            # 5 mm ring pins on a 66 mm circle, two 14 mm discs; the cam on an
+            # HK1512 and ten 8 mm output pins round it.
+            ("pin_circle_radius", 33.0), ("pin_radius", 2.5),
+            ("eccentricity", 1.1), ("disc_thickness", 14.0),
+            ("eccentric_cam_diameter", 15.0), ("center_bore_diameter", 21.0),
+            ("output_bolt_circle_radius", 20.0), ("output_pin_count", 10),
+            ("output_pin_diameter", 8.0))),
     Preset("nema23-machined-29", "NEMA 23 - 29:1, machined", "NEMA 23 stepper",
-           "The same motor geared for torque: 24 Nm at 10 rpm, where the "
-           "output pins' fatigue sets the limit rather than the motor.", 29,
-           (*_MACHINED, *_NEMA23, *_MOTOR_PLATE, *_duty(24.0, 10.0, 29))),
+           "The same motor geared for torque: 24 Nm at 10 rpm, on a 90 mm "
+           "housing.", 29,
+           (*_MACHINED, *_NEMA23, *_MOTOR_PLATE, *_duty(24.0, 10.0, 29),
+            # Five 12 mm output pins: at this ratio they carry the most and
+            # bend the most, and fewer, thicker ones have the room.
+            ("pin_circle_radius", 36.0), ("pin_radius", 3.0),
+            ("eccentricity", 0.75), ("disc_thickness", 14.0),
+            ("eccentric_cam_diameter", 15.0), ("center_bore_diameter", 21.0),
+            ("output_bolt_circle_radius", 21.5), ("output_pin_count", 5),
+            ("output_pin_diameter", 12.0))),
     Preset("nema34-machined-29", "NEMA 34 - 29:1, machined", "NEMA 34 stepper",
            "A large machined drive: 80 Nm at 8 rpm off a 70 V driver, on a "
-           "180 mm housing.", 29,
+           "109 mm housing.", 29,
            (*_MACHINED, *_NEMA34, *_duty(80.0, 8.0, 29),
-            # Bigger than any ratio preset: the 29:1's 60 mm pin circle cannot
-            # carry what this motor turns.
-            ("pin_circle_radius", 80.0), ("pin_radius", 5.0),
-            ("eccentricity", 1.6), ("output_bolt_circle_radius", 48.0),
+            ("pin_circle_radius", 45.0), ("pin_radius", 3.0),
+            ("eccentricity", 1.0), ("output_bolt_circle_radius", 29.5),
             ("output_pin_diameter", 12.0), ("output_pin_count", 8),
             # The motor's 14 mm shaft goes into the input shaft, so that is
             # 20 - and a 30 mm cam round it, the HK3020 on that, and discs as
             # wide as the cup, since no narrower cup that size is listed.
             ("input_shaft_diameter", 20.0), ("eccentric_cam_diameter", 30.0),
             ("center_bore_diameter", 37.0), ("disc_thickness", 20.0),
+            # The crank's reaction on a pin circle this size wants a 6904 to
+            # carry the shaft, and the 32 mm the default boss leaves it holds
+            # nothing that lasts: a 45 mm boss leaves 37.  The 6809 the boss
+            # then sits in is 58 across, so the wall it is bored through goes
+            # to 6.5 mm to make the seat that wide.
+            ("output_hub_diameter", 45.0), ("housing_wall", 6.5),
             # Room for the register, the lip and the flanged motor's nuts.
             ("end_plate_thickness", 16.0))),
     Preset("outrunner-8108-machined-15", "8108 outrunner - 15:1",
            "Brushless outrunner",
-           "A robot joint: 8 Nm at 60 rpm, the outrunner's can bolted to a hub "
+           "A robot joint: 8 Nm at 30 rpm, the outrunner's can bolted to a hub "
            "on the input shaft, which runs through the motor's hollow centre.",
            15,
-           (*_MACHINED, *_OUTRUNNER_8108, *_duty(8.0, 60.0, 15),
+           (*_MACHINED, *_OUTRUNNER_8108, *_duty(8.0, 30.0, 15),
+            # As wide as the motor and short: a joint is a pancake.  Its speed
+            # is what such a joint runs at for minutes on end, not the most it
+            # can: the 21 W it loses at 60 rpm would hold this housing at 97 C
+            # in still air, and shedding that under 70 C takes the 120 mm
+            # housing this preset used to have.
+            ("pin_circle_radius", 34.0), ("pin_radius", 3.0),
+            ("eccentricity", 1.25), ("output_bolt_circle_radius", 21.0),
+            ("output_pin_count", 6), ("output_pin_diameter", 5.0),
             ("eccentric_cam_diameter", 18.0))),
 )
 
