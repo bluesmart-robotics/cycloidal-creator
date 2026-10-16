@@ -289,7 +289,15 @@ def test_a_frame_says_enough_about_its_motor_to_fit_one(name):
     frame = MOTOR_FRAMES[name]
     assert frame.bolt_span < frame.body_width            # the holes are in it
     assert frame.pilot_diameter < frame.body_width
-    assert frame.shaft_length > frame.pilot_depth
+    if frame.rotor_driven:
+        # An outrunner drives through its can: no shaft out of its base, a
+        # pattern in the can's face, and a hollow centre for the input shaft.
+        assert frame.shaft_length == 0.0
+        assert frame.rotor_bolt_span < frame.body_width
+        assert size_named(frame.rotor_screw) is not None
+        assert 0.0 < frame.through_bore < frame.rotor_bolt_span
+    else:
+        assert frame.shaft_length > frame.pilot_depth
     assert 0.0 <= frame.shaft_flat < frame.shaft_diameter / 4.0
     assert frame.fixing in ("tapped", "through")
     screw = size_named(frame.screw)

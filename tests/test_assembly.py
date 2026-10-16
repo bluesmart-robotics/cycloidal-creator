@@ -605,7 +605,8 @@ def test_the_input_end_has_a_flat_for_a_set_screw_where_one_can_reach(output):
 
 @pytest.mark.parametrize("ring_output,motor,direct", [
     (False, "None", True), (True, "None", True), (False, "NEMA 17", True),
-    (True, "NEMA 23", True), (False, "NEMA 17", False), (True, "NEMA 23", False)])
+    (True, "NEMA 23", True), (False, "NEMA 17", False), (True, "NEMA 23", False),
+    (False, "8108 outrunner", True)])
 def test_every_made_part_weighs_what_its_solid_encloses(ring_output, motor, direct):
     """The mass model and the STEP export are two descriptions of one gearbox.
 
@@ -645,6 +646,8 @@ def test_every_made_part_weighs_what_its_solid_encloses(ring_output, motor, dire
     }
     if spec.ground_frame_fitted:
         expected[("end_cap",)] = volume(m.end_cap_mass_g, house)
+    if spec.rotor_hub is not None:
+        expected[("rotor_hub",)] = volume(m.rotor_hub_mass_g, spec.shaft_mat)
     for names, analytic in expected.items():
         enclosed = sum(parts[n].val().Volume() for n in names)
         assert analytic == pytest.approx(enclosed, rel=0.02), names

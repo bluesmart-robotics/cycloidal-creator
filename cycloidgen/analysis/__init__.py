@@ -558,6 +558,21 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
         # coupling's half is what its maker sized for its bore, so all of that
         # half is all that is asked.  Not asked of a shaft too thick to bore at
         # all, which has its own error and nothing inside anything.
+        # An outrunner drives through its can, and the input shaft runs
+        # through the motor's hollow centre to the hub the can bolts to: a
+        # shaft that will not pass that centre is a drive that cannot be put
+        # together, so an error.
+        if spec.rotor_hub is not None:
+            shaft = spec.input_shaft_diameter + spec.hole_clearance
+            if shaft > frame.through_bore:
+                rep.add(Severity.ERROR, "MOTOR_HOLLOW_TOO_SMALL",
+                        f"The input shaft runs through the {frame.name}'s hollow "
+                        f"centre to the hub its can drives, and at "
+                        f"{spec.input_shaft_diameter:g} mm with the hole "
+                        f"clearance it is {shaft:g} mm against "
+                        f"{frame.through_bore:g} mm of hole. A thinner input "
+                        f"shaft.",
+                        shaft, frame.through_bore)
         engaged, need = spec.motor_engagement, 1.5 * frame.shaft_diameter
         if spec.coupled:
             need = min(need, (spec.coupling.length - COUPLING_GAP) / 2.0)
@@ -570,7 +585,7 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                         f"it. A motor with a longer shaft, or drive the shaft "
                         f"directly.",
                         engaged, need)
-        elif wall > 0.0 and engaged < need:
+        elif not frame.rotor_driven and wall > 0.0 and engaged < need:
             rep.add(Severity.WARNING, "MOTOR_SHAFT_SHORT",
                     f"Only {engaged:.1f} mm of the {frame.name}'s "
                     f"{frame.shaft_length:g} mm shaft is inside the input "

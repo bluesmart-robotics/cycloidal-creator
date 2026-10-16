@@ -16,13 +16,24 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 # Re-exported here because every consumer already reaches for the spec, and a
 # name that moves house is a name that breaks a dozen imports for no gain.
 from .duty import DutyCycle
-from .fasteners import MetricSize, dowel_for_wall, dowel_length, screw_length, size_for_hole
+from .fasteners import (
+    SCREW_LENGTHS,
+    MetricSize,
+    dowel_for_wall,
+    dowel_length,
+    screw_length,
+    size_for_hole,
+    size_named,
+)
 from .motor import (
     COUPLING_GAP,
     MOTOR_FRAMES,
     MOTOR_HUB_CLEARANCE,
     MOTOR_MOUNT_WALL,
     NO_MOTOR,
+    ROTOR_CAN_THREAD,
+    ROTOR_HUB_RIM,
+    ROTOR_HUB_THICKNESS,
     Coupling,
     MotorCurve,
     MotorFixing,
@@ -1169,10 +1180,8 @@ class GearSpec(BaseModel):
         w0, w1 = self.window_span
         tube = (math.pi * (outer ** 2 - bore ** 2) * height
                 - 2.0 * (under(outer) - under(bore)) * (w1 - w0))
-        width = frame.body_width
-        corner = 0.11 * width
         hole = self.motor_mount_hole
-        flange = (width * width - 2.0 * corner * corner - math.pi * hole * hole / 4.0
+        flange = (frame.body_section_area - math.pi * hole * hole / 4.0
                   - len(self.motor_bolt_centres) * math.pi
                   * frame.bolt_diameter ** 2 / 4.0) * self.motor_mount_flange
         if frame.pilot_diameter > hole + 1e-9:
@@ -1199,7 +1208,11 @@ class GearSpec(BaseModel):
         """
         lo, hi = -self.shaft_overhang, self.stack_height + self.shaft_overhang
         end = None
-        if self.direct_drive:
+        if self.rotor_hub is not None:
+            # Through the motor's hollow centre to the hub on its can.
+            z0, z1 = self.rotor_hub[:2]
+            end = z1 if self.motor_side > 0 else z0
+        elif self.direct_drive:
             end = self.motor_face_z - self.motor_side * (
                 self.motor_face.pilot_depth + MOTOR_HUB_CLEARANCE)
         elif self.coupled:
@@ -1229,7 +1242,8 @@ class GearSpec(BaseModel):
         a cut no solid modeller can make.  The shaft is drawn whole, and
         ``MOTOR_SHAFT_TOO_BIG`` says why it cannot be built.
         """
-        if not self.direct_drive or self.motor_hub_wall <= 0.0:
+        if (not self.direct_drive or self.motor_face.rotor_driven
+                or self.motor_hub_wall <= 0.0):
             return None
         frame = self.motor_face
         tip = self.motor_face_z - self.motor_side * frame.shaft_length
@@ -1246,7 +1260,7 @@ class GearSpec(BaseModel):
     def motor_bore_diameter(self) -> float:
         """What the input shaft is bored to for the motor's, driven directly:
         the motor's shaft at the process's hole clearance.  Zero otherwise."""
-        if not self.direct_drive:
+        if not self.direct_drive or self.motor_face.rotor_driven:
             return 0.0
         return self.motor_face.shaft_diameter + self.hole_clearance
 
@@ -1269,9 +1283,58 @@ class GearSpec(BaseModel):
     def motor_hub_wall(self) -> float:
         """What is left round the motor's shaft, driven directly, mm - below
         zero where the motor's shaft is the thicker, and then nothing is bored."""
-        if not self.direct_drive:
+        if not self.direct_drive or self.motor_face.rotor_driven:
             return float("inf")
         return (self.input_shaft_diameter - self.motor_bore_diameter) / 2.0
+
+    @property
+    def rotor_hub(self) -> tuple[float, float, float, float] | None:
+        """The hub an outrunner's can drives the input shaft through:
+        ``(z from, z to, outside diameter, bore)``, or None.
+
+        On the can's face, which is the motor's far end from its base; the
+        input shaft runs through the motor's hollow centre to it.  As wide as
+        the can's bolt circle and the screws' holes need with a rim outside
+        them, bored for the shaft with the process's hole clearance and held
+        on it by a set screw on the shaft's flat.
+        """
+        if not self.direct_drive or not self.motor_face.rotor_driven:
+            return None
+        frame, side = self.motor_face, self.motor_side
+        near = self.motor_face_z + side * frame.body_length
+        far = near + side * ROTOR_HUB_THICKNESS
+        size = size_named(frame.rotor_screw)
+        hole = size.clearance if size else 3.4
+        outer = frame.rotor_bolt_span + hole + 2.0 * ROTOR_HUB_RIM
+        z0, z1 = sorted((near, far))
+        return z0, z1, outer, self.input_shaft_diameter + self.hole_clearance
+
+    @property
+    def rotor_hub_screw(self) -> tuple[MetricSize, float] | None:
+        """The can's screws through the hub: ``(size, length)``, or None.
+
+        ISO 4762 at the shortest preferred length past the hub and three
+        millimetres of the can's thread - which is how deep an outrunner's
+        tapped face is as a rule, not a figure its catalogue gives.
+        """
+        if self.rotor_hub is None:
+            return None
+        size = size_named(self.motor_face.rotor_screw)
+        if size is None:
+            return None
+        need = ROTOR_HUB_THICKNESS + ROTOR_CAN_THREAD
+        length = next((n for n in SCREW_LENGTHS if n >= need - 1e-9), None)
+        return (size, length) if length else None
+
+    @property
+    def rotor_hub_bolt_centres(self) -> list[tuple[float, float]]:
+        """Where the can's screws go through the hub, in the plane."""
+        if self.rotor_hub is None:
+            return []
+        frame = self.motor_face
+        r, n = frame.rotor_bolt_span / 2.0, frame.rotor_bolt_count
+        return [(r * math.cos(2.0 * math.pi * k / n), r * math.sin(2.0 * math.pi * k / n))
+                for k in range(n)]
 
     @property
     def motor_fixing(self) -> MotorFixing | None:
@@ -1539,6 +1602,9 @@ class GearSpec(BaseModel):
         the shaft's driven end is inside the boss, and a set screw has no way
         in; the end that does stand out, past the end cap, drives nothing.
         """
+        if self.rotor_hub is not None:
+            z0, z1 = self.rotor_hub[:2]
+            return z0, z1, 0.1 * self.input_shaft_diameter
         if self.direct_drive:
             return None
         lo, hi = self.shaft_span

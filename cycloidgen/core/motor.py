@@ -182,6 +182,35 @@ class MotorFrame(BaseModel):
     #: the screws pass.
     fixing_depth: float = Field(0.0, ge=0)
 
+    # ---- an outrunner -----------------------------------------------------------
+    #
+    # A drum on a stator base with its can turning round the outside: what
+    # robot joints are built round.  It has no spigot - its screws place it -
+    # and it does not drive through a shaft standing out of its base, but
+    # through its can, whose face carries a bolt pattern of its own.
+    round_body: bool = Field(False, description="a drum, body_width its diameter")
+    spigot: bool = Field(True, description="a spigot centres it; off, its screws do")
+    rotor_bolt_count: int = Field(0, ge=0, description="screws into the can's face")
+    rotor_bolt_span: float = Field(0.0, ge=0, description="their circle's diameter")
+    rotor_screw: str = Field("", description="their metric size")
+    through_bore: float = Field(0.0, ge=0,
+                                description="the hollow centre a shaft can pass")
+
+    @property
+    def rotor_driven(self) -> bool:
+        """Whether it drives through its can rather than through a shaft."""
+        return self.rotor_bolt_count > 0
+
+    @property
+    def body_section_area(self) -> float:
+        """The body's cross-section, mm^2: a square with its corners cut back
+        0.11 of the width at 45 degrees, or a circle the width across."""
+        w = self.body_width
+        if self.round_body:
+            return math.pi * w * w / 4.0
+        corner = 0.11 * w
+        return w * w - 2.0 * corner * corner
+
     @property
     def bolt_circle_diameter(self) -> float:
         """Where the bolts actually land, whichever way the pattern is stated.
@@ -236,6 +265,20 @@ MOTOR_FRAMES: dict[str, MotorFrame] = {
                    max_radial_N=220.0, body_width=86.0, body_length=80.0,
                    shaft_length=32.0, shaft_flat=0.0, fixing="through",
                    screw="M5", fixing_depth=10.0),
+        # The 8108 class of outrunner, off MAD's 8108 KV100 catalogue: 86.8 mm
+        # across and 27.5 deep, four M3 on a 30 mm circle in the stator base,
+        # four M3 on 25 mm in the can's face, a hollow shaft 15 mm outside and
+        # 13 inside that stands no way out of the base.  So no spigot, and the
+        # "pilot" is the hollow centre: no register is ever cut for it.  The
+        # radial rating and the depth of the base's threads are not in the
+        # catalogue and are typical of the class.
+        MotorFrame(name="8108 outrunner", bolt_span=30.0, square=False,
+                   bolt_count=4, bolt_diameter=3.4, pilot_diameter=13.0,
+                   pilot_depth=0.1, shaft_diameter=15.0, max_radial_N=150.0,
+                   body_width=86.8, body_length=27.5, shaft_length=0.0,
+                   shaft_flat=0.0, fixing="tapped", screw="M3", fixing_depth=4.0,
+                   round_body=True, spigot=False, rotor_bolt_count=4,
+                   rotor_bolt_span=25.0, rotor_screw="M3", through_bore=13.0),
     ]
 }
 
@@ -318,6 +361,14 @@ COUPLINGS: tuple[Coupling, ...] = (
 #: Between the two shafts' ends inside a coupling, and between a coupling
 #: and anything it turns past, mm.
 COUPLING_GAP = 1.0
+
+#: The hub an outrunner's can bolts to, on the end of the input shaft: thick
+#: enough for its screws to start in, and this much metal outside their holes.
+ROTOR_HUB_THICKNESS = 5.0
+ROTOR_HUB_RIM = 2.5
+#: How far the hub's screws go into the can - a usual depth for an outrunner's
+#: tapped face, which its catalogue does not give.
+ROTOR_CAN_THREAD = 3.0
 #: A beam coupling's cuts, drawn as rings round its middle an eighth of its
 #: length apart: how many, how wide and how deep, mm.  The real ones are a
 #: helix; rings take out about as much metal, and the mass model can weigh

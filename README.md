@@ -42,7 +42,7 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Seventy-one checks that explain themselves.** Each says what it tests, what
+- **Seventy-two checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -50,7 +50,7 @@
   what motor you have and let it pick the reduction: a motor is a torque-speed
   curve, not the number on its label, and what it can turn is what the drive is
   worth.
-- **Nothing is asserted that is not verified.** 1,506 tests, and where two parts
+- **Nothing is asserted that is not verified.** 1,521 tests, and where two parts
   of the app describe the same gearbox they are checked against each other —
   the 3D mesh against the volume the exported solid encloses, the export
   manifest against the files that land on disk.
@@ -187,7 +187,9 @@ applies to it.
 
 **Start from a preset.** The six ratio presets are geometry and nothing else.
 The rest are whole drives built round a motor — a NEMA 17 in a printed drive,
-a NEMA 23 in a machined one — with the motor's curve off its class's
+a NEMA 23 or 34 in a machined one, an 8108 outrunner in a robot joint, its can
+bolted to a hub on the input shaft, which runs through the motor's hollow
+centre — with the motor's curve off its class's
 datasheets, the material and the process, a duty it carries, and the parts
 round the motor that make it buildable: plates thick enough for the motor's
 register to leave the bearing a lip and its screws a full thread. Each is held
@@ -561,7 +563,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Seventy-one of them. Errors block export; warnings do not; several are readings
+Seventy-two of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -591,9 +593,9 @@ rather than tests.
 
 **Mounting** — `HOUSING_BOLT_CLASH` · `OUTPUT_BOLT_CLASH` ·
 `MOTOR_SHAFT_TOO_BIG` · `MOTOR_SHAFT_MISMATCH` · `MOTOR_SHAFT_SHORT` ·
-`MOTOR_SCREW_SEAT` · `COUPLING_DOES_NOT_FIT` · `MOTOR_FACE_CLASH` ·
-`MOTOR_RADIAL_LOAD` · `TIE_NUTS_ON_OUTPUT_FACE` · `PLATES_NOT_LOCATED` ·
-`PLATE_DOWEL_CLASH`
+`MOTOR_SCREW_SEAT` · `MOTOR_HOLLOW_TOO_SMALL` · `COUPLING_DOES_NOT_FIT` ·
+`MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD` · `TIE_NUTS_ON_OUTPUT_FACE` ·
+`PLATES_NOT_LOCATED` · `PLATE_DOWEL_CLASH`
 
 **The motor** — `MOTOR_OPERATING_POINT` · `MOTOR_TORQUE_SHORT` ·
 `MOTOR_SUPPLY_VOLTAGE`
@@ -1028,7 +1030,7 @@ cycloidgen/
 docs/           the API reference and the README's figures
 tools/          what draws the banner, the icon, the logo assets, the
                 installer's bitmaps and the screenshots
-tests/          1,506 tests; the envelope, pin-in-hole, clearance-sign,
+tests/          1,521 tests; the envelope, pin-in-hole, clearance-sign,
                 mesh-versus-solid and animation-closes tests matter most
 ```
 
@@ -1044,7 +1046,7 @@ the Outputs tab, `--list-outputs` and the table above all read it.
 .venv\Scripts\python -m pytest -q
 ```
 
-1,506 tests, about 700 s. Most of that is CadQuery writing solids; the pure
+1,521 tests, about 700 s. Most of that is CadQuery writing solids; the pure
 analysis tests run in a few seconds. The Qt tests run headless
 (`QT_QPA_PLATFORM=offscreen`, set by the test modules themselves) and redirect
 preferences into a temporary file, so the suite cannot rearrange your own

@@ -431,6 +431,7 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "TIE_NUTS_ON_OUTPUT_FACE": ("output_member", "housing_bolt_count",
                                 "housing_bolt_diameter"),
     "PLATES_NOT_LOCATED": ("plate_dowels", "housing_wall", "housing_bolt_diameter"),
+    "MOTOR_HOLLOW_TOO_SMALL": ("input_shaft_diameter", "motor_frame"),
     "PLATE_DOWEL_CLASH": ("housing_bolt_count", "output_bolt_count", "motor_frame",
                           "housing_wall"),
     "SEAT_HAS_NO_SHOULDER": ("housing_wall", "output_boss_protrusion",

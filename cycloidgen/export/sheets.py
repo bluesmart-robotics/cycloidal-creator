@@ -133,6 +133,10 @@ class Mount:
     corner: float
     hole: float
     register: Register | None
+    #: A round motor's flange is a disc; a square frame's an octagon.
+    round: bool
+    #: Whether the motor has a spigot for the flange's hole to locate.
+    spigot: bool
     window_width: float
     #: Where each window runs, from the plate's outside face.
     window: tuple[float, float]
@@ -295,9 +299,10 @@ def plate_features(spec: GearSpec, name: str) -> PlateFeatures:
                       height=height, flange=spec.motor_mount_flange,
                       width=frame.body_width, corner=0.11 * frame.body_width,
                       hole=hole, register=flange_register,
+                      round=frame.round_body, spigot=frame.spigot,
                       window_width=2.0 * spec.window_half_width,
                       window=tuple(sorted((w0, w1))))
-        patterns.append(_motor_pattern(spec, True, recessed=False))
+        patterns.append(_motor_pattern(spec, frame.spigot, recessed=False))
 
     return PlateFeatures(
         name=name, title=_TITLES[name],
@@ -476,9 +481,12 @@ def _front(f: PlateFeatures, mirror: float) -> list:
     m = f.mount
     if m is not None:
         w, c = m.width / 2.0, m.corner
-        octagon = ((w - c, w), (-w + c, w), (-w, w - c), (-w, -w + c),
-                   (-w + c, -w), (w - c, -w), (w, -w + c), (w, w - c))
-        items.append(Polyline(octagon))
+        if m.round:
+            items.append(Circle((0.0, 0.0), w))
+        else:
+            items.append(Polyline(((w - c, w), (-w + c, w), (-w, w - c),
+                                   (-w, -w + c), (-w + c, -w), (w - c, -w),
+                                   (w, -w + c), (w, w - c))))
         items.append(Circle((0.0, 0.0), m.hole / 2.0))
         items.append(Circle((0.0, 0.0), m.tube_outer / 2.0, HIDDEN))
         if m.register is not None:
@@ -638,13 +646,15 @@ def plate_sheet(spec: GearSpec, name: str) -> Sheet:
                             "h", 10.0, _fmt(m.height)))
         items.append(Linear((base + m.height, m.width / 2.0),
                             (z_top, m.width / 2.0), "h", 10.0, _fmt(m.flange)))
-        for dia, text in ((m.width, f"{_fmt(m.width)} A/F"),
+        for dia, text in ((m.width, f"Ø{_fmt(m.width)}" if m.round
+                           else f"{_fmt(m.width)} A/F"),
                           (m.tube_outer, f"Ø{_fmt(m.tube_outer)}"),
                           (m.tube_bore, f"Ø{_fmt(m.tube_bore)}")):
             items.append(Linear((z_top, -dia / 2.0), (z_top, dia / 2.0), "v",
                                 right - s * z_top, text))
             right += 10.0
         hole_text = (f"Ø{_fmt(m.hole)} THRU" if m.register is not None
+                     or not m.spigot
                      else f"Ø{_fmt(m.hole)} H7 THRU - the spigot locates here")
         items.append(Callout((z_top - m.flange / 2.0, -m.hole / 2.0), (hole_text,),
                              knee=(s * z_top + 12.0, -s * R - 4.0)))
@@ -656,7 +666,7 @@ def plate_sheet(spec: GearSpec, name: str) -> Sheet:
                 knee=(s * z_top + 12.0, -s * R - 14.0)))
             items.append(Datum((z_top - m.register.depth / 2.0,
                                 m.register.diameter / 2.0), -90.0, "C"))
-        else:
+        elif m.spigot:
             items.append(Datum((z_top - m.flange / 2.0, m.hole / 2.0), -90.0, "C"))
 
     # ---- notes ------------------------------------------------------------------

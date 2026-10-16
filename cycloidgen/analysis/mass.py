@@ -31,7 +31,8 @@ from ..core.motor import COUPLING_SLOT_DEPTH, COUPLING_SLOT_WIDTH, COUPLING_SLOT
 from ..core.spec import MATERIALS, GearSpec, OutputMember, d_section_area
 from .bearings import BearingChoice, SeatBores, bearing_schedule, pin_diameters, seat_bores
 
-__all__ = ["MassResult", "analyse_mass", "plate_dowel_mass_g", "tie_bolt_mass_g"]
+__all__ = ["MassResult", "analyse_mass", "plate_dowel_mass_g",
+           "rotor_hub_screw_mass_g", "tie_bolt_mass_g"]
 
 _MM3_TO_CM3 = 1e-3
 
@@ -53,6 +54,9 @@ class MassResult:
     #: it is a separate thing to make, and a made part quoting zero grams on
     #: the bill of materials is a part the mass model has not been told about.
     end_cap_mass_g: float
+    #: The hub an outrunner's can drives the input shaft through; zero for any
+    #: other motor.  In the shaft's material, and turning with it.
+    rotor_hub_mass_g: float
     #: The shaft's two locating sleeves and the washers between the discs,
     #: together: small, but made, and on the bill of materials.
     spacers_mass_g: float
@@ -190,6 +194,14 @@ def motor_screw_mass_g(spec: GearSpec) -> float:
     return volume * _MM3_TO_CM3 * spec.pin_mat.density_g_cm3
 
 
+def rotor_hub_screw_mass_g(spec: GearSpec) -> float:
+    """One of the screws an outrunner's can bolts to its hub with, grams."""
+    screw = spec.rotor_hub_screw
+    if screw is None:
+        return 0.0
+    return screw_volume(*screw) * _MM3_TO_CM3 * spec.pin_mat.density_g_cm3
+
+
 def plate_dowel_mass_g(spec: GearSpec) -> float:
     """One plate dowel, grams: a hardened steel cylinder, its ends' small
     chamfers left in; zero with none."""
@@ -285,6 +297,20 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     bore = spec.motor_bore
     bore_volume = (0.0 if bore is None else
                    d_section_area(bore[2] / 2.0, bore[3]) * (bore[1] - bore[0]))
+    # The hub an outrunner's can bolts to: a disc on the shaft's end, less its
+    # bore and the can's screw holes.
+    hub_volume = hub_polar = 0.0
+    if spec.rotor_hub is not None:
+        z0, z1, outer, hub_bore = spec.rotor_hub
+        screw = spec.rotor_hub_screw
+        hole = screw[0].clearance if screw else 0.0
+        centres = spec.rotor_hub_bolt_centres
+        hub_volume = (math.pi / 4.0 * (outer ** 2 - hub_bore ** 2)
+                      - len(centres) * math.pi / 4.0 * hole ** 2) * (z1 - z0)
+        hub_polar = (_polar(outer / 2.0, hub_bore / 2.0, z1 - z0)
+                     - sum(_polar_off_axis(hole / 2.0, math.hypot(x, y), z1 - z0)
+                           for x, y in centres))
+    hub_mass = hub_volume * _MM3_TO_CM3 * rho_shaft
     shaft_mass = ((shaft_volume + max(cam_extra, 0.0) - bore_volume)
                   * _MM3_TO_CM3 * rho_shaft)
 
@@ -376,8 +402,9 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
                         if c.fitted and c.fits and c.bearing is not None)
 
     tie_mass = tie_bolt_mass_g(spec) * spec.housing_bolt_count
+    hub_screws_mass = rotor_hub_screw_mass_g(spec) * len(spec.rotor_hub_bolt_centres)
     dowels_mass = plate_dowel_mass_g(spec) * 2 * len(spec.plate_dowel_centres)
-    fasteners_mass = (tie_mass + dowels_mass
+    fasteners_mass = (tie_mass + dowels_mass + hub_screws_mass
                       + motor_screw_mass_g(spec) * len(spec.motor_bolt_centres))
 
     coupling = spec.coupling
@@ -405,7 +432,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
 
     total = (n * disc_mass + housing_mass + plates_mass + pins_mass
              + shaft_mass + flange_mass + cap_mass + spacers_mass + bearings_mass
-             + fasteners_mass + coupling_mass)
+             + fasteners_mass + coupling_mass + hub_mass)
 
     # ---- inertia ------------------------------------------------------------
     # kg*mm^2:  g/cm^3 * mm^4 * 1e-3 (cm^3/mm^3) / 1e3 (kg/g) = 1e-6
@@ -446,7 +473,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
         shaft_polar -= _polar(bore[2] / 2.0, 0.0, bore[1] - bore[0])
     sleeves_polar = sum(_polar(s.outer / 2.0, s.bore / 2.0, s.length)
                         for s in bores.spacers if not s.name.startswith("washer"))
-    shaft_inertia = ((shaft_polar + sleeves_polar) * rho_shaft
+    shaft_inertia = ((shaft_polar + sleeves_polar + hub_polar) * rho_shaft
                      + coupling_polar) * 1e-6
 
     # The member that turns at the output, off the same shapes again.  Which
@@ -561,6 +588,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
         shaft_mass_g=shaft_mass,
         flange_mass_g=flange_mass,
         end_cap_mass_g=cap_mass,
+        rotor_hub_mass_g=hub_mass,
         spacers_mass_g=spacers_mass,
         bearings_mass_g=bearings_mass,
         fasteners_mass_g=fasteners_mass,

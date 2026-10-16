@@ -80,6 +80,7 @@ _PART_GROUP = {
     "tie_bolts": "fasteners",
     "tie_nuts": "fasteners",
     "plate_dowels": "fasteners",
+    "rotor_hub": "shaft",
     "shaft_spacer_input": "shaft",
     "shaft_spacer_output": "shaft",
     "washers": "shaft",
@@ -448,9 +449,12 @@ def _motor_mount(spec: GearSpec, host: str, side: float) -> cq.Workplane:
             .circle(outer).circle(bore).extrude(height))
     far = near + side * thick
     width = frame.body_width
-    flange = (cq.Workplane("XY").workplane(offset=min(near, far))
-              .polyline([tuple(p) for p in octagon(width, 0.11 * width)]).close()
-              .extrude(thick))
+    base = cq.Workplane("XY").workplane(offset=min(near, far))
+    if frame.round_body:
+        flange = base.circle(width / 2.0).extrude(thick)
+    else:
+        flange = (base.polyline([tuple(p) for p in octagon(width, 0.11 * width)])
+                  .close().extrude(thick))
     flange = flange.cut(cq.Workplane("XY").workplane(offset=min(near, far) - 1.0)
                         .circle(spec.motor_mount_hole / 2.0)
                         .extrude(thick + 2.0))
@@ -471,6 +475,28 @@ def _motor_mount(spec: GearSpec, host: str, side: float) -> cq.Workplane:
         body = body.cut(cq.Workplane("XY")
                         .box(2.0 * half, outer + 1.0, w1 - w0, centered=False)
                         .translate((-half, 0.0 if sy > 0 else -outer - 1.0, w0)))
+    return body
+
+
+def rotor_hub(spec: GearSpec) -> cq.Workplane | None:
+    """The hub an outrunner's can drives the input shaft through, or None.
+
+    A disc on the shaft's end, bored for it and held by a set screw on its
+    flat, with the can's screws through it.  Built at its assembled height:
+    it turns with the shaft and needs no placement of its own.
+    """
+    hub = spec.rotor_hub
+    if hub is None:
+        return None
+    z0, z1, outer, bore = hub
+    screw = spec.rotor_hub_screw
+    hole = screw[0].clearance if screw else 0.0
+    body = (cq.Workplane("XY").workplane(offset=z0)
+            .circle(outer / 2.0).circle(bore / 2.0).extrude(z1 - z0))
+    if hole and spec.rotor_hub_bolt_centres:
+        body = body.cut(cq.Workplane("XY").workplane(offset=z0 - 1.0)
+                        .pushPoints(spec.rotor_hub_bolt_centres)
+                        .circle(hole / 2.0).extrude(z1 - z0 + 2.0))
     return body
 
 
@@ -1210,6 +1236,9 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     coupling = coupling_solid(spec)
     if coupling is not None:
         assy.add(coupling, name="coupling", color=_part_colour("eccentric_shaft"))
+    hub = rotor_hub(spec)
+    if hub is not None:
+        assy.add(hub, name="rotor_hub", color=_part_colour("rotor_hub"))
 
     dowels = plate_dowels(spec)
     if dowels is not None:
@@ -1256,6 +1285,9 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
     }
     if spec.ground_frame_fitted:
         out["end_cap"] = end_cap(spec, placements, bores)
+    hub = rotor_hub(spec)
+    if hub is not None:
+        out["rotor_hub"] = hub
     # Integral pins are not a part, so there is no file for them.  The bundle
     # is declared from this dict, so leaving an empty one in would put a solid
     # in the manifest that the housing already contains.

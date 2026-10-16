@@ -22,7 +22,8 @@ geometry's, not the motor's.
 
 The motor figures are typical of the class rather than one maker's part: a
 48 mm NEMA 17, a 112 mm NEMA 23, a 114 mm NEMA 34, as their datasheets give
-them to within a few percent of each other.  Check yours.
+them to within a few percent of each other; the outrunner is one maker's 8108,
+and its continuous current is worked out from its rated power.  Check yours.
 """
 from __future__ import annotations
 
@@ -76,6 +77,12 @@ _NEMA34 = (("motor_frame", "NEMA 34"), ("motor_kind", MotorKind.STEPPER),
            ("motor_holding_torque_Nm", 12.0), ("motor_rated_current_A", 5.0),
            ("motor_resistance_ohm", 1.1), ("motor_inductance_mH", 7.5),
            ("motor_steps_per_rev", 200), ("motor_supply_V", 70.0))
+#: MAD's 8108 KV100 catalogue: 100 rpm/V, 186 mOhm, 350 W for an hour.  The
+#: catalogue gives no continuous current, so 15 A is that power on the 24 V
+#: this preset runs from.
+_OUTRUNNER_8108 = (("motor_frame", "8108 outrunner"), ("motor_kind", MotorKind.DC),
+                   ("motor_kv_rpm_per_V", 100.0), ("motor_resistance_ohm", 0.186),
+                   ("motor_rated_current_A", 15.0), ("motor_supply_V", 24.0))
 
 # ---- how it is made ---------------------------------------------------------------
 
@@ -135,6 +142,13 @@ PRESETS: tuple[Preset, ...] = (
             ("center_bore_diameter", 37.0), ("disc_thickness", 20.0),
             # Room for the register, the lip and the flanged motor's nuts.
             ("end_plate_thickness", 16.0))),
+    Preset("outrunner-8108-machined-15", "8108 outrunner - 15:1",
+           "Brushless outrunner",
+           "A robot joint: 8 Nm at 60 rpm, the outrunner's can bolted to a hub "
+           "on the input shaft, which runs through the motor's hollow centre.",
+           15,
+           (*_MACHINED, *_OUTRUNNER_8108, *_duty(8.0, 60.0, 15),
+            ("eccentric_cam_diameter", 18.0))),
 )
 
 

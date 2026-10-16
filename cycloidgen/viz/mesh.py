@@ -1112,10 +1112,27 @@ def build_mesh(spec: GearSpec,
                 for cx, cy in spec.plate_dowel_centres:
                     b.prism(_circle(cx, cy, r, _BOLT_SEGMENTS), (), z0, z1)
 
+    if spec.rotor_hub is not None:
+        z0, z1, outer, bore = spec.rotor_hub
+        screw = spec.rotor_hub_screw
+        holes = ([_circle(x, y, screw[0].clearance / 2.0, 12)
+                  for x, y in spec.rotor_hub_bolt_centres] if screw else [])
+        with b.part("rotor_hub", "Rotor hub", "shaft", PART_COLOURS["shaft"],
+                    spin=-1.0):
+            b.prism(_circle(0.0, 0.0, outer / 2.0, 72),
+                    (_circle(0.0, 0.0, bore / 2.0, 40), *holes), z0, z1)
+
     if spec.has_motor_face:
         _motor(b, spec)
 
     return b.build(spec)
+
+
+def motor_outline(frame) -> np.ndarray:
+    """A motor's body in section: the square frame's octagon, or a drum."""
+    if frame.round_body:
+        return _circle(0.0, 0.0, frame.body_width / 2.0, 72)
+    return octagon(frame.body_width, 0.11 * frame.body_width)
 
 
 def octagon(width: float, corner: float) -> np.ndarray:
@@ -1152,7 +1169,7 @@ def _motor_mount_mesh(b: _Builder, spec: GearSpec, face: float, side: float,
 
     hole_r = spec.motor_mount_hole / 2.0
     hole = tube_in if abs(hole_r - r_in) < 1e-9 else _circle(0.0, 0.0, hole_r, 48)
-    plate = octagon(frame.body_width, 0.11 * frame.body_width)
+    plate = motor_outline(frame)
     bolts = motor_bolt_holes(spec)
     far = near + side * spec.motor_mount_flange
     pilot_r = frame.pilot_diameter / 2.0
@@ -1190,19 +1207,24 @@ def _motor(b: _Builder, spec: GearSpec) -> None:
     zf, side = spec.motor_face_z, spec.motor_side
     explode = side * _EXPLODE["motor"]
     spigot = _circle(0.0, 0.0, frame.pilot_diameter / 2.0, 48)
-    tip = zf - side * frame.pilot_depth
+    tip = zf - side * frame.pilot_depth if frame.spigot else zf
     with b.part("motor", f"Motor ({frame.name})", "motor", PART_COLOURS["motor"],
                 explode=explode):
-        body = octagon(frame.body_width, 0.11 * frame.body_width)
+        body = motor_outline(frame)
         far = zf + side * frame.body_length
         lo, hi = sorted((zf, far))
-        # The face the spigot stands on is an annulus: the rest of it is the
-        # spigot's own end, and a cap across it would be a wall inside.
-        b.prism(body, (), lo, hi, cap_bottom=side < 0, cap_top=side > 0)
-        b.cap(body, (spigot,), zf, up=side < 0)
-        lo, hi = sorted((zf, tip))
-        b.prism(spigot, (), lo, hi, cap_bottom=side > 0, cap_top=side < 0)
+        if frame.spigot:
+            # The face the spigot stands on is an annulus: the rest of it is
+            # the spigot's own end, and a cap across it would be a wall inside.
+            b.prism(body, (), lo, hi, cap_bottom=side < 0, cap_top=side > 0)
+            b.cap(body, (spigot,), zf, up=side < 0)
+            lo, hi = sorted((zf, tip))
+            b.prism(spigot, (), lo, hi, cap_bottom=side > 0, cap_top=side < 0)
+        else:
+            b.prism(body, (), lo, hi)
     _motor_screws(b, spec, explode)
+    if frame.shaft_length <= 0.0:
+        return                     # an outrunner: its can drives, not a shaft
     r = frame.shaft_diameter / 2.0
     section = (_d_section(r, frame.shaft_flat, 40) if frame.shaft_flat > 0.0
                else _circle(0.0, 0.0, r, 40))
@@ -1349,6 +1371,8 @@ def mesh_fingerprint(spec: GearSpec,
         # pattern, and a printed plate's hole on the process.
         tuple(spec.plate_dowel_centres), spec.plate_dowel_diameter,
         spec.plate_dowel_hole, tuple(spec.plate_dowel_spans),
+        # An outrunner's hub, and the can's screws through it.
+        spec.rotor_hub, tuple(spec.rotor_hub_bolt_centres), spec.rotor_hub_screw,
         tuple(placements),
         # The seats as bored, which follow the bearings for the same reason the
         # placements are here: the outcome cannot be wrong about itself.

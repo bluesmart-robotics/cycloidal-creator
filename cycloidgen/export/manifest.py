@@ -101,6 +101,8 @@ def part_names(spec: GearSpec) -> list[str]:
         names.insert(1, "ring_pins")
     if spec.ground_frame_fitted:
         names.append("end_cap")
+    if spec.rotor_hub is not None:
+        names.append("rotor_hub")
     return [*names, *disc_names(spec)]
 
 

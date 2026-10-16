@@ -650,6 +650,15 @@ EXPLANATIONS: dict[str, Explanation] = {
         "pick a narrower bearing for the seat; or, where it is the register, a "
         "frame whose spigot is shallower.",
         keep="above", unit="mm"),
+    "MOTOR_HOLLOW_TOO_SMALL": Explanation(
+        "The input shaft does not pass through the outrunner",
+        "input shaft + hole clearance  <=  the motor's hollow centre",
+        "An outrunner drives through its can, not through a shaft out of its "
+        "base: the can's face bolts to a hub on the end of the input shaft, and "
+        "the shaft gets there through the hollow middle of the motor. Wider "
+        "than that hole, the shaft is a part that cannot be put through it.",
+        "A thinner input shaft, or a motor with a bigger hollow centre.",
+        keep="below", unit="mm"),
     "PLATES_NOT_LOCATED": Explanation(
         "Nothing puts the end plates on the ring's axis",
         "dowels between each end plate and the barrel",

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from ..analysis import DesignAnalysis
 from ..analysis.bearings import pin_diameters, seat_bores
-from ..analysis.mass import plate_dowel_mass_g
+from ..analysis.mass import plate_dowel_mass_g, rotor_hub_screw_mass_g
 from ..core.fasteners import nut_volume, screw_volume
 from ..core.spec import OutputMember
 
@@ -257,6 +257,26 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
             note=f"through both end plates into the barrel, on a "
                  f"{2 * s.housing_bolt_radius:.1f} mm circle"))
 
+    # An outrunner drives through its can, bolted to a hub on the shaft's end.
+    if s.rotor_hub is not None:
+        z0, z1, outer, bore = s.rotor_hub
+        items.append(BomItem(
+            part="Rotor hub", quantity=1, material=s.shaft_material,
+            size=f"{outer:.1f} dia x {z1 - z0:g} mm, bored {bore:.2f}",
+            mass_each_g=m.rotor_hub_mass_g, source="make",
+            note=f"on the input shaft's end, held by a set screw on its flat; "
+                 f"the {s.motor_face.name}'s can bolts to it"))
+        screw = s.rotor_hub_screw
+        if screw is not None:
+            size, length = screw
+            items.append(BomItem(
+                part="Rotor hub screw", quantity=len(s.rotor_hub_bolt_centres),
+                material=s.pin_material,
+                size=f"{size.name} x {length:g} socket head cap screw, ISO 4762",
+                mass_each_g=rotor_hub_screw_mass_g(s), source="buy",
+                note=f"through the hub into the can, on a "
+                     f"{s.motor_face.rotor_bolt_span:g} mm circle"))
+
     # The dowels that locate the end plates on the barrel: two at each end.
     if s.plate_dowel_length:
         items.append(BomItem(
@@ -387,6 +407,7 @@ def _assembly(part: str, spec) -> tuple[str, ...]:
         "Tie bolt": ("tie_bolts",),
         "Tie bolt nut": ("tie_nuts",),
         "Plate dowel": ("plate_dowels",),
+        "Rotor hub": ("rotor_hub",),
         "Input shaft support": ("bearing_shaft_input", "bearing_shaft_output"),
         "Main output bearing": ("bearing_output_main", "bearing_output_input"),
         "Ring pin roller": ("bearing_ring_pins",),

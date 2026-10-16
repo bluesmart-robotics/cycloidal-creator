@@ -36,11 +36,15 @@ def _design(kind: str):
         spec.end_plate_thickness = 11.0
     if kind == "nema23":
         spec.motor_frame = "NEMA 23"
+    if kind == "outrunner":
+        # Its four screws on a 30 mm circle put one on the section's cut,
+        # counterbore and all.
+        spec.motor_frame = "8108 outrunner"
     return spec
 
 
 KINDS = ("printed", "machined", "ring", "nema17", "nema17_coupled", "nema17_thick",
-         "nema23")
+         "nema23", "outrunner")
 
 
 # ------------------------------------------------------------- against the model
