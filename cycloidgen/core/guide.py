@@ -511,6 +511,19 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "thread, so it is the bolt's own diameter plus a working fit.",
         "It sets how much metal is left between the bolt circle and the pin "
         "pockets."),
+    "heat_set_inserts": ParameterGuide(
+        "Knurled brass inserts, pressed in hot, wherever a screw threads into a "
+        "printed part: on a ring-output drive the tie screws into the turning "
+        "plate and the screws the base is bolted down by. Only in a polymer "
+        "housing; metal is tapped.",
+        "On for a printed drive that will be taken apart, or loaded near its "
+        "rating - a thread cut in the plastic strips well before the screw "
+        "does, and wears each time it is undone. Off for a one-off build where "
+        "a tapped hole is enough.",
+        "An insert's hole is wider than the screw's, so it wants more plastic "
+        "round it: on a thin round housing the turning plate has no room and "
+        "stays tapped, and a check says so. The base's flange thickens to the "
+        "insert's length."),
     "output_boss_protrusion": ParameterGuide(
         "How far the output boss stands past the end plate. With the carrier "
         "as the output that is grip length for a coupling or a clamp hub; with "

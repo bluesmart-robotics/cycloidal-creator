@@ -15,7 +15,14 @@ from ..core.motor import (
     MIN_UNDER_RECESS,
     MOTOR_HUB_WALL,
 )
-from ..core.spec import PROCESS_POSITION_TOLERANCE, TAPPED_COVER, GearSpec
+from ..core.spec import (
+    INSERT_SUMP,
+    INSERT_WALL,
+    PROCESS_POSITION_TOLERANCE,
+    TAPPED_COVER,
+    GearSpec,
+    HousingShape,
+)
 from ..core.validate import Report, Severity, validate
 from .bearings import MIN_SHOULDER, BearingChoice, seat_bores, select_bearings
 from .duty import DutyResult, analyse_duty
@@ -924,6 +931,68 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                 f"screw ends past them stand {proud:.1f} mm proud {where}. The "
                 f"{spec.plate_thickness:g} mm plate is too thin to tap for them. "
                 f"{how}", proud, 0.0)
+
+    # Heat-set inserts asked for where a part has no room for one: the wall
+    # round the turning plate's, the plate's length for it, the base's depth.
+    # Each part goes back to what it was - a thread cut in the plastic, or the
+    # nuts - and this says which, and what would take them.
+    wanted = spec.tie_insert_wanted
+    if wanted is not None and spec.ground_frame_fitted and spec.tie_bolt_centres:
+        short, value, limit = [], 0.0, 0.0
+
+        def thicker(fits) -> float | None:
+            # The thinnest end plates that would, found rather than worked
+            # out: the screws come in 5 mm steps, as for the nuts above.
+            return next((t / 2.0 for t in range(int(2 * spec.plate_thickness) + 1,
+                                                 int(2 * spec.plate_thickness) + 41)
+                         if fits(spec.model_copy(
+                             update={"end_plate_thickness": t / 2.0}))), None)
+
+        if spec.tie_insert is None or not spec.tie_screws_tapped:
+            plate_is = ("the input end plate "
+                        + ("is tapped for the tie screws" if spec.tie_screws_tapped
+                           else "keeps the tie screws' nuts") + " instead, since")
+            if spec.tie_insert_wall < INSERT_WALL:
+                value, limit = spec.tie_insert_wall, INSERT_WALL
+                walls = spec.model_copy(update={"housing_shape": HousingShape.SQUARE})
+                wall = next((w / 2.0 for w in range(int(2 * spec.housing_wall) + 1,
+                                                     int(2 * spec.housing_wall) + 41)
+                             if spec.model_copy(update={"housing_wall": w / 2.0})
+                             .tie_insert_wall >= INSERT_WALL), None)
+                fixes = ([f"a {wall:g} mm housing wall"] if wall is not None else []) + (
+                    ["a square housing"] if not spec.square_housing
+                    and walls.tie_insert_wall >= INSERT_WALL else [])
+                short.append(f"{plate_is} an insert's Ø{wanted.hole:g} hole would "
+                             f"leave {max(value, 0.0):.1f} mm of plastic outside it "
+                             f"where it needs {INSERT_WALL:g} mm to hold"
+                             + (f" - {' or '.join(fixes)} would give it that"
+                                if fixes else ""))
+            else:
+                plate = thicker(lambda c: c.tie_insert is not None
+                                and c.tie_screws_tapped)
+                value, limit = spec.plate_thickness, plate or wanted.length
+                why = (f"it is {spec.plate_thickness:g} mm thick and the insert "
+                       f"{wanted.length:g} mm long" if spec.tie_insert is None else
+                       "no preferred length of screw ends in the insert and short "
+                       "of its face")
+                short.append(f"{plate_is} {why}"
+                             + (f" - end plates {plate:g} mm thick would take it"
+                                if plate is not None else ""))
+        if spec.base_has_flange and spec.base_insert is None:
+            need = wanted.length + INSERT_SUMP + TAPPED_COVER
+            plate = thicker(lambda c: c.base_insert is not None)
+            if not short:
+                value, limit = spec.plate_thickness, need
+            short.append(f"the base is tapped from below instead, since the insert, "
+                         f"{INSERT_SUMP:g} mm under it and {TAPPED_COVER:g} over it "
+                         f"want {need:g} mm and its pad is {spec.plate_thickness:g}"
+                         + (f" - end plates {plate:g} mm thick would take it"
+                            if plate is not None else ""))
+        if short:
+            rep.add(Severity.WARNING, "INSERTS_DO_NOT_FIT",
+                    f"Heat-set inserts are asked for, and the {wanted.thread} x "
+                    f"{wanted.length:g} does not fit everywhere: {'; '.join(short)}.",
+                    value, limit)
 
     # What a stall, a crash or a hard stop does, against what the motor can put
     # through the ratio standing still: the load the duty never mentions.

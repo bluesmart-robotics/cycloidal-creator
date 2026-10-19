@@ -18,8 +18,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-__all__ = ["DOWEL_DIAMETERS", "DOWEL_LENGTHS", "M2", "SCREW_LENGTHS", "SIZES",
-           "THREAD_DEPTH", "MetricSize", "dowel_for_wall", "dowel_length", "hexagon",
+__all__ = ["BRASS_DENSITY", "DOWEL_DIAMETERS", "DOWEL_LENGTHS", "INSERTS", "M2",
+           "SCREW_LENGTHS", "SIZES", "THREAD_DEPTH", "HeatSetInsert", "MetricSize",
+           "dowel_for_wall", "dowel_length", "hexagon", "insert_for", "insert_volume",
            "nut_volume", "screw_length", "screw_volume", "size_for_hole",
            "size_named", "thread_length", "thread_mean_diameter"]
 
@@ -185,6 +186,56 @@ def screw_volume(size: MetricSize, length: float) -> float:
     stress_d = size.d - 0.9382 * size.pitch
     groove = threaded * math.pi / 4.0 * (size.d ** 2 - stress_d ** 2)
     return head - socket + shank - groove
+
+
+# ------------------------------------------------------- heat-set inserts --
+#
+# The knurled brass inserts a printed part takes its threads in: pressed in
+# hot, so the plastic flows into the knurl and sets round it.  A thread cut in
+# the plastic itself strips at a fraction of the load; the insert spreads it
+# over its whole length and outside diameter.  Typical dimensions for the
+# common short series - the hole is the one to print, and it is the figure to
+# check against the maker's sheet, since it is the one the fit depends on.
+
+
+@dataclass(frozen=True)
+class HeatSetInsert:
+    """One heat-set insert, millimetres throughout."""
+
+    #: The thread it carries, by its metric name.
+    thread: str
+    #: The hole it is pressed into, as printed.
+    hole: float
+    #: Its length, and its outside across the knurl.
+    length: float
+    outer: float
+
+
+INSERTS: tuple[HeatSetInsert, ...] = (
+    HeatSetInsert("M2", 3.2, 4.0, 3.6),
+    HeatSetInsert("M2.5", 3.6, 5.7, 4.6),
+    HeatSetInsert("M3", 4.0, 5.7, 4.6),
+    HeatSetInsert("M4", 5.6, 8.1, 6.3),
+    HeatSetInsert("M5", 6.4, 9.5, 7.1),
+    HeatSetInsert("M6", 8.0, 12.7, 8.7),
+)
+
+#: Brass, g/cm^3, for weighing the inserts.
+BRASS_DENSITY = 8.5
+
+
+def insert_for(size: MetricSize | None) -> HeatSetInsert | None:
+    """The insert that carries ``size``'s thread, or ``None``."""
+    if size is None:
+        return None
+    return next((i for i in INSERTS if i.thread == size.name), None)
+
+
+def insert_volume(insert: HeatSetInsert, size: MetricSize) -> float:
+    """The brass in one insert, mm^3: a tube its outside across and its
+    thread's nominal diameter through, the knurl's grooves and the thread's
+    flanks about cancelling."""
+    return math.pi / 4.0 * (insert.outer ** 2 - size.d ** 2) * insert.length
 
 
 def nut_volume(size: MetricSize) -> float:

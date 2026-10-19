@@ -19,7 +19,7 @@ from pathlib import Path
 
 from ..analysis import DesignAnalysis
 from ..analysis.bearings import pin_diameters, seat_bores
-from ..analysis.mass import plate_dowel_mass_g, rotor_hub_screw_mass_g
+from ..analysis.mass import insert_mass_g, plate_dowel_mass_g, rotor_hub_screw_mass_g
 from ..core.fasteners import nut_volume, screw_volume
 from ..core.spec import OutputMember
 
@@ -237,14 +237,16 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         density = s.pin_mat.density_g_cm3 / 1000.0
         screw_g = screw_volume(bolt, s.tie_screw_length) * density
         nut_g = nut_volume(bolt) * density
+        into = ("into heat-set inserts in the input end plate"
+                if s.tie_insert is not None else
+                f"into the input end plate, which is tapped {bolt.name} for it")
         items.append(BomItem(
             part="Tie bolt", quantity=ties, material=s.pin_material,
             size=f"{bolt.name} x {s.tie_screw_length:g} socket head cap screw, "
                  f"ISO 4762",
             mass_each_g=screw_g, source="buy",
             note=(f"head on the output end plate, through it and the barrel "
-                  f"into the input end plate, which is tapped {bolt.name} for it, "
-                  f"{tie_where}; it stops "
+                  f"{into}, {tie_where}; it stops "
                   f"{s.tie_bolt_length - s.tie_screw_length:.1f} mm short of the "
                   f"face the driven machine bolts to" if s.tie_screws_tapped else
                   f"head on the output end plate, through it, the barrel and the "
@@ -263,6 +265,25 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
                  f"{s.tie_bolt_length:.0f} mm under the head",
             mass_each_g=0.0, source="buy",
             note=f"through both end plates into the barrel, {tie_where}"))
+
+    # One insert for the tie screws and the base's own screws alike, both
+    # the tie screws' size: one part to order, wherever it goes.
+    inserted = [(insert, count, where) for insert, count, where in (
+        (s.tie_insert if s.tie_screws_tapped else None, ties,
+         "the input end plate, from its inside face, for the tie bolts"),
+        (s.base_insert, len(s.base_mount_centres),
+         "the base's flange, from below, to bolt it down by"))
+        if insert is not None and count]
+    if inserted:
+        insert = inserted[0][0]
+        items.append(BomItem(
+            part="Heat-set insert", quantity=sum(c for _, c, _ in inserted),
+            material="Brass",
+            size=f"{insert.thread} x {insert.length:g} knurled heat-set insert, "
+                 f"for a Ø{insert.hole:g} hole",
+            mass_each_g=insert_mass_g(s, insert), source="buy",
+            note="pressed in hot - " + "; ".join(
+                f"{c} into {where}" for _, c, where in inserted)))
 
     # An outrunner drives through its can, bolted to a hub on the shaft's end.
     if s.rotor_hub is not None:
@@ -439,8 +460,11 @@ def _base_note(s) -> str:
     kind, size = s.base_pad
     pad = f"{size:.1f} {'square' if kind == 'square' else 'dia'}"
     mounts = s.base_mount_centres
-    screws = (f", tapped {len(mounts)} x {s.tie_bolt_size.name} "
-              f"{s.base_mount_depth:g} deep from below to bolt it down by"
+    how = (f"drilled Ø{s.base_mount_hole:g} for {len(mounts)} x "
+           f"{s.tie_bolt_size.name} heat-set inserts"
+           if s.base_insert is not None and s.tie_bolt_size else
+           f"tapped {len(mounts)} x {s.tie_bolt_size.name}" if s.tie_bolt_size else "")
+    screws = (f", {how} {s.base_mount_depth:g} deep from below to bolt it down by"
               if mounts and s.tie_bolt_size else "")
     return (f"; one part with the base the drive stands on, on the end of the "
             f"boss - a {s.housing_size_text} flange "

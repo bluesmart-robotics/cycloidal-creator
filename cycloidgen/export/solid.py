@@ -727,7 +727,7 @@ def output_flange(spec: GearSpec,
             base = base.cut(cq.Workplane("XY")
                             .workplane(offset=top - spec.base_flange_thickness)
                             .pushPoints(spec.base_mount_centres)
-                            .circle(spec.tie_tap_drill / 2.0)
+                            .circle(spec.base_mount_hole / 2.0)
                             .extrude(spec.base_mount_depth))
         body = body.union(base)
 
@@ -837,9 +837,10 @@ def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
 
     if spec.tie_bolt_centres:
         # The input plate of a ring drive is tapped for them: drawn at the tap
-        # drill, which is the metal the thread is cut in.
+        # drill, which is the metal the thread is cut in - or at the hole a
+        # heat-set insert is pressed into, where it takes one.
         tapped = motor_face and spec.tie_screws_tapped
-        hole = spec.tie_tap_drill if tapped else spec.housing_bolt_diameter
+        hole = spec.tie_thread_hole if tapped else spec.housing_bolt_diameter
         plate = plate.cut(cq.Workplane("XY").workplane(offset=-1.0)
                           .pushPoints(spec.tie_bolt_centres)
                           .circle(hole / 2.0)

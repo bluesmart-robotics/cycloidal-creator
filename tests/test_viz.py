@@ -956,18 +956,28 @@ def test_the_motor_stands_still_with_what_it_is_bolted_to(ring, direct):
 
 
 @pytest.mark.parametrize("key", ["nema17-printed-15", "nema23-machined-21",
-                                 "nema34-machined-29", None])
+                                 "nema34-machined-29", None, "inserts"])
 def test_a_ring_drive_s_base_draws_what_its_solid_encloses(key):
     """The base as a flange round a pad, with blind holes tapped up into the
-    flange: the preview encloses what the solid does and is a closed surface."""
+    flange: the preview encloses what the solid does and is a closed surface.
+    With heat-set inserts, the turning plate's wider holes as well."""
     from cycloidgen.core.presets import by_key
-    from cycloidgen.core.spec import OutputMember
+    from cycloidgen.core.spec import HousingShape, OutputMember
     from cycloidgen.viz.vtkbridge import closed_polydata
 
-    s = by_key(key).spec() if key else preset(21)
+    s = (by_key("nema17-printed-15" if key == "inserts" else key).spec() if key
+         else preset(21))
     s.output_member = OutputMember.RING
+    names = ["output_flange"]
+    if key == "inserts":
+        s.heat_set_inserts = True
+        s.housing_shape = HousingShape.SQUARE
+        assert s.tie_insert is not None and s.base_insert is not None
+        names.append("input_end_plate")
     mesh = build_mesh(s)
-    i = next(k for k, p in enumerate(mesh.parts) if p.name == "output_flange")
-    assert _part_volumes(mesh)[i] == pytest.approx(
-        solid.output_flange(s).val().Volume(), rel=0.01)
-    assert _edge_counts(closed_polydata(mesh, mesh.parts[i])) == (0, 0)
+    made = solid.parts(s)
+    for name in names:
+        i = next(k for k, p in enumerate(mesh.parts) if p.name == name)
+        assert _part_volumes(mesh)[i] == pytest.approx(
+            made[name].val().Volume(), rel=0.01), name
+        assert _edge_counts(closed_polydata(mesh, mesh.parts[i])) == (0, 0)

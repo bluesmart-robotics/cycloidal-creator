@@ -710,6 +710,21 @@ EXPLANATIONS: dict[str, Explanation] = {
         "and covers the screw's tip - the app then taps it and the nuts go - "
         "or space the driven part off the face on a ring that clears them.",
         unit="mm"),
+    "INSERTS_DO_NOT_FIT": Explanation(
+        "Heat-set inserts with no room round them",
+        "wall round the insert's hole  >  1.5 mm, part as deep as the insert",
+        "A printed part's own thread strips long before the screw in it is "
+        "loaded, which is why the inserts were asked for: knurled brass "
+        "pressed in hot, held by the plastic that flows round it. That plastic "
+        "is the whole hold, and an insert's hole is wider than the screw's, so "
+        "on a round housing the tie bolts' circle down the middle of the wall "
+        "can leave too little of it outside to keep the insert from bursting "
+        "out of the rim. The part that has no room takes a thread cut in the "
+        "plastic instead, as it would without inserts.",
+        "Thicken the housing wall, or make the housing square: its tie bolts "
+        "sit in the corners, which have the room. Where the part is too thin "
+        "for the insert's length, thicken the end plates.",
+        keep="above", unit="mm"),
     "PV_LIMIT_CAM": Explanation(
         "Cam journal sliding duty past the wear limit",
         "p*v at the cam/bore contact  <  the PV limit for the pair",

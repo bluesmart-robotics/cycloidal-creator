@@ -18,9 +18,11 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 from .duty import DutyCycle
 from .fasteners import (
     SCREW_LENGTHS,
+    HeatSetInsert,
     MetricSize,
     dowel_for_wall,
     dowel_length,
+    insert_for,
     screw_length,
     size_for_hole,
     size_named,
@@ -377,6 +379,14 @@ COUPLING_GRIP = 8.0
 #: that does not on a ring-output drive, mm.
 BASE_RUNNING_GAP = 1.0
 
+#: Wall a heat-set insert needs round its hole in a printed part, mm: the
+#: plastic it melts into is what holds it, and a thinner wall bursts.
+INSERT_WALL = 1.5
+
+#: How much deeper than an insert its blind hole is, mm, for the plastic it
+#: displaces going in.
+INSERT_SUMP = 0.5
+
 #: What a tapped tie screw's tip stays under the face it is threaded towards,
 #: mm: the face is what the driven machine bolts to, so nothing may reach it.
 TAPPED_COVER = 0.5
@@ -607,6 +617,12 @@ class GearSpec(BaseModel):
                     "the plates are held on by something this app is not drawing",
     )
     housing_bolt_diameter: float = Field(4.5, gt=0)
+    heat_set_inserts: bool = Field(
+        False,
+        description="where a screw threads into a printed part - a ring drive's "
+                    "turning plate and its base - it takes a heat-set insert "
+                    "rather than a thread cut in the plastic",
+    )
     plate_dowels: bool = Field(
         True,
         description="two dowels locating each end plate on the barrel; off "
@@ -1113,8 +1129,10 @@ class GearSpec(BaseModel):
         more than the pad.  The whole plate where there is no flange."""
         if not self.base_has_flange:
             return self.plate_thickness
-        need = self.tie_thread_engagement + TAPPED_COVER
-        return min(self.plate_thickness, max(self.housing_wall, need))
+        insert = self.base_insert
+        hole = (insert.length + INSERT_SUMP if insert is not None
+                else self._thread_engagement(None))
+        return min(self.plate_thickness, max(self.housing_wall, hole + TAPPED_COVER))
 
     @property
     def base_has_flange(self) -> bool:
@@ -1138,15 +1156,19 @@ class GearSpec(BaseModel):
         pad = self.base_pad[1] / 2.0                   # the pad's reach along x
         edge = self.housing_outer_radius
         r = 0.5 * (pad + edge)
-        if (edge - pad) / 2.0 - self.tie_tap_drill / 2.0 < 1.5:
+        if (edge - pad) / 2.0 - self.base_mount_hole / 2.0 < 1.5:
             return []
         return [(r, 0.0), (0.0, r), (-r, 0.0), (0.0, -r)]
 
     @property
     def base_mount_depth(self) -> float:
-        """How deep the mount holes are tapped up into the flange from below."""
-        return min(self.tie_thread_engagement,
-                   self.base_flange_thickness - TAPPED_COVER)
+        """How deep the mount holes go up into the flange from below: an
+        insert's length and a little for the plastic it displaces, or the
+        thread a tapped one needs."""
+        insert = self.base_insert
+        need = (insert.length + INSERT_SUMP if insert is not None
+                else self._thread_engagement(None))
+        return min(need, self.base_flange_thickness - TAPPED_COVER)
 
     @property
     def output_pins_are_supported_at_both_ends(self) -> bool:
@@ -1929,18 +1951,87 @@ class GearSpec(BaseModel):
     # On a ring-output drive the input end plate turns, and it is the face the
     # driven machine bolts to: nuts on it stand proud of the very face that has
     # to be flat.  So there it is tapped for the screws instead, and each screw
-    # stops short of the face.  Not a counterbore and not an insert: the bolt
-    # circle runs down the middle of the housing wall, and either would break
-    # out of a 6 mm wall where a tapped hole does not.
+    # stops short of the face.  Not a counterbore, and an insert only where one
+    # is asked for and has room: the bolt circle runs down the middle of the
+    # housing wall, and either would break out of a 6 mm wall where a tapped
+    # hole does not.
     @property
     def tie_thread_engagement(self) -> float:
         """The least thread a tie screw has in a tapped plate, mm: one and a
-        half diameters in metal, two in a polymer, whose thread shears first."""
+        half diameters in metal or in a brass insert, two in a polymer, whose
+        thread shears first."""
+        return self._thread_engagement(self.tie_insert)
+
+    def _thread_engagement(self, insert: HeatSetInsert | None) -> float:
         size = self.tie_bolt_size
         if size is None:
             return 0.0
-        polymer = self.housing_mat.E_GPa < 10.0
+        polymer = self.housing_mat.E_GPa < 10.0 and insert is None
         return (2.0 if polymer else 1.5) * size.d
+
+    # ---- heat-set inserts ------------------------------------------------------
+    #
+    # A printed part's own thread strips at a fraction of what the screw takes;
+    # a knurled brass insert pressed in hot carries it on its whole length.  Asked
+    # for with ``heat_set_inserts`` and only in a polymer.  In the turning plate
+    # it is pressed in from the face that meets the barrel, so the screw finds it
+    # first, and the hole runs on through at its size; the screw stops short of
+    # the far face as a tapped one does.  It needs a wall round it the tapped
+    # thread did not, and where the housing's wall has not got it the plate is
+    # tapped as before and ``INSERTS_DO_NOT_FIT`` says what would take them.
+    @property
+    def tie_insert_wanted(self) -> HeatSetInsert | None:
+        """The insert the tie screws' size takes, where inserts are asked for
+        in a polymer part."""
+        if not self.heat_set_inserts or self.housing_mat.E_GPa >= 10.0:
+            return None
+        return insert_for(self.tie_bolt_size)
+
+    @property
+    def tie_insert_wall(self) -> float:
+        """Wall left round a tie screw's insert hole, mm: the rim land, less what
+        the insert's hole is wider than the screw's clearance by."""
+        wanted = self.tie_insert_wanted
+        if wanted is None:
+            return math.inf
+        return self.rim_land - (wanted.hole - self.housing_bolt_diameter) / 2.0
+
+    @property
+    def tie_insert(self) -> HeatSetInsert | None:
+        """The insert a ring drive's turning plate takes its tie screws in:
+        asked for, a wall of :data:`INSERT_WALL` round it, and the plate as
+        thick as it is long."""
+        wanted = self.tie_insert_wanted
+        if (wanted is None or not self.ground_frame_fitted
+                or self.tie_insert_wall < INSERT_WALL
+                or wanted.length > self.plate_thickness):
+            return None
+        return wanted
+
+    @property
+    def tie_thread_hole(self) -> float:
+        """The hole the tie screws thread into in the turning plate: the
+        insert's where there is one, otherwise the tap drill."""
+        insert = self.tie_insert
+        return insert.hole if insert is not None else self.tie_tap_drill
+
+    @property
+    def base_insert(self) -> HeatSetInsert | None:
+        """The insert the base's own screws thread into, asked for in a
+        polymer base - its flange has the room round it the housing wall may
+        not, and takes its length and cover where the pad is that thick."""
+        wanted = self.tie_insert_wanted
+        if (wanted is None or not self.base_has_flange
+                or wanted.length + INSERT_SUMP + TAPPED_COVER > self.plate_thickness):
+            return None
+        return wanted
+
+    @property
+    def base_mount_hole(self) -> float:
+        """The hole the base is bolted down into: the insert's, or the tap
+        drill."""
+        insert = self.base_insert
+        return insert.hole if insert is not None else self.tie_tap_drill
 
     @property
     def tie_tap_drill(self) -> float:

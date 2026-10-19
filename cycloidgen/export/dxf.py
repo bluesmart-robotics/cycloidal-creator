@@ -152,9 +152,10 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
         if not spec.square_housing:
             msp.add_circle((0, 0), spec.housing_bolt_radius,
                            dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
-        # The input plate of a ring drive is tapped for them, at the tap drill.
+        # The input plate of a ring drive is tapped for them, at the tap drill,
+        # or holds an insert for them, at its hole.
         tapped = motor_face and spec.tie_screws_tapped
-        hole = spec.tie_tap_drill if tapped else spec.housing_bolt_diameter
+        hole = spec.tie_thread_hole if tapped else spec.housing_bolt_diameter
         for c in ties:
             msp.add_circle(c, hole / 2.0, dxfattribs={"layer": "BOLTS"})
             _cross(msp, c)
@@ -162,7 +163,9 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
         named = f" ({size.name})" if size else ""
         where = (f"{2 * abs(ties[0][0]):g} square" if spec.square_housing
                  else f"BC {2 * spec.housing_bolt_radius:g}")
-        what = (f"{size.name} tapped, {hole:g} drill," if tapped
+        what = (f"{size.name} heat-set insert, {hole:g} hole," if tapped
+                and spec.tie_insert is not None else
+                f"{size.name} tapped, {hole:g} drill," if tapped
                 else f"{hole:g}{named}")
         note += f"  |  {len(ties)} x {what} tie on {where}"
 

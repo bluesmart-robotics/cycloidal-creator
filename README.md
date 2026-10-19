@@ -42,7 +42,7 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Seventy-three checks that explain themselves.** Each says what it tests, what
+- **Seventy-four checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -436,6 +436,18 @@ or two in a polymer one, and stops half a millimetre short of the face. A plate
 too thin for that keeps its nuts, and `TIE_NUTS_ON_OUTPUT_FACE` says how far
 proud of the face they stand and how thick a plate would take the thread.
 
+A printed part's own thread strips long before the screw is loaded, so a
+polymer drive can ask for heat-set inserts (`heat_set_inserts`): knurled brass,
+pressed in hot, wherever a screw threads into plastic — the tie screws into
+the turning plate, from the face that meets the barrel, and the four that bolt
+the base down, from below. The screw then needs only one and a half diameters
+in it, as in metal. An insert's hole is wider than the screw's and wants
+1.5 mm of plastic round it, which a round housing's bolt circle down the middle
+of a 6 mm wall has not got; there the plate is tapped as before and
+`INSERTS_DO_NOT_FIT` names the wall, or the square housing, that would take
+them. The base's flange thickens to the insert's length, half a millimetre for
+the plastic it displaces and half a millimetre over the hole's end.
+
 **What puts the plates on the ring's axis is two dowels at each end, not the
 bolts.** The plates carry the shaft supports and the output bearing, so they
 decide where the crank's axis is, and the ring pins are in the barrel; a bolt
@@ -614,7 +626,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Seventy-three of them. Errors block export; warnings do not; several are readings
+Seventy-four of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -646,7 +658,7 @@ rather than tests.
 `MOTOR_SHAFT_TOO_BIG` · `MOTOR_SHAFT_MISMATCH` · `MOTOR_SHAFT_SHORT` ·
 `MOTOR_SCREW_SEAT` · `MOTOR_HOLLOW_TOO_SMALL` · `COUPLING_DOES_NOT_FIT` ·
 `MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD` · `TIE_NUTS_ON_OUTPUT_FACE` ·
-`PLATES_NOT_LOCATED` · `PLATE_DOWEL_CLASH`
+`INSERTS_DO_NOT_FIT` · `PLATES_NOT_LOCATED` · `PLATE_DOWEL_CLASH`
 
 **The motor** — `MOTOR_OPERATING_POINT` · `MOTOR_TORQUE_SHORT` ·
 `MOTOR_SUPPLY_VOLTAGE` · `MOTOR_OVERLOADS_DRIVE`

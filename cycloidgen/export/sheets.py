@@ -118,6 +118,9 @@ class Pattern:
     #: The thread the holes are tapped to, for a pattern a screw threads into;
     #: ``hole`` is then the tap drill.
     thread: str = ""
+    #: The heat-set insert pressed into them instead, ``"M4 x 8.1"``, and then
+    #: ``hole`` is the insert's.
+    insert: str = ""
 
 
 @dataclass(frozen=True)
@@ -277,14 +280,17 @@ def plate_features(spec: GearSpec, name: str) -> PlateFeatures:
         tapped = spec.tie_screws_tapped
         patterns.append(Pattern(
             label="tie bolts", centres=ties,
-            hole=(spec.tie_tap_drill if tapped and name == "input_end_plate"
+            hole=(spec.tie_thread_hole if tapped and name == "input_end_plate"
                   else spec.housing_bolt_diameter),
             circle=None if square else 2.0 * spec.housing_bolt_radius, square=square,
             screw=size.name if size else "",
             position=_position(spec.housing_bolt_diameter,
                                size.d if size else None, fixed=tapped),
             fixed=tapped, datums=("A", "B"),
-            thread=size.name if tapped and name == "input_end_plate" else ""))
+            thread=size.name if tapped and name == "input_end_plate" else "",
+            insert=(f"{spec.tie_insert.thread} x {spec.tie_insert.length:g}"
+                    if tapped and name == "input_end_plate"
+                    and spec.tie_insert is not None else "")))
     if (name == "input_end_plate" and spec.ground_frame_fitted
             and spec.output_bolt_count):
         size = size_for_hole(spec.output_bolt_diameter)
@@ -577,9 +583,12 @@ def _pattern_lines(p: Pattern, f: PlateFeatures) -> tuple[str, ...]:
         where = f"ON Ø{_fmt(p.circle)} EQ SP"
     else:
         where = f"ON {_fmt(p.square)} x {_fmt(p.square)} SQUARE"
-    size = p.thread or f"Ø{_fmt(p.hole)} {p.fit}".strip()
+    size = (f"Ø{_fmt(p.hole)}" if p.insert else
+             p.thread or f"Ø{_fmt(p.hole)} {p.fit}".strip())
     lines = [f"{n}x {size} THRU {where}"]
-    if p.thread:
+    if p.insert:
+        lines.append(f"HEAT-SET INSERT {p.insert} FROM A")
+    elif p.thread:
         lines.append(f"TAP DRILL Ø{_fmt(p.hole)}")
     if p.phase:
         lines.append(f"{p.phase:.1f}° FROM THE TIE BOLTS")
@@ -761,7 +770,10 @@ def plate_sheet(spec: GearSpec, name: str) -> Sheet:
                "whole clearance")
         # A tapped pattern's own hole is the thread: the clearance it shares is
         # the other parts', which every tie hole but these is drilled to.
-        held = (f"threaded into this plate through a "
+        held = (f"threaded into a {p.insert} heat-set insert pressed into this "
+                f"plate from A, through a Ø{_fmt(spec.housing_bolt_diameter)} "
+                f"hole in the others" if p.insert else
+                f"threaded into this plate through a "
                 f"Ø{_fmt(spec.housing_bolt_diameter)} hole in the others"
                 if p.thread else f"in a Ø{_fmt(p.hole)} hole")
         notes.append(f"{p.label[0].upper()}{p.label[1:]}: position "

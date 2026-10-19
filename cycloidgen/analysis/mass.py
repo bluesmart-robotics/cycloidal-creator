@@ -26,12 +26,18 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..core import profile as prof
-from ..core.fasteners import nut_volume, screw_volume
+from ..core.fasteners import (
+    BRASS_DENSITY,
+    HeatSetInsert,
+    insert_volume,
+    nut_volume,
+    screw_volume,
+)
 from ..core.motor import COUPLING_SLOT_DEPTH, COUPLING_SLOT_WIDTH, COUPLING_SLOTS
 from ..core.spec import MATERIALS, GearSpec, OutputMember, d_section_area
 from .bearings import BearingChoice, SeatBores, bearing_schedule, pin_diameters, seat_bores
 
-__all__ = ["MassResult", "analyse_mass", "plate_dowel_mass_g",
+__all__ = ["MassResult", "analyse_mass", "insert_mass_g", "plate_dowel_mass_g",
            "rotor_hub_screw_mass_g", "tie_bolt_mass_g"]
 
 _MM3_TO_CM3 = 1e-3
@@ -236,9 +242,18 @@ def plate_dowel_mass_g(spec: GearSpec) -> float:
     return math.pi * (spec.plate_dowel_diameter / 2.0) ** 2 * length * _MM3_TO_CM3 * rho
 
 
+def insert_mass_g(spec: GearSpec, insert: HeatSetInsert) -> float:
+    """One heat-set insert for the tie screws' size, grams, in brass."""
+    size = spec.tie_bolt_size
+    if size is None:
+        return 0.0
+    return insert_volume(insert, size) * _MM3_TO_CM3 * BRASS_DENSITY
+
+
 def tie_bolt_mass_g(spec: GearSpec) -> float:
     """One tie bolt and its nut, grams - the screw alone where it threads into
-    a tapped plate; zero where the drive cannot name them.
+    a tapped plate, and its insert with it where that is in one; zero where
+    the drive cannot name them.
 
     A hole the fastener table has no size for is ordered by the hole and a
     length, which is not a part anybody can weigh.
@@ -247,8 +262,10 @@ def tie_bolt_mass_g(spec: GearSpec) -> float:
     if size is None or length is None:
         return 0.0
     nut = 0.0 if spec.tie_screws_tapped else nut_volume(size)
+    insert = (insert_mass_g(spec, spec.tie_insert)
+              if spec.tie_screws_tapped and spec.tie_insert is not None else 0.0)
     return ((screw_volume(size, length) + nut)
-            * _MM3_TO_CM3 * spec.pin_mat.density_g_cm3)
+            * _MM3_TO_CM3 * spec.pin_mat.density_g_cm3 + insert)
 
 
 def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
@@ -364,7 +381,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
                           + spec.base_pad_area * (spec.plate_thickness - flange)
                           - math.pi * (bores.hub / 2.0) ** 2 * spec.plate_thickness)
         flange_volume -= (len(spec.base_mount_centres) * math.pi
-                          * (spec.tie_tap_drill / 2.0) ** 2 * spec.base_mount_depth)
+                          * (spec.base_mount_hole / 2.0) ** 2 * spec.base_mount_depth)
         flange_volume -= _base_motor_cuts(spec, bores)
         if spec.has_motor_face:
             frame = spec.motor_face
@@ -408,7 +425,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     # A tapped input plate is drilled at the thread's tap drill, not through
     # clearance.
     input_tie_area = (len(spec.tie_bolt_centres) * math.pi
-                      * (spec.tie_tap_drill / 2.0) ** 2
+                      * (spec.tie_thread_hole / 2.0) ** 2
                       if spec.tie_screws_tapped else bolt_area)
     plates_volume = (2.0 * outer_area
                      - math.pi * (bores.input_plate / 2.0) ** 2
@@ -445,6 +462,9 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     dowels_mass = plate_dowel_mass_g(spec) * 2 * len(spec.plate_dowel_centres)
     fasteners_mass = (tie_mass + dowels_mass + hub_screws_mass
                       + motor_screw_mass_g(spec) * len(spec.motor_bolt_centres))
+    if spec.base_insert is not None:
+        fasteners_mass += (insert_mass_g(spec, spec.base_insert)
+                           * len(spec.base_mount_centres))
 
     coupling = spec.coupling
     coupling_polar = 0.0

@@ -750,8 +750,18 @@ def _ring(key_or_ratio, **over):
     return spec
 
 
+def _inserted(**over):
+    """The printed ring drive with heat-set inserts, square, so the turning
+    plate has the room for them as well as the base."""
+    from cycloidgen.core.spec import HousingShape
+
+    return _ring("nema17-printed-15", **{"heat_set_inserts": True,
+                                         "housing_shape": HousingShape.SQUARE, **over})
+
+
 BASES = {
     "printed NEMA 17": lambda: _ring("nema17-printed-15"),
+    "printed, heat-set inserts": _inserted,
     "machined NEMA 23": lambda: _ring("nema23-machined-21"),
     "NEMA 34": lambda: _ring("nema34-machined-29"),
     "no motor, a whole plate": lambda: _ring(21),
@@ -793,9 +803,11 @@ def test_the_base_is_bolted_down_from_below_into_blind_threads(name):
     for x, y in spec.base_mount_centres:
         assert not body.isInside(cq.Vector(x, y, floor + spec.base_mount_depth / 2.0))
         assert body.isInside(cq.Vector(x, y, top - TAPPED_COVER / 2.0))
-        # a wall either side of the thread's drill, inside the outline and
-        # clear of the pad
-        assert body.isInside(cq.Vector(x + spec.tie_tap_drill / 2.0 + 0.5, y, floor + 0.5))
+        # the hole as wide as the drill or the insert, and a wall either side
+        # of it, inside the outline and clear of the pad
+        hole = spec.base_mount_hole / 2.0
+        assert not body.isInside(cq.Vector(x + hole - 0.2, y, floor + 0.5))
+        assert body.isInside(cq.Vector(x + hole + 0.5, y, floor + 0.5))
 
 
 def test_the_flange_is_thinner_than_the_pad_the_motor_stands_on():
@@ -809,3 +821,198 @@ def test_through_a_coupling_the_base_stays_a_whole_plate():
     spec = _ring(21, motor_frame="NEMA 17", motor_drives_the_shaft=False)
     assert not spec.base_has_flange and not spec.base_mount_centres
     assert spec.base_flange_thickness == spec.plate_thickness
+
+
+# ---- heat-set inserts ------------------------------------------------------------
+
+
+def test_heat_set_inserts_take_the_tie_screws_in_the_turning_plate():
+    """Probed in the solids: the turning plate's tie holes are the insert's,
+    with plastic round them; each screw has its one and a half diameters in the
+    insert and stops short of the face; and no nut anywhere."""
+    import cadquery as cq
+
+    from cycloidgen.core.spec import INSERT_WALL, TAPPED_COVER
+    from cycloidgen.export import solid
+
+    spec = _inserted()
+    insert = spec.tie_insert
+    assert insert is not None and spec.tie_screws_tapped
+    assert spec.tie_thread_engagement == 1.5 * spec.tie_bolt_size.d
+    plate = solid.parts(spec)["input_end_plate"].val()
+    hole = insert.hole / 2.0
+    for x, y in spec.tie_bolt_centres:
+        r = math.hypot(x, y)
+        ux, uy = x / r, y / r
+        for z in (0.5, spec.plate_thickness - 0.5):
+            assert not plate.isInside(cq.Vector(x + ux * (hole - 0.2),
+                                                y + uy * (hole - 0.2), z))
+            assert plate.isInside(cq.Vector(x + ux * (hole + INSERT_WALL - 0.2),
+                                            y + uy * (hole + INSERT_WALL - 0.2), z))
+    face = spec.barrel_top + spec.plate_thickness
+    tips = solid.tie_bolts(spec).val().BoundingBox().zmax
+    assert tips <= face - TAPPED_COVER + 1e-6
+    assert min(tips - spec.barrel_top, insert.length) >= spec.tie_thread_engagement - 1e-6
+    assert solid.tie_nuts(spec) is None
+    a = analyse(spec)
+    assert not any(f.code in ("INSERTS_DO_NOT_FIT", "TIE_NUTS_ON_OUTPUT_FACE")
+                   for f in a.report.findings)
+
+
+def test_the_inserts_holes_weigh_what_the_solids_lose_to_them():
+    """The same drive with and without inserts: what the plates and the base
+    lose to the wider holes and gain in the thicker flange, in the mass model
+    and in the solids - the difference, so a percent of the part cannot hide
+    it."""
+    from cycloidgen.export import solid
+
+    with_, without = _inserted(), _inserted(heat_set_inserts=False)
+    assert with_.base_flange_thickness > without.base_flange_thickness
+
+    def weighed(spec):
+        m = analyse(spec).mass
+        return {"plates": m.plates_mass_g, "base": m.flange_mass_g}
+
+    def enclosed(spec):
+        made = solid.parts(spec)
+        return {"plates": sum(made[n].val().Volume()
+                              for n in ("input_end_plate", "output_end_plate")),
+                "base": solid.output_flange(spec).val().Volume()}
+
+    rho = with_.housing_mat.density_g_cm3 / 1000.0
+    w, wo = weighed(with_), weighed(without)
+    e, eo = enclosed(with_), enclosed(without)
+    for part in ("plates", "base"):
+        assert (w[part] - wo[part]) / rho == pytest.approx(e[part] - eo[part],
+                                                           rel=1e-3), part
+
+
+def test_the_bill_orders_the_inserts_the_mass_model_weighs():
+    """One line, the tie screws' and the base's together, each insert a brass
+    tube by the CAD kernel's own volume; and the bill still adds up to the
+    assembled mass."""
+    import cadquery as cq
+
+    from cycloidgen.core.fasteners import BRASS_DENSITY
+    from cycloidgen.export.bom import bom_items
+
+    spec = _inserted()
+    a = analyse(spec)
+    items = bom_items(a)
+    line = next(i for i in items if i.part == "Heat-set insert")
+    insert = spec.tie_insert
+    assert line.quantity == len(spec.tie_bolt_centres) + len(spec.base_mount_centres)
+    tube = (cq.Workplane("XY").circle(insert.outer / 2.0)
+            .circle(spec.tie_bolt_size.d / 2.0).extrude(insert.length).val())
+    assert line.mass_each_g == pytest.approx(tube.Volume() * BRASS_DENSITY / 1000.0,
+                                             rel=1e-6)
+    assert not any(i.part == "Tie bolt nut" for i in items)
+    assert "heat-set inserts" in next(i for i in items if i.part == "Tie bolt").note
+    assert (sum(i.mass_total_g for i in items)
+            == pytest.approx(a.mass.total_mass_g, rel=1e-6))
+
+
+def test_a_round_wall_too_thin_for_inserts_is_tapped_and_says_what_would_take_them():
+    """A 6 mm round wall runs its bolt circle down the middle, which leaves an
+    insert's hole a few tenths of plastic: the plate is tapped as before, the
+    base - which has the room - takes them, and the check names a wall that
+    would, which is then built and holds."""
+    import re
+
+    from cycloidgen.export.bom import bom_items
+
+    spec = _ring("nema17-printed-15", heat_set_inserts=True)
+    wanted = spec.tie_insert_wanted
+    assert spec.tie_insert is None and spec.tie_screws_tapped
+    assert spec.tie_thread_hole == spec.tie_tap_drill
+    assert spec.base_insert is not None
+    a = analyse(spec)
+    found = next(f for f in a.report.findings if f.code == "INSERTS_DO_NOT_FIT")
+    # half the wall either side of the circle, less half the insert's hole
+    assert found.value == pytest.approx((spec.housing_wall - wanted.hole) / 2.0)
+    wall = float(re.search(r"a ([\d.]+) mm housing wall", found.message).group(1))
+    assert _ring("nema17-printed-15", heat_set_inserts=True,
+                 housing_wall=wall).tie_insert is not None
+    assert _ring("nema17-printed-15", heat_set_inserts=True,
+                 housing_wall=wall - 0.5).tie_insert is None
+    assert "square housing" in found.message
+    line = next(i for i in bom_items(a) if i.part == "Heat-set insert")
+    assert line.quantity == len(spec.base_mount_centres)
+
+
+def test_plates_too_thin_for_inserts_say_how_thick_and_that_thickness_holds():
+    import re
+
+    spec = _inserted(end_plate_thickness=8.0)
+    assert spec.tie_insert is None and spec.base_insert is None
+    found = next(f for f in analyse(spec).report.findings
+                 if f.code == "INSERTS_DO_NOT_FIT")
+    named = [float(t) for t in re.findall(r"end plates ([\d.]+) mm thick",
+                                          found.message)]
+    assert len(named) == 2
+    thick = _inserted(end_plate_thickness=named[0])
+    assert thick.tie_insert is not None and thick.tie_screws_tapped
+    assert _inserted(end_plate_thickness=named[1]).base_insert is not None
+
+
+def test_a_metal_drive_ignores_the_inserts():
+    """Brass in aluminium is not what the option is for: a metal plate is tapped,
+    and nothing it weighs or says moves."""
+    plain = _ring("nema23-machined-21")
+    asked = _ring("nema23-machined-21", heat_set_inserts=True)
+    assert asked.tie_insert_wanted is None and asked.base_insert is None
+    a, b = analyse(plain), analyse(asked)
+    assert b.mass.total_mass_g == a.mass.total_mass_g
+    assert [f.code for f in b.report.findings] == [f.code for f in a.report.findings]
+
+
+def test_the_carrier_output_drive_has_no_thread_in_plastic_to_insert():
+    """Off the carrier the tie screws take nuts and nothing is threaded into
+    the print, so asking for inserts changes nothing."""
+    plain = by_key_spec("nema17-printed-15")
+    asked = by_key_spec("nema17-printed-15", heat_set_inserts=True)
+    assert asked.tie_insert is None and asked.base_insert is None
+    assert analyse(asked).mass.total_mass_g == analyse(plain).mass.total_mass_g
+
+
+def by_key_spec(key, **over):
+    from cycloidgen.core.presets import by_key
+
+    spec = by_key(key).spec()
+    for name, value in over.items():
+        setattr(spec, name, value)
+    return spec
+
+
+def test_the_sheet_and_the_cutting_file_call_for_the_insert_the_solid_is_drilled_for():
+    """The turning plate's sheet and DXF state the insert and its hole, and the
+    hole they state is the one in the solid - probed at every centre the sheet
+    gives, a hair inside and a hair outside the size it gives."""
+    import tempfile
+    from pathlib import Path
+
+    import cadquery as cq
+    import ezdxf
+
+    from cycloidgen.export import sheets, solid
+    from cycloidgen.export.dxf import write_part_dxfs
+
+    spec = _inserted()
+    insert = spec.tie_insert
+    f = sheets.plate_features(spec, "input_end_plate")
+    ties = next(p for p in f.patterns if p.insert)
+    assert ties.insert == f"{insert.thread} x {insert.length:g}"
+    lines = sheets._pattern_lines(ties, f)
+    assert f"HEAT-SET INSERT {ties.insert} FROM A" in lines
+    assert not any("TAP DRILL" in line for line in lines)
+    plate = solid.parts(spec)["input_end_plate"].val()
+    for x, y in ties.centres:
+        r = math.hypot(x, y)
+        for d, metal in ((ties.hole / 2.0 - 0.1, False), (ties.hole / 2.0 + 0.1, True)):
+            point = cq.Vector(x + x / r * d, y + y / r * d, spec.plate_thickness / 2.0)
+            assert plate.isInside(point) is metal
+    with tempfile.TemporaryDirectory() as tmp:
+        write_part_dxfs(spec, tmp)
+        doc = ezdxf.readfile(Path(tmp) / "input_end_plate.dxf")
+        note = next(t.dxf.text for t in doc.modelspace().query("TEXT"))
+    assert f"{insert.thread} heat-set insert, {insert.hole:g} hole" in note

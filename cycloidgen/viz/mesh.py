@@ -630,8 +630,8 @@ def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
     """
     holes = tie_bolt_holes(spec) + plate_dowel_holes(spec, plate=True)
     if motor_face and spec.tie_screws_tapped:
-        # Tapped for the tie screws, at the tap drill.
-        holes = ([_circle(x, y, spec.tie_tap_drill / 2.0, 12)
+        # Tapped for the tie screws, at the tap drill or an insert's hole.
+        holes = ([_circle(x, y, spec.tie_thread_hole / 2.0, 12)
                   for x, y in spec.tie_bolt_centres]
                  + plate_dowel_holes(spec, plate=True))
     if not motor_face:
@@ -939,7 +939,7 @@ def build_mesh(spec: GearSpec,
             # flange as thick as the plate is no step, and then the screws it
             # is held down by are tapped into the plate's underside instead.
             face = floor
-            mounts = [_circle(x, y, spec.tie_tap_drill / 2.0, 16)
+            mounts = [_circle(x, y, spec.base_mount_hole / 2.0, 16)
                       for x, y in spec.base_mount_centres]
             stepped = (spec.base_has_flange
                        and spec.base_flange_thickness < spec.plate_thickness - 1e-9)
@@ -1426,7 +1426,7 @@ def mesh_fingerprint(spec: GearSpec,
         spec.housing_shape,
         # Whether the input plate is tapped for the tie screws, and at what:
         # its holes and the nuts' being there at all.
-        spec.tie_screws_tapped, spec.tie_tap_drill,
+        spec.tie_screws_tapped, spec.tie_thread_hole, spec.base_mount_hole,
         # The base's pad, flange and the holes it is bolted down by.
         spec.base_has_flange, spec.base_pad, tuple(spec.base_pad_outline()),
         spec.base_flange_thickness,

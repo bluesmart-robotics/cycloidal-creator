@@ -195,6 +195,11 @@ GROUPS: list[tuple[str, list[Field]]] = [
         Field("housing_bolt_diameter", "Tie bolt", "float", 1, 20, 0.5,
               decimals=2, suffix=" mm",
               advanced=True),
+        Field("heat_set_inserts", "Heat-set inserts", "bool",
+              tip="Printed housing only: brass inserts where a screw threads "
+                  "into a printed part - a ring drive's turning plate and its "
+                  "base - rather than a thread cut in the plastic.",
+              advanced=True),
         Field("plate_dowels", "Plate dowels", "bool",
               tip="Two dowels at each end that put the end plates, and the "
                   "bearings in them, on the ring's axis. The tie bolts cannot: "
@@ -438,6 +443,8 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "TIE_NUTS_ON_OUTPUT_FACE": ("output_member", "housing_bolt_count",
                                 "housing_bolt_diameter"),
     "PLATES_NOT_LOCATED": ("plate_dowels", "housing_wall", "housing_bolt_diameter"),
+    "INSERTS_DO_NOT_FIT": ("heat_set_inserts", "housing_wall", "housing_shape",
+                           "end_plate_thickness", "housing_bolt_diameter"),
     "MOTOR_HOLLOW_TOO_SMALL": ("input_shaft_diameter", "motor_frame"),
     "PLATE_DOWEL_CLASH": ("housing_bolt_count", "output_bolt_count", "motor_frame",
                           "housing_wall", "housing_shape"),
