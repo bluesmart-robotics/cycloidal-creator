@@ -926,3 +926,30 @@ def test_a_square_housing_matches_its_solids(ring):
         holes, nonmanifold = _edge_counts(closed_polydata(mesh, part))
         assert not holes and not nonmanifold, part.name
     assert seen == names
+
+
+@pytest.mark.parametrize("ring", [False, True])
+@pytest.mark.parametrize("direct", [True, False])
+def test_the_motor_stands_still_with_what_it_is_bolted_to(ring, direct):
+    """On a carrier drive the motor is on the housing's input plate, on a ring
+    drive on the carrier's base - the grounded member either way, so on screen
+    it does not move while its shaft turns.  It was built with no spin of its
+    own, which is the housing's, and on a ring drive the frame's turn then set
+    the motor going with the housing."""
+    from cycloidgen.core.spec import OutputMember
+
+    s = preset(21)
+    s.motor_frame = "NEMA 17"
+    s.motor_drives_the_shaft = direct
+    if ring:
+        s.output_member = OutputMember.RING
+    mesh = build_mesh(s)
+    a, b = mesh.world_vertices(0.0), mesh.world_vertices(1.3)
+    parts = {p.name: p for p in mesh.parts}
+    grounded = parts[s.grounded_part]
+    assert np.allclose(a[grounded.vertices], b[grounded.vertices])
+    for name in ("motor", "motor_screws"):
+        if name in parts:
+            assert np.allclose(a[parts[name].vertices], b[parts[name].vertices]), name
+    shaft = parts["motor_shaft"]
+    assert not np.allclose(a[shaft.vertices], b[shaft.vertices])

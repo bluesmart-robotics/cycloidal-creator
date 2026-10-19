@@ -1206,10 +1206,16 @@ def _motor(b: _Builder, spec: GearSpec) -> None:
         return
     zf, side = spec.motor_face_z, spec.motor_side
     explode = side * _EXPLODE["motor"]
+    # It turns with what it is bolted to.  The model is built with the ring
+    # still, and a ring drive's motor is on the carrier's base, which turns at
+    # the carrier's rate in that frame - and so stands still on screen once the
+    # frame's own turn takes it back.  Left at none, it was the motor that the
+    # frame's turn set going.
+    mount = 1.0 / spec.lobes if spec.motor_mounts_on_carrier else 0.0
     spigot = _circle(0.0, 0.0, frame.pilot_diameter / 2.0, 48)
     tip = zf - side * frame.pilot_depth if frame.spigot else zf
     with b.part("motor", f"Motor ({frame.name})", "motor", PART_COLOURS["motor"],
-                explode=explode):
+                spin=mount, explode=explode):
         body = motor_outline(frame)
         far = zf + side * frame.body_length
         lo, hi = sorted((zf, far))
@@ -1222,7 +1228,7 @@ def _motor(b: _Builder, spec: GearSpec) -> None:
             b.prism(spigot, (), lo, hi, cap_bottom=side > 0, cap_top=side < 0)
         else:
             b.prism(body, (), lo, hi)
-    _motor_screws(b, spec, explode)
+    _motor_screws(b, spec, explode, mount)
     if frame.shaft_length <= 0.0:
         return                     # an outrunner: its can drives, not a shaft
     r = frame.shaft_diameter / 2.0
@@ -1267,15 +1273,16 @@ def motor_screw_layout(spec: GearSpec) -> list[tuple[str, float, float]]:
     return [(what, *sorted((z(a), z(c)))) for what, a, c in parts]
 
 
-def _motor_screws(b: _Builder, spec: GearSpec, explode: float) -> None:
-    """The screws the motor is held on by, and their nuts if it takes them."""
+def _motor_screws(b: _Builder, spec: GearSpec, explode: float, spin: float) -> None:
+    """The screws the motor is held on by, and their nuts if it takes them;
+    ``spin`` is what they are bolted to's."""
     fix = spec.motor_fixing
     if fix is None:
         return
     size = fix.size
     layout = motor_screw_layout(spec)
     with b.part("motor_screws", "Motor screws", "motor",
-                PART_COLOURS["fasteners"], explode=explode):
+                PART_COLOURS["fasteners"], spin=spin, explode=explode):
         shank_mid = next(sum(z) / 2.0 for what, *z in layout if what == "shank")
         for cx, cy in spec.motor_bolt_centres:
             for what, z0, z1 in layout:
