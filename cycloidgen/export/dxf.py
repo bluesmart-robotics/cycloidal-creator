@@ -152,16 +152,19 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
         if not spec.square_housing:
             msp.add_circle((0, 0), spec.housing_bolt_radius,
                            dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
+        # The input plate of a ring drive is tapped for them, at the tap drill.
+        tapped = motor_face and spec.tie_screws_tapped
+        hole = spec.tie_tap_drill if tapped else spec.housing_bolt_diameter
         for c in ties:
-            msp.add_circle(c, spec.housing_bolt_diameter / 2.0,
-                           dxfattribs={"layer": "BOLTS"})
+            msp.add_circle(c, hole / 2.0, dxfattribs={"layer": "BOLTS"})
             _cross(msp, c)
         size = spec.tie_bolt_size
         named = f" ({size.name})" if size else ""
         where = (f"{2 * abs(ties[0][0]):g} square" if spec.square_housing
                  else f"BC {2 * spec.housing_bolt_radius:g}")
-        note += (f"  |  {len(ties)} x {spec.housing_bolt_diameter:g}"
-                 f"{named} tie on {where}")
+        what = (f"{size.name} tapped, {hole:g} drill," if tapped
+                else f"{hole:g}{named}")
+        note += f"  |  {len(ties)} x {what} tie on {where}"
 
     # ``motor_face`` marks the input-side plate rather than promising a motor.
     # On a ring-output drive that face turns, so the motor has moved to the

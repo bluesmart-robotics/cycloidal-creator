@@ -135,10 +135,13 @@ def test_a_position_tolerance_still_lets_every_screw_through(kind):
                 # Reamed on assembly with the barrel, so no zone between parts.
                 assert p.position is None
                 continue
-            screw = size_for_hole(p.hole).d
+            # A tapped pattern is the thread itself: the clearance it is held
+            # to is the other parts' holes, the one every tie hole is but its.
+            hole = spec.housing_bolt_diameter if p.thread else p.hole
+            screw = size_for_hole(hole).d
             offset = 2.0 * p.position if p.fixed else p.position
-            assert _common_circle_fits(p.hole, offset, screw), p.label
-            assert not _common_circle_fits(p.hole, offset + 0.01, screw), p.label
+            assert _common_circle_fits(hole, offset, screw), p.label
+            assert not _common_circle_fits(hole, offset + 0.01, screw), p.label
 
 
 # ---------------------------------------------------------------- against the solid

@@ -419,8 +419,12 @@ hole is the clearance for — a 4.5 mm hole is an M4 — at ISO 4762's next
 preferred length past the stack, a nut and two threads. Heads go on the output
 end plate and nuts on the input one: a counterbore will not fit the wall the
 bolt circle runs down, and the input plate's outside is where a motor goes. On
-a ring-output drive that face is the one the load bolts to instead, and
-`TIE_NUTS_ON_OUTPUT_FACE` says how far proud of it the nuts stand.
+a ring-output drive that face is the one the load bolts to instead, so the input
+plate is tapped for the screws and there are no nuts: each screw is the longest
+preferred length that has one and a half diameters of thread in a metal plate,
+or two in a polymer one, and stops half a millimetre short of the face. A plate
+too thin for that keeps its nuts, and `TIE_NUTS_ON_OUTPUT_FACE` says how far
+proud of the face they stand and how thick a plate would take the thread.
 
 **What puts the plates on the ring's axis is two dowels at each end, not the
 bolts.** The plates carry the shaft supports and the output bearing, so they

@@ -244,14 +244,20 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
             size=f"{bolt.name} x {s.tie_screw_length:g} socket head cap screw, "
                  f"ISO 4762",
             mass_each_g=screw_g, source="buy",
-            note=f"head on the output end plate, through it, the barrel and the "
-                 f"input end plate, {tie_where}; {s.tie_bolt_length:.0f} mm of "
-                 f"grip"))
-        items.append(BomItem(
-            part="Tie bolt nut", quantity=ties,
-            material=s.pin_material, size=f"{bolt.name} hexagon nut, ISO 4032",
-            mass_each_g=nut_g, source="buy",
-            note="on the input end plate's outside face"))
+            note=(f"head on the output end plate, through it and the barrel "
+                  f"into the input end plate, which is tapped {bolt.name} for it, "
+                  f"{tie_where}; it stops "
+                  f"{s.tie_bolt_length - s.tie_screw_length:.1f} mm short of the "
+                  f"face the driven machine bolts to" if s.tie_screws_tapped else
+                  f"head on the output end plate, through it, the barrel and the "
+                  f"input end plate, {tie_where}; {s.tie_bolt_length:.0f} mm of "
+                  f"grip")))
+        if not s.tie_screws_tapped:
+            items.append(BomItem(
+                part="Tie bolt nut", quantity=ties,
+                material=s.pin_material, size=f"{bolt.name} hexagon nut, ISO 4032",
+                mass_each_g=nut_g, source="buy",
+                note="on the input end plate's outside face"))
     elif ties:
         items.append(BomItem(
             part="Tie bolt", quantity=ties, material=s.pin_material,

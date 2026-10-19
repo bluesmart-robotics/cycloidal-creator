@@ -365,6 +365,10 @@ PROCESS_CLEARANCE: dict[Process, tuple[float, float]] = {
     Process.EDM: (0.012, 0.015),
 }
 
+#: What a tapped tie screw's tip stays under the face it is threaded towards,
+#: mm: the face is what the driven machine bolts to, so nothing may reach it.
+TAPPED_COVER = 0.5
+
 #: True-position tolerance a process typically holds on a bolt circle of this
 #: size, as the diameter of the tolerance zone - the way a drawing states it.
 #:
@@ -1794,9 +1798,57 @@ class GearSpec(BaseModel):
 
     @property
     def tie_screw_length(self) -> float | None:
-        """The preferred screw length that clamps the stack with a nut on it."""
+        """The preferred screw length: into the input plate's thread where it
+        is tapped, otherwise the one that clamps the stack with a nut on it."""
+        tapped = self._tapped_tie_screw_length
+        if tapped is not None:
+            return tapped
         size = self.tie_bolt_size
         return screw_length(self.tie_bolt_length, size) if size else None
+
+    # ---- a tapped input plate --------------------------------------------------
+    #
+    # On a ring-output drive the input end plate turns, and it is the face the
+    # driven machine bolts to: nuts on it stand proud of the very face that has
+    # to be flat.  So there it is tapped for the screws instead, and each screw
+    # stops short of the face.  Not a counterbore and not an insert: the bolt
+    # circle runs down the middle of the housing wall, and either would break
+    # out of a 6 mm wall where a tapped hole does not.
+    @property
+    def tie_thread_engagement(self) -> float:
+        """The least thread a tie screw has in a tapped plate, mm: one and a
+        half diameters in metal, two in a polymer, whose thread shears first."""
+        size = self.tie_bolt_size
+        if size is None:
+            return 0.0
+        polymer = self.housing_mat.E_GPa < 10.0
+        return (2.0 if polymer else 1.5) * size.d
+
+    @property
+    def tie_tap_drill(self) -> float:
+        """The hole a tapped tie screw goes in: the diameter less a pitch, the
+        usual tap drill for a coarse thread."""
+        size = self.tie_bolt_size
+        return size.d - size.pitch if size else 0.0
+
+    @property
+    def _tapped_tie_screw_length(self) -> float | None:
+        if not self.ground_frame_fitted or self.tie_bolt_size is None:
+            return None
+        through = self.barrel_height + self.plate_thickness
+        shortest = through + self.tie_thread_engagement
+        longest = through + self.plate_thickness - TAPPED_COVER
+        fits = [n for n in SCREW_LENGTHS if shortest - 1e-9 <= n <= longest + 1e-9]
+        return max(fits) if fits else None
+
+    @property
+    def tie_screws_tapped(self) -> bool:
+        """Whether the tie screws thread into the input end plate rather than
+        taking nuts on it: on a ring-output drive, where a preferred length
+        engages the thread and stops :data:`TAPPED_COVER` short of the face.
+        Where none does the nuts stay, and ``TIE_NUTS_ON_OUTPUT_FACE`` says
+        what they cost."""
+        return self._tapped_tie_screw_length is not None
 
     @property
     def ring_pin_length(self) -> float:

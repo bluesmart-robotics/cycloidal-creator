@@ -213,7 +213,8 @@ def plate_dowel_mass_g(spec: GearSpec) -> float:
 
 
 def tie_bolt_mass_g(spec: GearSpec) -> float:
-    """One tie bolt and its nut, grams; zero where the drive cannot name them.
+    """One tie bolt and its nut, grams - the screw alone where it threads into
+    a tapped plate; zero where the drive cannot name them.
 
     A hole the fastener table has no size for is ordered by the hole and a
     length, which is not a part anybody can weigh.
@@ -221,7 +222,8 @@ def tie_bolt_mass_g(spec: GearSpec) -> float:
     size, length = spec.tie_bolt_size, spec.tie_screw_length
     if size is None or length is None:
         return 0.0
-    return ((screw_volume(size, length) + nut_volume(size))
+    nut = 0.0 if spec.tie_screws_tapped else nut_volume(size)
+    return ((screw_volume(size, length) + nut)
             * _MM3_TO_CM3 * spec.pin_mat.density_g_cm3)
 
 
@@ -372,10 +374,15 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     output_bolt_area = (spec.output_bolt_count * math.pi
                         * (spec.output_bolt_diameter / 2.0) ** 2
                         if spec.ground_frame_fitted else 0.0)
+    # A tapped input plate is drilled at the thread's tap drill, not through
+    # clearance.
+    input_tie_area = (len(spec.tie_bolt_centres) * math.pi
+                      * (spec.tie_tap_drill / 2.0) ** 2
+                      if spec.tie_screws_tapped else bolt_area)
     plates_volume = (2.0 * outer_area
                      - math.pi * (bores.input_plate / 2.0) ** 2
                      - math.pi * (bores.output_plate / 2.0) ** 2
-                     - 2.0 * bolt_area          # the tie bolts go through both
+                     - bolt_area - input_tie_area   # the tie bolts go through both
                      - 2.0 * slip_area          # and so do the dowels' holes
                      - output_bolt_area
                      ) * spec.plate_thickness

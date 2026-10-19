@@ -811,9 +811,13 @@ def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
         .circle(max(bore, 1e-3) / 2.0).extrude(spec.plate_thickness + 2.0))
 
     if spec.tie_bolt_centres:
+        # The input plate of a ring drive is tapped for them: drawn at the tap
+        # drill, which is the metal the thread is cut in.
+        tapped = motor_face and spec.tie_screws_tapped
+        hole = spec.tie_tap_drill if tapped else spec.housing_bolt_diameter
         plate = plate.cut(cq.Workplane("XY").workplane(offset=-1.0)
                           .pushPoints(spec.tie_bolt_centres)
-                          .circle(spec.housing_bolt_diameter / 2.0)
+                          .circle(hole / 2.0)
                           .extrude(spec.plate_thickness + 2.0))
     plate = _cut_dowel_holes(plate, spec, 0.0, spec.plate_thickness,
                              spec.plate_dowel_hole)
@@ -1164,7 +1168,7 @@ def tie_nuts(spec: GearSpec) -> cq.Workplane | None:
     knows - there is then no nut to name either.
     """
     size = spec.tie_bolt_size
-    if size is None:
+    if size is None or spec.tie_screws_tapped:
         return None
     face = spec.barrel_top + spec.plate_thickness
     shapes = []

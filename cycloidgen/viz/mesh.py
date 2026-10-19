@@ -618,6 +618,11 @@ def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
     bolted down, the driven machine's when the housing is what turns.
     """
     holes = tie_bolt_holes(spec) + plate_dowel_holes(spec, plate=True)
+    if motor_face and spec.tie_screws_tapped:
+        # Tapped for the tie screws, at the tap drill.
+        holes = ([_circle(x, y, spec.tie_tap_drill / 2.0, 12)
+                  for x, y in spec.tie_bolt_centres]
+                 + plate_dowel_holes(spec, plate=True))
     if not motor_face:
         return holes
     if spec.ground_frame_fitted:
@@ -1096,12 +1101,13 @@ def build_mesh(spec: GearSpec,
                     b.ring(shank, thread, start, up=True)
                     b.prism(thread, (), start, z0 + length, cap_bottom=False)
             face = spec.barrel_top + spec.plate_thickness
-            with b.part("tie_nuts", "Tie bolt nuts", "fasteners",
-                        PART_COLOURS["fasteners"]):
-                for cx, cy, a in centres:
-                    b.prism(np.array(hexagon(cx, cy, size.nut_s, a)),
-                            (_circle(cx, cy, size.d / 2.0, _BOLT_SEGMENTS),),
-                            face, face + size.nut_m)
+            if not spec.tie_screws_tapped:
+                with b.part("tie_nuts", "Tie bolt nuts", "fasteners",
+                            PART_COLOURS["fasteners"]):
+                    for cx, cy, a in centres:
+                        b.prism(np.array(hexagon(cx, cy, size.nut_s, a)),
+                                (_circle(cx, cy, size.d / 2.0, _BOLT_SEGMENTS),),
+                                face, face + size.nut_m)
 
     # The dowels that locate the plates on the barrel, two at each end.
     if spec.plate_dowel_spans:
@@ -1364,6 +1370,9 @@ def mesh_fingerprint(spec: GearSpec,
         spec.housing_bolt_radius, spec.motor_frame,
         # Square or round, which moves the outline and the bolts with it.
         spec.housing_shape,
+        # Whether the input plate is tapped for the tie screws, and at what:
+        # its holes and the nuts' being there at all.
+        spec.tie_screws_tapped, spec.tie_tap_drill,
         # Decides both the bore's shape and whether there is a pins part at all.
         spec.ring_pins_integral,
         # Which member turns: it moves the motor pattern off one part and onto

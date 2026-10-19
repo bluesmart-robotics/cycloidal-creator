@@ -639,3 +639,71 @@ def test_a_saved_ring_output_design_comes_back_as_one():
     assert back.output_member is OutputMember.RING
     assert back.ratio == spec.ratio == 30
     assert back.output_bolt_count == 8
+
+
+# ------------------------------------------------------ the tapped input plate
+
+
+def _ring_with_plates(thickness: float):
+    from cycloidgen.core.spec import OutputMember
+
+    spec = preset(21)
+    spec.output_member = OutputMember.RING
+    spec.end_plate_thickness = thickness
+    return spec
+
+
+def test_a_ring_drive_s_turning_plate_is_tapped_and_its_face_is_clear():
+    """The input plate turns and the load bolts to it, so the tie screws thread
+    into it and stop short of its face - read off the solids, not the rule:
+    the screw tips against the face, the thread they have in the plate, and no
+    nut anywhere."""
+    from cycloidgen.analysis import analyse
+    from cycloidgen.core.presets import by_key
+    from cycloidgen.core.spec import TAPPED_COVER
+    from cycloidgen.export import solid
+    from cycloidgen.export.bom import bom_items
+    from cycloidgen.viz import build_mesh
+
+    spec = by_key("nema17-printed-15").spec()
+    spec.output_member = OutputMember.RING
+    assert spec.tie_screws_tapped
+    face = spec.barrel_top + spec.plate_thickness
+    tips = solid.tie_bolts(spec).val().BoundingBox().zmax
+    assert tips <= face - TAPPED_COVER + 1e-6
+    assert tips - spec.barrel_top >= spec.tie_thread_engagement - 1e-6
+    assert solid.tie_nuts(spec) is None
+    assert not any("nut" in p.name and p.name.startswith("tie")
+                   for p in build_mesh(spec).parts)
+    a = analyse(spec)
+    assert not any(f.code == "TIE_NUTS_ON_OUTPUT_FACE" for f in a.report.findings)
+    assert not any(i.part == "Tie bolt nut" for i in bom_items(a))
+    # and the plate drawn at the tap drill weighs what its solid encloses
+    plates = sum(solid.parts(spec)[n].val().Volume()
+                 for n in ("input_end_plate", "output_end_plate"))
+    assert a.mass.plates_mass_g / spec.housing_mat.density_g_cm3 * 1000.0 == \
+        pytest.approx(plates, rel=0.02)
+
+
+def test_a_plate_too_thin_to_tap_keeps_its_nuts_and_says_how_thick():
+    from cycloidgen.analysis import analyse
+    from cycloidgen.export import solid
+
+    spec = _ring_with_plates(8.0)            # 8 mm of PLA: 8 of thread, no cover
+    assert not spec.tie_screws_tapped
+    assert solid.tie_nuts(spec) is not None
+    found = [f for f in analyse(spec).report.findings
+             if f.code == "TIE_NUTS_ON_OUTPUT_FACE"]
+    assert found and "too thin to tap" in found[0].message
+    # and the thickness it names is one that does take the thread
+    import re
+    thick = float(re.search(r"At ([0-9.]+) mm it would", found[0].message).group(1))
+    assert _ring_with_plates(thick).tie_screws_tapped
+    assert not _ring_with_plates(thick - 0.5).tie_screws_tapped
+
+
+def test_a_carrier_drive_keeps_its_nuts():
+    """Its input plate is the motor's face and stands still: nothing to tap for."""
+    spec = preset(21)
+    spec.end_plate_thickness = 12.0
+    assert not spec.tie_screws_tapped

@@ -15,7 +15,7 @@ from ..core.motor import (
     MIN_UNDER_RECESS,
     MOTOR_HUB_WALL,
 )
-from ..core.spec import PROCESS_POSITION_TOLERANCE, GearSpec
+from ..core.spec import PROCESS_POSITION_TOLERANCE, TAPPED_COVER, GearSpec
 from ..core.validate import Report, Severity, validate
 from .bearings import MIN_SHOULDER, BearingChoice, seat_bores, select_bearings
 from .duty import DutyResult, analyse_duty
@@ -893,21 +893,37 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
 
     # The tie bolts are clamped by nuts on the input end plate.  On a carrier
     # drive that face is the motor's, outside its spigot; on a ring drive it is
-    # the turning face the driven machine bolts to, and the nuts and the screw
-    # ends past them are standing on it.
+    # the turning face the driven machine bolts to, so the plate is tapped for
+    # the screws instead - and where it is too thin to take the thread and
+    # cover the tip, the nuts and the screw ends past them stay on that face.
     size = spec.tie_bolt_size
-    if spec.ground_frame_fitted and size is not None and spec.tie_screw_length:
+    if (spec.ground_frame_fitted and size is not None and spec.tie_screw_length
+            and not spec.tie_screws_tapped):
         proud = spec.tie_screw_length - spec.tie_bolt_length
         ties = spec.tie_bolt_centres
         where = (f"at the corners of a {2 * abs(ties[0][0]):.1f} mm square"
                  if spec.square_housing else
                  f"on a {2 * spec.housing_bolt_radius:.1f} mm circle")
+        # The thinnest plate that would take the thread: a preferred length
+        # has to land between enough thread and the face, and they come in
+        # 5 mm steps, so it is found rather than worked out.
+        thick = next((t / 2.0 for t in range(int(2 * spec.plate_thickness) + 1,
+                                             int(2 * spec.plate_thickness) + 41)
+                      if spec.model_copy(update={"end_plate_thickness": t / 2.0})
+                      .tie_screws_tapped), None)
+        how = (f"At {thick:g} mm it would take a tapped thread - "
+               f"{spec.tie_thread_engagement:g} mm of {size.name} with "
+               f"{TAPPED_COVER:g} mm over the tip of a preferred length - and "
+               f"the app would tap it and drop the nuts; thicken the end plates "
+               f"to that, or space the driven part clear of them."
+               if thick is not None else
+               "Space the driven part clear of them.")
         rep.add(Severity.WARNING, "TIE_NUTS_ON_OUTPUT_FACE",
                 f"The input end plate turns and is what the driven machine bolts "
                 f"to, and the {len(ties)} tie-bolt nuts are on it: they and the "
-                f"screw ends past them stand {proud:.1f} mm proud {where}. Space "
-                f"the driven part clear of them, or tap the plate for the screws "
-                f"and lose the nuts.", proud, 0.0)
+                f"screw ends past them stand {proud:.1f} mm proud {where}. The "
+                f"{spec.plate_thickness:g} mm plate is too thin to tap for them. "
+                f"{how}", proud, 0.0)
 
     # What a stall, a crash or a hard stop does, against what the motor can put
     # through the ratio standing still: the load the duty never mentions.

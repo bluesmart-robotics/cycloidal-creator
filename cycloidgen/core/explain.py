@@ -706,8 +706,9 @@ EXPLANATIONS: dict[str, Explanation] = {
         "to - through output bolts on the tie bolts' own circle - so the nuts "
         "and the screw ends past them stand between the plate and whatever is "
         "bolted to it.",
-        "Space the driven part off the face on a ring that clears them, or tap "
-        "the input plate for the screws and do without the nuts.",
+        "Thicken the end plates until the input plate takes a tapped thread "
+        "and covers the screw's tip - the app then taps it and the nuts go - "
+        "or space the driven part off the face on a ring that clears them.",
         unit="mm"),
     "PV_LIMIT_CAM": Explanation(
         "Cam journal sliding duty past the wear limit",
