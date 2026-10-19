@@ -734,3 +734,78 @@ def test_a_ring_drive_s_base_sits_just_clear_of_the_heads_that_turn_over_it():
     assert preset(21).boss_protrusion == COUPLING_GRIP
     spec.output_boss_protrusion = 12.0
     assert spec.boss_protrusion == 12.0
+
+
+# ------------------------------------------- the base: a flange and a pad
+
+
+def _ring(key_or_ratio, **over):
+    from cycloidgen.core.presets import by_key
+
+    spec = (by_key(key_or_ratio).spec() if isinstance(key_or_ratio, str)
+            else preset(key_or_ratio))
+    spec.output_member = OutputMember.RING
+    for name, value in over.items():
+        setattr(spec, name, value)
+    return spec
+
+
+BASES = {
+    "printed NEMA 17": lambda: _ring("nema17-printed-15"),
+    "machined NEMA 23": lambda: _ring("nema23-machined-21"),
+    "NEMA 34": lambda: _ring("nema34-machined-29"),
+    "no motor, a whole plate": lambda: _ring(21),
+}
+
+
+@pytest.mark.parametrize("name", BASES)
+def test_the_base_weighs_what_its_solid_encloses(name):
+    """The flange, the pad, the screw holes tapped up into it and the motor's
+    register and seats: the mass model and the STEP solid are one part, to a
+    percent - the preview is held to the same in ``test_viz.py``."""
+    from cycloidgen.analysis.bearings import pin_diameters
+    from cycloidgen.export import solid
+
+    spec = BASES[name]()
+    body = solid.output_flange(spec).val()
+    assert body.isValid() and len(body.Solids()) == 1
+    _, out_d = pin_diameters(spec)
+    pins = spec.output_pin_count * np.pi * (out_d / 2.0) ** 2 * spec.output_pin_length
+    weighed = analyse(spec).mass.flange_mass_g / spec.housing_mat.density_g_cm3 * 1000.0
+    assert weighed + pins == pytest.approx(body.Volume(), rel=0.01)
+
+
+@pytest.mark.parametrize("name", BASES)
+def test_the_base_is_bolted_down_from_below_into_blind_threads(name):
+    """Probed in the solid: inside each hole there is no metal, and over its
+    end there is - the screws come up from the machine's side and stop under
+    the face the turning housing runs over."""
+    import cadquery as cq
+
+    from cycloidgen.core.spec import TAPPED_COVER
+    from cycloidgen.export import solid
+
+    spec = BASES[name]()
+    assert len(spec.base_mount_centres) == 4
+    body = solid.output_flange(spec).val()
+    top = spec.boss_bottom + CARRIER_DROP
+    floor = top - spec.base_flange_thickness
+    for x, y in spec.base_mount_centres:
+        assert not body.isInside(cq.Vector(x, y, floor + spec.base_mount_depth / 2.0))
+        assert body.isInside(cq.Vector(x, y, top - TAPPED_COVER / 2.0))
+        # a wall either side of the thread's drill, inside the outline and
+        # clear of the pad
+        assert body.isInside(cq.Vector(x + spec.tie_tap_drill / 2.0 + 0.5, y, floor + 0.5))
+
+
+def test_the_flange_is_thinner_than_the_pad_the_motor_stands_on():
+    spec = _ring("nema23-machined-29")
+    assert spec.base_has_flange
+    assert spec.base_flange_thickness < spec.plate_thickness
+    assert spec.base_pad == ("square", spec.motor_face.body_width)
+
+
+def test_through_a_coupling_the_base_stays_a_whole_plate():
+    spec = _ring(21, motor_frame="NEMA 17", motor_drives_the_shaft=False)
+    assert not spec.base_has_flange and not spec.base_mount_centres
+    assert spec.base_flange_thickness == spec.plate_thickness

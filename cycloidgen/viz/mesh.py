@@ -461,6 +461,17 @@ class _Builder:
             for quad in np.column_stack([b, b[nxt], t[nxt], t]):
                 self.facet(quad)
 
+    def pocket(self, loop: np.ndarray, z0: float, z1: float) -> None:
+        """A blind hole up into a solid from its face at ``z0`` to ``z1``: its
+        wall facing into it, as a through hole's does, and its end facing back
+        down.  The face it is cut in has to carry ``loop`` as a hole."""
+        lp = _ccw(np.asarray(loop, float))
+        b, t = self._points(lp, z0)[::-1], self._points(lp, z1)[::-1]
+        nxt = np.roll(np.arange(len(b)), -1)
+        for quad in np.column_stack([b, b[nxt], t[nxt], t]):
+            self.facet(quad)
+        self.cap(loop, (), z1, up=False)
+
     def cylinder(self, cx: float, cy: float, r: float, z0: float, z1: float,
                  segments: int) -> None:
         self.prism(_circle(cx, cy, r, segments), (), z0, z1)
@@ -922,8 +933,27 @@ def build_mesh(spec: GearSpec,
             motor_holes = [] if spec.coupled else motor_bolt_holes(spec)
             floor = spec.base_plate_bottom
             recess = 0.0 if spec.coupled else _pilot_recess(spec, bores.hub)
+            # Where the base is a pad under the motor and a flange round it,
+            # what is cut from below - the register, the plate's underside - is
+            # the pad's, and the flange stands on it; see GearSpec.base_pad.  A
+            # flange as thick as the plate is no step, and then the screws it
+            # is held down by are tapped into the plate's underside instead.
+            face = floor
+            mounts = [_circle(x, y, spec.tie_tap_drill / 2.0, 16)
+                      for x, y in spec.base_mount_centres]
+            stepped = (spec.base_has_flange
+                       and spec.base_flange_thickness < spec.plate_thickness - 1e-9)
+            flange_bottom = boss_bottom - spec.base_flange_thickness
+            if stepped:
+                kind, size = spec.base_pad
+                pad = (_circle(0.0, 0.0, size / 2.0, 40 if size <= spec.hub_diameter
+                               else 72) if kind == "round"
+                       else np.array(spec.base_pad_outline(), float))
+            else:
+                pad, flange_bottom = base_outer, boss_bottom
+            underneath = [] if stepped else mounts
             base_runs = _bore_runs(bore_r, bores.shoulders, "output_flange",
-                                   floor + recess, boss_bottom)
+                                   floor + recess, flange_bottom)
             if recess:
                 # Two prisms, and the step between them emitted only where it is
                 # actually exposed: the recess is wider than the bore, so all
@@ -931,15 +961,39 @@ def build_mesh(spec: GearSpec,
                 # instead would bury a wall inside the solid, and a solid with a
                 # wall inside it is not something the section plane can cap.
                 pilot = _circle(0.0, 0.0, spec.motor_face.pilot_diameter / 2.0, 48)
-                b.prism(base_outer, (pilot, *motor_holes), floor, floor + recess,
-                        cap_top=False)
+                b.prism(pad, (pilot, *motor_holes), floor, floor + recess,
+                        cap_top=False, cap_bottom=not underneath)
+                if underneath:
+                    b.cap(pad, (pilot, *motor_holes, *underneath), floor, up=False)
                 # Down to the bore that is there at the register's floor, which
                 # is the lip's when the lip runs out to the register.
                 b.ring(pilot, _circle(0.0, 0.0, base_runs[0][2], 28),
                        floor + recess, up=False)
                 floor += recess
-            b.bored_prism(base_outer, motor_holes, base_runs, 28,
-                          cap_top=False, cap_bottom=not recess and not spec.coupled)
+            plain = not recess and not spec.coupled
+            b.bored_prism(pad, motor_holes, base_runs, 28,
+                          cap_top=False, cap_bottom=plain and not underneath)
+            if plain and underneath:
+                b.cap(pad, (_circle(0.0, 0.0, base_runs[0][2], 28), *motor_holes,
+                            *underneath), floor, up=False)
+            for hole in underneath:
+                b.pocket(hole, face, face + spec.base_mount_depth)
+            if stepped:
+                # The flange: the outline's walls and whatever runs on up through
+                # it, its underside round the pad, and the screws it is held
+                # down by tapped up into that underside.
+                upper = _bore_runs(bore_r, bores.shoulders, "output_flange",
+                                   flange_bottom, boss_bottom)
+                below, above = base_runs[-1][2], upper[0][2]
+                if abs(below - above) > 1e-9:
+                    b.ring(_circle(0.0, 0.0, max(below, above), 28),
+                           _circle(0.0, 0.0, min(below, above), 28), flange_bottom,
+                           up=above > below)
+                b.bored_prism(base_outer, motor_holes, upper, 28,
+                              cap_top=False, cap_bottom=False)
+                b.cap(base_outer, (pad, *mounts), flange_bottom, up=False)
+                for hole in mounts:
+                    b.pocket(hole, flange_bottom, flange_bottom + spec.base_mount_depth)
             if spec.coupled:
                 _motor_mount_mesh(b, spec, floor, -1.0, base_outer, motor_holes,
                                   base_runs[0][2], 28)
@@ -1373,6 +1427,10 @@ def mesh_fingerprint(spec: GearSpec,
         # Whether the input plate is tapped for the tie screws, and at what:
         # its holes and the nuts' being there at all.
         spec.tie_screws_tapped, spec.tie_tap_drill,
+        # The base's pad, flange and the holes it is bolted down by.
+        spec.base_has_flange, spec.base_pad, tuple(spec.base_pad_outline()),
+        spec.base_flange_thickness,
+        tuple(spec.base_mount_centres), spec.base_mount_depth,
         # Decides both the bore's shape and whether there is a pins part at all.
         spec.ring_pins_integral,
         # Which member turns: it moves the motor pattern off one part and onto

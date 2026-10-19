@@ -132,9 +132,7 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
         mass_each_g=m.flange_mass_g, source="make",
         note=f"{s.output_pin_count} pin seats on a "
              f"{2 * s.output_bolt_circle_radius:g} mm circle"
-             + ("; one part with the base the drive is bolted down by, on the "
-                f"end of the boss - {s.housing_size_text} x "
-                f"{s.plate_thickness:g} mm" if s.ground_frame_fitted else "")))
+             + (_base_note(s) if s.ground_frame_fitted else "")))
 
     if s.ground_frame_fitted:
         items.append(BomItem(
@@ -431,6 +429,23 @@ def _assembly(part: str, spec) -> tuple[str, ...]:
         "Output end plate": ("output_end_plate",),
         "Output pin roller": ("bearing_output_pins",),
     }.get(part, ())
+
+
+def _base_note(s) -> str:
+    """The base on a ring drive's carrier, said as what it is."""
+    if not s.base_has_flange:
+        return (f"; one part with the base the drive is bolted down by, on the "
+                f"end of the boss - {s.housing_size_text} x {s.plate_thickness:g} mm")
+    kind, size = s.base_pad
+    pad = f"{size:.1f} {'square' if kind == 'square' else 'dia'}"
+    mounts = s.base_mount_centres
+    screws = (f", tapped {len(mounts)} x {s.tie_bolt_size.name} "
+              f"{s.base_mount_depth:g} deep from below to bolt it down by"
+              if mounts and s.tie_bolt_size else "")
+    return (f"; one part with the base the drive stands on, on the end of the "
+            f"boss - a {s.housing_size_text} flange "
+            f"{s.base_flange_thickness:g} mm thick{screws}, on a {pad} pad "
+            f"{s.plate_thickness:g} mm thick that the motor bolts to")
 
 
 def write_bom_csv(a: DesignAnalysis, path: str | Path) -> Path:

@@ -144,6 +144,30 @@ def _disc_section(spec: GearSpec, bore: float) -> tuple[float, float]:
     return max(area, 0.0), max(polar, 0.0)
 
 
+def _base_motor_cuts(spec: GearSpec, bores: SeatBores) -> float:
+    """What the motor takes out of a ring drive's base besides its screws'
+    holes, mm^3: the register its spigot drops into, and the counterbores or
+    nut pockets let into the base's other face - as the solid cuts them, so
+    a base thinned to a flange round its pad weighs what it encloses.  These
+    were left out while the base was a whole plate, where they were a
+    percent or two of it."""
+    if not spec.has_motor_face or spec.coupled:
+        return 0.0
+    frame = spec.motor_face
+    cut = 0.0
+    if frame.pilot_diameter > bores.hub:
+        depth = min(frame.pilot_depth, spec.plate_thickness / 2.0)
+        cut += math.pi * ((frame.pilot_diameter / 2.0) ** 2
+                          - (bores.hub / 2.0) ** 2) * depth
+    fix = spec.motor_fixing
+    if fix is not None and fix.recess_depth > 0.0:
+        pocket = (math.pi * (fix.recess / 2.0) ** 2 if fix.from_drive
+                  else math.sqrt(3.0) / 2.0 * fix.recess ** 2)
+        hole = math.pi * (frame.bolt_diameter / 2.0) ** 2
+        cut += len(spec.motor_bolt_centres) * (pocket - hole) * fix.recess_depth
+    return cut
+
+
 def _lip_volume(bores: SeatBores, host: str) -> float:
     """The metal the shoulders leave in ``host``'s seats, mm^3.
 
@@ -332,9 +356,16 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     # the whole gearbox is bolted down by.  It is housing-sized and as thick as
     # an end plate, so on a small drive it is a fifth of the assembled mass;
     # leaving it out would report a gearbox lighter than the one exported.
+    # Where the base is a flange and a pad, the flange is the outline at its own
+    # thickness and the pad the rest of the way down under the motor.
     if spec.ground_frame_fitted:
-        flange_volume += (spec.housing_section_area
-                          - math.pi * (bores.hub / 2.0) ** 2) * spec.plate_thickness
+        flange = spec.base_flange_thickness
+        flange_volume += (spec.housing_section_area * flange
+                          + spec.base_pad_area * (spec.plate_thickness - flange)
+                          - math.pi * (bores.hub / 2.0) ** 2 * spec.plate_thickness)
+        flange_volume -= (len(spec.base_mount_centres) * math.pi
+                          * (spec.tie_tap_drill / 2.0) ** 2 * spec.base_mount_depth)
+        flange_volume -= _base_motor_cuts(spec, bores)
         if spec.has_motor_face:
             frame = spec.motor_face
             flange_volume -= (frame.bolt_count * math.pi

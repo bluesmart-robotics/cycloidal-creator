@@ -953,3 +953,21 @@ def test_the_motor_stands_still_with_what_it_is_bolted_to(ring, direct):
             assert np.allclose(a[parts[name].vertices], b[parts[name].vertices]), name
     shaft = parts["motor_shaft"]
     assert not np.allclose(a[shaft.vertices], b[shaft.vertices])
+
+
+@pytest.mark.parametrize("key", ["nema17-printed-15", "nema23-machined-21",
+                                 "nema34-machined-29", None])
+def test_a_ring_drive_s_base_draws_what_its_solid_encloses(key):
+    """The base as a flange round a pad, with blind holes tapped up into the
+    flange: the preview encloses what the solid does and is a closed surface."""
+    from cycloidgen.core.presets import by_key
+    from cycloidgen.core.spec import OutputMember
+    from cycloidgen.viz.vtkbridge import closed_polydata
+
+    s = by_key(key).spec() if key else preset(21)
+    s.output_member = OutputMember.RING
+    mesh = build_mesh(s)
+    i = next(k for k, p in enumerate(mesh.parts) if p.name == "output_flange")
+    assert _part_volumes(mesh)[i] == pytest.approx(
+        solid.output_flange(s).val().Volume(), rel=0.01)
+    assert _edge_counts(closed_polydata(mesh, mesh.parts[i])) == (0, 0)

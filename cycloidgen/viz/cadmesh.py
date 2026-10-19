@@ -56,7 +56,8 @@ BOUGHT_GROUPS = frozenset({"bearings", "fasteners"})
 #: the derivation changes.  ``tests/test_cadmesh.py`` reads every ``spec.``
 #: in :mod:`cycloidgen.export.solid` and fails on one that is in neither.
 SOLID_ONLY = (
-    "barrel_bottom", "barrel_height", "base_plate_bottom", "disc_hole_phases",
+    "barrel_bottom", "barrel_height", "base_plate_bottom", "boss_bottom",
+    "disc_hole_phases",
     "disc_phases", "discs_are_identical", "dxf_chord_tolerance", "edge_chamfer",
     "edge_break", "rim_land", "square_housing", "housing_corner_radius",
     "tie_bolt_centres",

@@ -689,8 +689,20 @@ def output_flange(spec: GearSpec,
         # the base was not: it came out one millimetre below the boss it stands
         # on, which is a part in two pieces.  The volume was right, which is why
         # nothing caught it, and a printer would have made two.
-        base = _outline_prism(spec, spec.base_plate_bottom + CARRIER_DROP,
-                              spec.plate_thickness)
+        bottom = spec.base_plate_bottom + CARRIER_DROP
+        top = spec.boss_bottom + CARRIER_DROP
+        if spec.base_has_flange:
+            # A flange the housing's outline, thin, and the pad under the motor
+            # the plate's whole thickness - see GearSpec.base_pad.
+            flange = spec.base_flange_thickness
+            kind, size = spec.base_pad
+            pad = cq.Workplane("XY").workplane(offset=bottom)
+            pad = (pad.circle(size / 2.0) if kind == "round" else
+                   pad.polyline(spec.base_pad_outline()).close())
+            base = (_outline_prism(spec, top - flange, flange)
+                    .union(pad.extrude(top - bottom)))
+        else:
+            base = _outline_prism(spec, bottom, spec.plate_thickness)
         if spec.coupled:
             base = base.union(_motor_mount(spec, "output_flange", -1.0))
         elif spec.has_motor_face:
@@ -709,6 +721,14 @@ def output_flange(spec: GearSpec,
                 -1.0)
             if recesses is not None:
                 base = base.cut(recesses)
+        # Tapped up into the flange from the machine's side, the side it is
+        # bolted down from: the housing turns over the other.
+        if spec.base_mount_centres:
+            base = base.cut(cq.Workplane("XY")
+                            .workplane(offset=top - spec.base_flange_thickness)
+                            .pushPoints(spec.base_mount_centres)
+                            .circle(spec.tie_tap_drill / 2.0)
+                            .extrude(spec.base_mount_depth))
         body = body.union(base)
 
     # Bored through the lot in one go, from the far face: the shaft passes

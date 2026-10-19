@@ -365,6 +365,10 @@ PROCESS_CLEARANCE: dict[Process, tuple[float, float]] = {
     Process.EDM: (0.012, 0.015),
 }
 
+#: How far a stepper's square body has its corners cut back, as a share of its
+#: width - what its section is drawn with, and the base's pad under it.
+MOTOR_CORNER = 0.11
+
 #: The boss's length past the output end plate off the carrier, where a
 #: coupling or a clamp hub grips it, mm.
 COUPLING_GRIP = 8.0
@@ -1058,6 +1062,91 @@ class GearSpec(BaseModel):
     def base_plate_bottom(self) -> float:
         """Outer face of the base: the face the motor bolts to."""
         return self.boss_bottom - self.plate_thickness
+
+    # ---- the base: a flange to bolt down by, and a pad the motor stands on ---
+    #
+    # A ring-output drive stands on its carrier's base.  It was a plate the
+    # housing's size and an end plate's thickness, which is what the motor's
+    # register, its screws' seats and the shaft support's lip need - under the
+    # motor.  Out past the motor it needs only to be bolted down, and had
+    # nothing to bolt it down by.  So it is two things now: a pad the motor's
+    # size and the full thickness, and a flange round it the housing's size
+    # and only as thick as the screws that hold it down need, tapped for them
+    # from the machine's side.  Through a coupling the motor stands on a mount
+    # instead, and the base stays whole.
+    @property
+    def base_pad(self) -> tuple[str, float]:
+        """The pad under the motor: ``("square", width)`` for a stepper's body,
+        its corners cut back :data:`MOTOR_CORNER` of it, or ``("round",
+        diameter)`` for a drum - and the boss's own, with no motor on it."""
+        if self.has_motor_face and not self.coupled:
+            frame = self.motor_face
+            return ("round" if frame.round_body else "square"), frame.body_width
+        return "round", self.hub_diameter
+
+    def base_pad_outline(self, segments: int = 72) -> list[tuple[float, float]]:
+        """The pad as a loop: the cut-cornered square, or a circle of
+        ``segments``."""
+        kind, size = self.base_pad
+        if kind == "square":
+            h, c = size / 2.0, MOTOR_CORNER * size
+            return [(h, -h + c), (h, h - c), (h - c, h), (-h + c, h),
+                    (-h, h - c), (-h, -h + c), (-h + c, -h), (h - c, -h)]
+        r = size / 2.0
+        return [(r * math.cos(2.0 * math.pi * k / segments),
+                 r * math.sin(2.0 * math.pi * k / segments)) for k in range(segments)]
+
+    @property
+    def base_pad_area(self) -> float:
+        """The pad's area, mm^2: the square less its four corners, or the
+        circle."""
+        kind, size = self.base_pad
+        if kind == "square":
+            return size * size - 2.0 * (MOTOR_CORNER * size) ** 2
+        return math.pi * size * size / 4.0
+
+    @property
+    def base_flange_thickness(self) -> float:
+        """The flange round the pad, mm: a housing wall, or what the screws it
+        is held down by need to thread into from below with
+        :data:`TAPPED_COVER` over their tips, whichever is more - and never
+        more than the pad.  The whole plate where there is no flange."""
+        if not self.base_has_flange:
+            return self.plate_thickness
+        need = self.tie_thread_engagement + TAPPED_COVER
+        return min(self.plate_thickness, max(self.housing_wall, need))
+
+    @property
+    def base_has_flange(self) -> bool:
+        """Whether the base is a pad and a flange rather than a plate: on a ring
+        drive, unless the motor is on a mount or wider than the base."""
+        if not self.ground_frame_fitted or self.coupled:
+            return False
+        loop = self.base_pad_outline()
+        if self.square_housing:
+            return max(max(abs(x), abs(y)) for x, y in loop) < self.housing_outer_radius
+        return max(math.hypot(x, y) for x, y in loop) < self.housing_outer_radius
+
+    @property
+    def base_mount_centres(self) -> list[tuple[float, float]]:
+        """Where the base is bolted down from: four tapped holes in the flange,
+        each on an axis - the middle of a stepper's flat, out of its corners'
+        way - halfway out from the pad to the edge.  None where that leaves no
+        wall either side of the thread's drill."""
+        if not self.base_has_flange or self.tie_bolt_size is None:
+            return []
+        pad = self.base_pad[1] / 2.0                   # the pad's reach along x
+        edge = self.housing_outer_radius
+        r = 0.5 * (pad + edge)
+        if (edge - pad) / 2.0 - self.tie_tap_drill / 2.0 < 1.5:
+            return []
+        return [(r, 0.0), (0.0, r), (-r, 0.0), (0.0, -r)]
+
+    @property
+    def base_mount_depth(self) -> float:
+        """How deep the mount holes are tapped up into the flange from below."""
+        return min(self.tie_thread_engagement,
+                   self.base_flange_thickness - TAPPED_COVER)
 
     @property
     def output_pins_are_supported_at_both_ends(self) -> bool:
