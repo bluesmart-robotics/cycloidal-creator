@@ -82,3 +82,17 @@ def test_the_hub_is_drawn_and_weighed_as_the_solid_is():
     shaft = solid.parts(spec)["eccentric_shaft"].val().Volume()
     assert m.shaft_mass_g / spec.shaft_mat.density_g_cm3 * 1000.0 == pytest.approx(
         shaft, rel=0.02)
+
+
+def test_off_the_ring_it_still_exports_its_solids():
+    """Its screws are on the boss's own radius, and on a frame that boss has
+    no end of its own: breaking the edges at that radius found the circle the
+    screws cut into the base, and the kernel would not chamfer it - so a ring
+    drive on an outrunner exported nothing but its drawings."""
+    from cycloidgen.core.spec import OutputMember
+    from cycloidgen.export import solid
+
+    spec = by_key(KEY).spec()
+    spec.output_member = OutputMember.RING
+    assert spec.motor_face.bolt_span / 2.0 == pytest.approx(spec.hub_diameter / 2.0)
+    assert all(part.val().isValid() for part in solid.parts(spec).values())

@@ -744,10 +744,15 @@ def output_flange(spec: GearSpec,
     # crank's thrust - down the rest of the boss, and on a frame through the
     # base as well, short of the motor's register.
     body = _add_shoulders(body, spec, bores.shoulders, "output_flange")
-    radii = [plate_r, spec.hub_diameter / 2.0, bore / 2.0,
-             *_lips(bores.shoulders, "output_flange")]
+    # The boss's own end only off the carrier: on a frame both of its ends are
+    # in the base and the carrier plate, so it has no edge of its own to break,
+    # and asking for its radius found the circle a motor's screws on that
+    # radius cut into the base instead - which the kernel would not chamfer.
+    radii = [plate_r, bore / 2.0, *_lips(bores.shoulders, "output_flange")]
     if spec.ground_frame_fitted:
         radii.append(spec.housing_outer_radius)
+    else:
+        radii.append(spec.hub_diameter / 2.0)
     return _round_inside(_break_edges(body, radii, min(spec.edge_chamfer, t / 4.0),
                                       outline=spec if spec.ground_frame_fitted
                                       else None))
