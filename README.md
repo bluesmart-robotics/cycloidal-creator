@@ -195,7 +195,11 @@ round the motor that make it buildable: plates thick enough for the motor's
 register to leave the bearing a lip and its screws a full thread. A machined
 one is the smallest drive that carries its duty at a safety factor of 1.5 and
 outlasts what its motor can put through the ratio: 83 and 90 mm on a NEMA 23,
-109 mm on a NEMA 34, 86 mm on the 87 mm outrunner. Each is held by the tests to
+109 mm on a NEMA 34, 86 mm on the 87 mm outrunner. A printed one is 85 mm, twice
+its NEMA 17, and rated at the 0.8 or 0.65 Nm the printed contact model gives it
+at the same safety factor - a continuous rating against an allowable that
+assumes the plastic creeps, and well under what its motor can put through it.
+Each is held by the tests to
 analysing with no error, nothing said about its motor, its mounting or its
 bearings, a capacity over its rated torque and its motor's margin. The
 *Preset* box in the app, or `--preset` on the command line.

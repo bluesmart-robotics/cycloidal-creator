@@ -52,21 +52,26 @@ def test_a_motor_preset_is_a_drive_its_motor_turns(p):
     assert not told, told
     assert a.torque_capacity_with_clearance_Nm >= spec.output_torque_Nm
     assert a.motor.modelled and a.motor.margin >= COMFORTABLE_MARGIN
-
-
-@pytest.mark.parametrize("p", [p for p in MOTOR_PRESETS if not p.spec().printed],
-                         ids=lambda p: p.key)
-def test_a_machined_preset_is_the_size_of_its_job(p):
-    """Strong enough for its duty at the design search's own safety factor,
-    stronger than its motor can make it work - a stall does not take the
-    gearbox with it - and no wider than its motor needs.  They stood two to
-    three times their motors' width once, on their ratio preset's geometry,
-    carrying four to nine times their duty."""
-    spec = p.spec()
-    a = analyse(spec)
+    # the design search's own bar, which is what each was sized to
     assert a.pin_safety_factor_with_clearance >= 1.5
-    assert a.torque_capacity_with_clearance_Nm >= a.motor.output_torque_ceiling_Nm
-    assert 2.0 * spec.housing_outer_radius <= 1.65 * spec.motor_face.body_width
+
+
+@pytest.mark.parametrize("p", MOTOR_PRESETS, ids=lambda p: p.key)
+def test_a_motor_preset_is_in_proportion_to_its_motor(p):
+    """No wider than its job needs.  They stood two to three times their
+    motors' width once, on their ratio preset's geometry, the machined ones
+    carrying four to nine times their duty.  A machined one is also stronger
+    than its motor can make it work, so a stall does not take the gearbox with
+    it; a printed one cannot be at any size near its motor's, and is twice its
+    width."""
+    spec = p.spec()
+    width = 2.0 * spec.housing_outer_radius / spec.motor_face.body_width
+    if spec.printed:
+        assert width <= 2.05
+    else:
+        assert width <= 1.65
+        a = analyse(spec)
+        assert a.torque_capacity_with_clearance_Nm >= a.motor.output_torque_ceiling_Nm
 
 
 @pytest.mark.parametrize("p", MOTOR_PRESETS, ids=lambda p: p.key)
