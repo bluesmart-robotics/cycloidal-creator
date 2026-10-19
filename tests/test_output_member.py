@@ -268,7 +268,7 @@ def test_the_base_is_only_there_when_the_carrier_is_the_ground():
     # The envelope grows by the base and the standoff it needs - and by the
     # barrel's own growth, because the end cap lives inside it.
     assert (ring.envelope_length - carrier.envelope_length
-            == pytest.approx(ring.plate_thickness + ring.output_boss_protrusion
+            == pytest.approx(ring.plate_thickness + ring.boss_protrusion
                              + CARRIER_DROP + ring.output_flange_thickness))
 
 
@@ -707,3 +707,30 @@ def test_a_carrier_drive_keeps_its_nuts():
     spec = preset(21)
     spec.end_plate_thickness = 12.0
     assert not spec.tie_screws_tapped
+
+
+# --------------------------------------------------- the gap above the base
+
+
+def test_a_ring_drive_s_base_sits_just_clear_of_the_heads_that_turn_over_it():
+    """Read off the assembled preview: the lowest point of the tie screws'
+    heads, on the plate that turns, against the top of the base, which does
+    not.  It was the coupling's eight millimetres of grip, under a drive with
+    nothing to grip."""
+    from cycloidgen.core.spec import BASE_RUNNING_GAP, COUPLING_GRIP
+    from cycloidgen.viz import build_mesh
+
+    spec = preset(21)
+    spec.output_member = OutputMember.RING
+    mesh = build_mesh(spec)
+    world = mesh.world_vertices(0.0)
+    parts = {p.name: p for p in mesh.parts}
+    heads = world[parts["tie_bolts"].vertices][:, 2].min()
+    flange = world[parts["output_flange"].vertices]
+    base = flange[np.hypot(flange[:, 0], flange[:, 1]) > spec.hub_diameter / 2.0 + 1.0]
+    base_top = base[base[:, 2] < spec.barrel_bottom - spec.plate_thickness][:, 2].max()
+    assert heads - base_top == pytest.approx(BASE_RUNNING_GAP, abs=1e-6)
+    # Off the carrier it is still the grip, and a stated length is kept.
+    assert preset(21).boss_protrusion == COUPLING_GRIP
+    spec.output_boss_protrusion = 12.0
+    assert spec.boss_protrusion == 12.0

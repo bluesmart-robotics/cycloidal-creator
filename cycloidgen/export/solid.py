@@ -675,7 +675,7 @@ def output_flange(spec: GearSpec,
     plate = cq.Workplane("XY").circle(plate_r).extrude(-t)
     hub = (cq.Workplane("XY").workplane(offset=-t)
            .circle(spec.hub_diameter / 2.0)
-           .extrude(-(spec.plate_thickness + spec.output_boss_protrusion)))
+           .extrude(-(spec.plate_thickness + spec.boss_protrusion)))
     pins = (cq.Workplane("XY")
             .polarArray(spec.output_bolt_circle_radius, 0, 360, spec.output_pin_count)
             .circle(shank / 2.0)

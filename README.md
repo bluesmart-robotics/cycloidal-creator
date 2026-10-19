@@ -409,7 +409,11 @@ passes through `GearSpec.crank_rate` on its way from rpm to mm/s.
 The motor face has to move, and that is not cosmetic — a motor bolted to a plate
 that turns is a gearbox nobody can build. So on a ring-output drive the carrier
 grows a base at the end of its boss, the motor's pattern and register go into
-that, and the input end plate gets an output bolt circle instead. Those output
+that, and the input end plate gets an output bolt circle instead. The boss
+stands only as far past the output end plate as the tie screws' heads on that
+turning plate need to clear the base, and a millimetre more — off the carrier
+it stands 8 mm, for a coupling to grip; `output_boss_protrusion` overrides
+either. Those output
 bolts share the tie bolts' circle, because that is the one radius on that plate
 with barrel wall behind it to thread into; they are held half a pitch away from
 them, and `OUTPUT_BOLT_CLASH` says so when the two counts do not interleave.

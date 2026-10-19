@@ -518,9 +518,10 @@ PARAMETERS: dict[str, ParameterGuide] = {
         "turns and the base that does not.",
         "Off the carrier, long enough for whatever grips it - the output there "
         "is a boss on the axis rather than a bolt face, so this is the whole "
-        "interface, and zero leaves it flush and ungrippable. Off the ring, "
-        "enough that the turning plate clears the base and whatever is bolted "
-        "through it; a few millimetres is plenty.",
+        "interface. Off the ring, enough that the turning plate clears the base "
+        "and whatever is bolted through it; a few millimetres is plenty. Left "
+        "automatic it is 8 mm off the carrier, and off the ring the tie screws' "
+        "heads and a millimetre of air.",
         "Length either way, and off the carrier an overhung load further from "
         "the output bearing."),
     "output_bolt_count": ParameterGuide(

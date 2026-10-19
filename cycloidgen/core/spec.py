@@ -365,6 +365,14 @@ PROCESS_CLEARANCE: dict[Process, tuple[float, float]] = {
     Process.EDM: (0.012, 0.015),
 }
 
+#: The boss's length past the output end plate off the carrier, where a
+#: coupling or a clamp hub grips it, mm.
+COUPLING_GRIP = 8.0
+
+#: Air between the tie screws' heads, on the plate that turns, and the base
+#: that does not on a ring-output drive, mm.
+BASE_RUNNING_GAP = 1.0
+
 #: What a tapped tie screw's tip stays under the face it is threaded towards,
 #: mm: the face is what the driven machine bolts to, so nothing may reach it.
 TAPPED_COVER = 0.5
@@ -583,10 +591,11 @@ class GearSpec(BaseModel):
     # bolt circle on it: what goes on there is a coupling, a pulley or a clamp
     # hub.  So what it needs is somewhere to grip, which it did not have - the
     # boss came out flush with the plate.
-    output_boss_protrusion: float = Field(
-        8.0, ge=0,
-        description="how far the output boss stands past the end plate, for a "
-                    "coupling to grip; 0 leaves it flush and ungrippable",
+    output_boss_protrusion: float | None = Field(
+        None, ge=0,
+        description="how far the output boss stands past the end plate: grip "
+                    "for a coupling off the carrier, the gap to the base off the "
+                    "ring; None is automatic, see boss_protrusion",
     )
     housing_bolt_count: int = Field(
         6, ge=0, le=24,
@@ -975,7 +984,27 @@ class GearSpec(BaseModel):
         by is on it when the carrier is the ground.
         """
         return (self.barrel_bottom - self.plate_thickness
-                - self.output_boss_protrusion)
+                - self.boss_protrusion)
+
+    @property
+    def boss_protrusion(self) -> float:
+        """How far the boss stands past the output end plate, mm.
+
+        What is stated, if anything is.  Otherwise off the carrier
+        :data:`COUPLING_GRIP` of it for a coupling to grip, and off the ring
+        only the gap the turning plate needs over the base it turns against:
+        the tie screws' heads, which stand on that plate, and
+        :data:`BASE_RUNNING_GAP` past them.  That gap used to be the coupling's
+        grip as well - eight millimetres of open neck with the heads turning in
+        it, under a drive that had nothing there to grip.
+        """
+        if self.output_boss_protrusion is not None:
+            return self.output_boss_protrusion
+        if not self.ground_frame_fitted:
+            return COUPLING_GRIP
+        size = self.tie_bolt_size
+        heads = size.head_h if size is not None and self.tie_bolt_centres else 0.0
+        return heads + BASE_RUNNING_GAP
 
     @property
     def ground_frame_fitted(self) -> bool:
@@ -2006,7 +2035,7 @@ class GearSpec(BaseModel):
         """
         length = self.barrel_height + 2.0 * self.plate_thickness
         if self.ground_frame_fitted:
-            length += self.output_boss_protrusion + self.plate_thickness
+            length += self.boss_protrusion + self.plate_thickness
         return length
 
     @property

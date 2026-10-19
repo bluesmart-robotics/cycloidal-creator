@@ -267,7 +267,7 @@ def test_the_output_boss_stands_out_far_enough_to_grip():
     """It came out flush with the end plate, which is nothing for a coupling to
     hold - the output of this topology is a shaft, not a bolt face."""
     spec = preset(21)
-    assert spec.output_boss_protrusion > 0
+    assert spec.boss_protrusion > 0
 
     from cycloidgen.viz.mesh import build_mesh
     mesh = build_mesh(spec)

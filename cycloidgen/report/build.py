@@ -74,6 +74,7 @@ def report_dict(a: DesignAnalysis) -> dict:
             "effective_R_mm": s.effective_R,
             "effective_Rr_mm": s.effective_Rr,
             "cam_diameter_mm": s.cam_diameter,
+            "boss_protrusion_mm": s.boss_protrusion,
         },
         "contact": {
             "max_pin_force_N": a.contact.max_pin_force_N,

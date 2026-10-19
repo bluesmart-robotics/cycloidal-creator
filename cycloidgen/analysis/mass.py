@@ -326,7 +326,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     # being - 3.4 cm3 of boss on every preset that only the STEP file had.
     flange_volume += math.pi * ((spec.hub_diameter / 2.0) ** 2
                                 - (bores.hub / 2.0) ** 2) * (
-        spec.plate_thickness + spec.output_boss_protrusion)
+        spec.plate_thickness + spec.boss_protrusion)
     flange_volume -= math.pi * (bores.hub / 2.0) ** 2 * spec.output_flange_thickness
     # And, on a ring-output drive, the base on the end of that boss - the plate
     # the whole gearbox is bolted down by.  It is housing-sized and as thick as
@@ -492,7 +492,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
         rb = bores.hub / 2.0
         flange_polar = (_polar(plate_r, 0.0, spec.output_flange_thickness)
                         + _polar(spec.hub_diameter / 2.0, rb,
-                                 spec.plate_thickness + spec.output_boss_protrusion)
+                                 spec.plate_thickness + spec.boss_protrusion)
                         - _polar(rb, 0.0, spec.output_flange_thickness)
                         + _lip_polar(bores, "output_flange"))
         pins_polar = spec.output_pin_count * _polar_off_axis(

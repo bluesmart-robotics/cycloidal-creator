@@ -201,11 +201,10 @@ GROUPS: list[tuple[str, list[Field]]] = [
                   "they pass through clearance.",
               advanced=True),
         Field("output_boss_protrusion", "Boss stands out", "float", 0, 100, 1,
-              decimals=2, suffix=" mm",
-              tip="How far the output boss stands past the end plate. With the "
-                  "carrier as the output that is grip length for a coupling. "
-                  "With the ring housing as the output it is the standoff "
-                  "between the turning plate and the base under it.",
+              decimals=2, suffix=" mm", zero_is_auto=True,
+              tip="0 = automatic: 8 mm of grip for a coupling off the carrier; "
+                  "off the ring housing, the standoff between the turning plate "
+                  "and the base under it, just clear of the tie screws' heads.",
               advanced=True),
         Field("output_bolt_count", "Output bolts", "int", 0, 24, 1,
               tip="Ring output only: what a driven machine bolts to on the "
