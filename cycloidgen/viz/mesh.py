@@ -1344,8 +1344,13 @@ def build_mesh(spec: GearSpec,
     for name, label, bore, z0, apart, motor in plates:
         # Each comes off its own face rather than staying with the barrel: they
         # are bolted on, and an exploded view that leaves them there is showing
-        # a housing nobody can assemble.
-        with b.part(name, label, "end_plates", PART_COLOURS["end_plates"],
+        # a housing nobody can assemble.  On a ring drive the one plate is the
+        # housing's bottom, and turns with it: it shows, and goes see-through,
+        # with the housing.  Hidden with the end plates, it left a gap the
+        # plate's thickness between the housing and the base, with the boss
+        # and its bearing standing in it.
+        group = "housing" if spec.ground_frame_fitted else "end_plates"
+        with b.part(name, label, group, PART_COLOURS["end_plates"],
                     explode=apart):
             bolts = _plate_bolt_holes(spec, motor)
             outer = housing_outline(spec)

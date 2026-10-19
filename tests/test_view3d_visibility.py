@@ -239,6 +239,23 @@ def test_the_tab_opens_with_the_end_plates_off(app):
     assert set(_HIDDEN_BY_DEFAULT) == {"end_plates", "fasteners"}
 
 
+def test_a_ring_drive_s_plate_shows_with_its_housing(app):
+    """On a ring drive the one end plate is the housing's bottom and turns with
+    it.  Hidden with the end plates, it left a gap the plate's thickness
+    between the housing and the base, with the boss and its bearing standing
+    in it - so it is the housing's, and is drawn when the tab opens."""
+    from cycloidgen.core.spec import OutputMember
+
+    spec = _spec()
+    spec.output_member = OutputMember.RING
+    tab = Assembly3DTab()
+    tab.set_spec(spec)
+    plate = next(p for p in mesh_for_spec(spec).parts if p.name == "output_end_plate")
+    assert plate.group == "housing"
+    assert _faces_by_part(spec, hidden=tab.render_options()["hidden"])[
+        "output_end_plate"] > 0
+
+
 def test_taking_the_plates_back_off_hidden_survives_a_restart(app, tmp_path,
                                                               monkeypatch):
     """A stored empty list means "everything on", not "no preference" - reading
