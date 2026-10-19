@@ -170,6 +170,16 @@ EXPLANATIONS: dict[str, Explanation] = {
         "section on the disc, and it sees the contact force directly.",
         "Move the bolt circle inward, or use smaller output pins.",
         keep="above", unit="mm"),
+    "THIN_CARRIER_RIM": Explanation(
+        "Thin carrier rim outside the output pins",
+        "carrier_r - (bolt_circle + pin_d/2)  >  pin_d/4",
+        "The carrier turns inside the ring pins, a drop below the discs, so its "
+        "rim is held clear of their inner edge - and what is left outside the "
+        "output pins is the metal that holds them in against the whole output "
+        "torque.",
+        "Move the output bolt circle inward, use smaller output pins, or a "
+        "larger pin circle.",
+        keep="above", unit="mm"),
     "OUTPUT_HOLES_OVERLAP": Explanation(
         "Output holes overlap each other",
         "2*bolt_circle*sin(pi/n) - 2*hole_r  >  0,  n output pins",

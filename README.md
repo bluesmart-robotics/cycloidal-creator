@@ -42,7 +42,7 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Seventy-four checks that explain themselves.** Each says what it tests, what
+- **Seventy-five checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -626,7 +626,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Seventy-four of them. Errors block export; warnings do not; several are readings
+Seventy-five of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -634,7 +634,7 @@ rather than tests.
 `PIN_RADIUS_SUGGESTION`
 
 **Layout** — `PIN_OVERLAP` · `PIN_SPACING` · `HOLE_HITS_BORE` ·
-`HOLE_BREAKS_RIM` · `THIN_INNER_WEB` · `THIN_OUTER_WEB` ·
+`HOLE_BREAKS_RIM` · `THIN_INNER_WEB` · `THIN_OUTER_WEB` · `THIN_CARRIER_RIM` ·
 `OUTPUT_HOLES_OVERLAP` · `OUTPUT_HOLE_SPACING` · `ECCENTRIC_TIGHT` ·
 `DISCS_DIFFER`
 

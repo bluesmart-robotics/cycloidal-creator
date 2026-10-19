@@ -371,6 +371,10 @@ PROCESS_CLEARANCE: dict[Process, tuple[float, float]] = {
 #: width - what its section is drawn with, and the base's pad under it.
 MOTOR_CORNER = 0.11
 
+#: Air between the carrier's rim - or the end cap's - and the ring pins it
+#: turns inside, mm.
+CARRIER_RIM_GAP = 0.5
+
 #: The boss's length past the output end plate off the carrier, where a
 #: coupling or a clamp hub grips it, mm.
 COUPLING_GRIP = 8.0
@@ -969,6 +973,22 @@ class GearSpec(BaseModel):
         return max(SHAFT_OVERHANG,
                    CARRIER_DROP + self.output_flange_thickness
                    + self.plate_thickness + 3.0)
+
+    @property
+    def carrier_radius(self) -> float:
+        """The carrier plate's radius, and the end cap's: a pin's diameter of
+        metal past the output pin circle, but never out among the ring pins.
+
+        The plate sits inside the barrel, a drop below the first disc, and the
+        ring pins run the barrel's whole length past it - so a plate wider than
+        their inner edge turns into them.  A large output pin on a small pin
+        circle did exactly that: the 29:1 NEMA 23's 12 mm pins put its carrier
+        half a millimetre into the ring pins.  Held to their inner edge, less
+        :data:`CARRIER_RIM_GAP`; ``THIN_CARRIER_RIM`` says when what that
+        leaves round an output pin is too little.
+        """
+        return min(self.output_bolt_circle_radius + self.output_pin_diameter,
+                   self.pin_circle_radius - self.pin_radius - CARRIER_RIM_GAP)
 
     @property
     def hub_diameter(self) -> float:

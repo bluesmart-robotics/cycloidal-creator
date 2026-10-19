@@ -757,3 +757,50 @@ def test_a_bearing_s_corner_is_radiused_and_a_washer_s_is_not():
         assert radii(name), name
         assert parts[name].val().isValid(), name
     assert not radii("eccentric_shaft")
+
+
+def _presets():
+    from cycloidgen.core.presets import PRESETS
+
+    return [p.key for p in PRESETS]
+
+
+@pytest.mark.parametrize("key", _presets())
+@pytest.mark.parametrize("output", ["output pin carrier", "ring housing"])
+def test_the_carrier_turns_clear_of_the_ring_pins(key, output):
+    """The carrier sits inside the barrel among the ring pins, and so does the
+    end cap on a ring drive: read off the solids, each one shares no metal with
+    the pins - the 29:1 NEMA 23's 12 mm output pins put its carrier half a
+    millimetre into them - and the radius it was held to is the room there
+    is, worked out by hand."""
+    import cadquery as cq
+
+    from cycloidgen.core.presets import by_key
+    from cycloidgen.core.spec import CARRIER_RIM_GAP, OutputMember
+    from cycloidgen.export import solid
+
+    spec = by_key(key).spec()
+    spec.output_member = OutputMember(output)
+    room = spec.pin_circle_radius - spec.pin_radius - CARRIER_RIM_GAP
+    assert spec.carrier_radius <= room + 1e-9
+    pins = solid.ring_pins(spec).val()
+    carrier = solid.output_flange(spec).val().moved(
+        cq.Location(cq.Vector(0.0, 0.0, -CARRIER_DROP)))
+    assert pins.intersect(carrier).Volume() == pytest.approx(0.0, abs=1e-6)
+    if spec.ground_frame_fitted:
+        assert pins.intersect(solid.end_cap(spec).val()).Volume() == pytest.approx(
+            0.0, abs=1e-6)
+
+
+def test_a_carrier_held_inside_the_ring_pins_says_when_its_rim_is_thin():
+    spec = preset(21)
+    spec.output_pin_diameter = 10.0
+    spec.output_bolt_circle_radius = spec.pin_circle_radius - spec.pin_radius - 7.0
+    rim = (spec.carrier_radius - spec.output_bolt_circle_radius
+           - spec.output_pin_diameter / 2.0)
+    assert rim == pytest.approx(7.0 - 0.5 - 5.0)
+    found = next(f for f in analyse(spec).report.findings
+                 if f.code == "THIN_CARRIER_RIM")
+    assert found.severity is Severity.WARNING
+    assert found.value == pytest.approx(rim)
+    assert found.limit == pytest.approx(2.5)

@@ -358,7 +358,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     shaft_mass = ((shaft_volume + max(cam_extra, 0.0) - bore_volume)
                   * _MM3_TO_CM3 * rho_shaft)
 
-    plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
+    plate_r = spec.carrier_radius
     flange_volume = math.pi * plate_r ** 2 * spec.output_flange_thickness
     # Plus the boss the drive turns on, bored through for the shaft, and less
     # that same bore through the plate.  As long as it is drawn: through the

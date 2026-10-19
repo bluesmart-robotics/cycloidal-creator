@@ -900,7 +900,7 @@ def build_mesh(spec: GearSpec,
     # it: a carrier face flush with the first disc would be two surfaces at the
     # same height, which is a fight the renderer cannot win.
     drop = CARRIER_DROP
-    plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
+    plate_r = spec.carrier_radius
     hub_r = spec.hub_diameter / 2.0
     bore_r = bores.hub / 2.0
     plate_bottom = -drop - spec.output_flange_thickness
@@ -1414,7 +1414,7 @@ def mesh_fingerprint(spec: GearSpec,
         spec.disc_thickness, spec.disc_count, spec.disc_gap,
         spec.center_bore_diameter, spec.hole_clearance,
         spec.output_pin_count, spec.output_pin_diameter,
-        spec.output_bolt_circle_radius, spec.output_flange_thickness,
+        spec.output_bolt_circle_radius, spec.output_flange_thickness, spec.carrier_radius,
         spec.housing_outer_radius, spec.input_shaft_diameter, spec.cam_diameter,
         spec.plate_thickness, spec.hub_diameter, spec.hub_bore,
         spec.output_bearing_seat_diameter, spec.boss_protrusion,

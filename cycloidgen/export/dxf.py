@@ -323,7 +323,7 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
 
     # ---- carrier drilling template -----------------------------------------
     doc, msp = _new_doc()
-    plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
+    plate_r = spec.carrier_radius
     # A pin carrying a roller is pressed in by its shank, not by the diameter the
     # disc runs on - drilling the working size would leave nothing to press.
     shank = pin_shank_diameter(bearing_placements(spec, choices),

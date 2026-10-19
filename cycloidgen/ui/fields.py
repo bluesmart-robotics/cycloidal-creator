@@ -365,6 +365,8 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "THIN_INNER_WEB": ("output_bolt_circle_radius", "center_bore_diameter"),
     "HOLE_BREAKS_RIM": ("output_bolt_circle_radius", "output_pin_diameter"),
     "THIN_OUTER_WEB": ("output_bolt_circle_radius", "output_pin_diameter"),
+    "THIN_CARRIER_RIM": ("output_bolt_circle_radius", "output_pin_diameter",
+                         "pin_circle_radius", "pin_radius"),
     "OUTPUT_HOLES_OVERLAP": ("output_pin_count", "output_pin_diameter",
                              "output_bolt_circle_radius"),
     "OUTPUT_HOLE_SPACING": ("output_pin_count", "output_pin_diameter"),

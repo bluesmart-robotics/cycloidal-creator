@@ -665,7 +665,7 @@ def output_flange(spec: GearSpec,
     body: everything here is grounded together, and a joint drawn across it
     would be a joint with no load to carry and a fastener pattern to invent.
     """
-    plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
+    plate_r = spec.carrier_radius
     t = spec.output_flange_thickness
     shank = pin_shank_diameter(placements, "bearing_output_pins",
                                spec.output_pin_diameter)
@@ -778,7 +778,7 @@ def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = (),
     other end - and that radius is comfortably inside the barrel bore, which it
     has to be: this part lives *inside* the housing that turns around it.
     """
-    plate_r = spec.output_bolt_circle_radius + spec.output_pin_diameter
+    plate_r = spec.carrier_radius
     shank = pin_shank_diameter(placements, "bearing_output_pins",
                                spec.output_pin_diameter)
     plate = (cq.Workplane("XY").workplane(offset=spec.end_cap_bottom)

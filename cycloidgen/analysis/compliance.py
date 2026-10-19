@@ -273,8 +273,7 @@ def analyse_parts(spec: GearSpec) -> PartStiffness:
     # Rim-driven; see the module docstring for what that assumes and costs.
     plate = annulus_torsion_stiffness(
         housing_G, spec.output_flange_thickness,
-        spec.output_bolt_circle_radius,
-        spec.output_bolt_circle_radius + spec.output_pin_diameter)
+        spec.output_bolt_circle_radius, spec.carrier_radius)
 
     # ---- input shaft --------------------------------------------------------
     # With the input held, the crank still takes the input torque, and a crank

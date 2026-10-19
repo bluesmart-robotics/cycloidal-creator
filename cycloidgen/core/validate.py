@@ -224,6 +224,17 @@ def validate(spec: GearSpec) -> Report:
         rep.add(Severity.WARNING, "THIN_OUTER_WEB",
                 "Less than 2 mm of rim left outside the output holes.", web_outer, 2.0)
 
+    # The carrier's rim, held inside the ring pins it turns among - see
+    # GearSpec.carrier_radius - and what that leaves outside its own pins.
+    rim = (spec.carrier_radius - spec.output_bolt_circle_radius
+           - spec.output_pin_diameter / 2.0)
+    if rim < spec.output_pin_diameter / 4.0:
+        rep.add(Severity.WARNING, "THIN_CARRIER_RIM",
+                f"The carrier is held inside the ring pins at "
+                f"{2.0 * spec.carrier_radius:.1f} mm, which leaves {rim:.2f} mm "
+                f"of it outside the output pins pressed into it.",
+                rim, spec.output_pin_diameter / 4.0)
+
     gap = 2.0 * spec.output_bolt_circle_radius * np.sin(np.pi / spec.output_pin_count) - 2 * hole_r
     if gap <= 0:
         rep.add(Severity.ERROR, "OUTPUT_HOLES_OVERLAP",

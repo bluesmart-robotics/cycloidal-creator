@@ -127,7 +127,7 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
 
     items.append(BomItem(
         part="Output flange / carrier", quantity=1, material=s.housing_material,
-        size=f"{2 * (s.output_bolt_circle_radius + s.output_pin_diameter):.1f} dia "
+        size=f"{2 * s.carrier_radius:.1f} dia "
              f"x {s.output_flange_thickness:g} mm",
         mass_each_g=m.flange_mass_g, source="make",
         note=f"{s.output_pin_count} pin seats on a "
@@ -137,7 +137,7 @@ def bom_items(a: DesignAnalysis) -> list[BomItem]:
     if s.ground_frame_fitted:
         items.append(BomItem(
             part="End cap", quantity=1, material=s.housing_material,
-            size=f"{2 * (s.output_bolt_circle_radius + s.output_pin_diameter):.1f} "
+            size=f"{2 * s.carrier_radius:.1f} "
                  f"dia x {s.output_flange_thickness:g} mm",
             mass_each_g=m.end_cap_mass_g, source="make",
             note=f"the far end of the output pins - clearance holes, not press "
