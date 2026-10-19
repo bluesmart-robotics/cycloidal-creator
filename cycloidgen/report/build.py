@@ -91,6 +91,12 @@ def report_dict(a: DesignAnalysis) -> dict:
             "torque_capacity_with_clearance_Nm": a.torque_capacity_with_clearance_Nm,
             "pin_safety_factor_with_clearance": a.pin_safety_factor_with_clearance,
         },
+        "peak": {
+            "momentary_torque_Nm": a.peak.torque_Nm,
+            "first_to_yield": a.peak.first.part if a.peak.first else None,
+            "motor_standstill_through_ratio_Nm": a.peak.motor_Nm,
+            "limits_Nm": {lim.part: lim.torque_Nm for lim in a.peak.limits},
+        },
         "stiffness": {
             "torsional_stiffness_Nm_per_arcmin": a.stiffness.stiffness_Nm_per_arcmin,
             "contact_only_Nm_per_arcmin": a.stiffness.contact_only_Nm_per_arcmin,
@@ -443,7 +449,8 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
                   f"{len(a.report.warnings)} warning(s). Predicted efficiency "
                   f"{100 * a.efficiency.efficiency:.1f}%, torque capacity "
                   f"{a.torque_capacity_with_clearance_Nm:.2f} Nm at the output "
-                  f"(clearance-derated from {a.torque_capacity_Nm:.2f} Nm), "
+                  f"(clearance-derated from {a.torque_capacity_Nm:.2f} Nm) and "
+                  f"{a.peak.torque_Nm:.1f} Nm for a moment, "
                   f"{a.stiffness.lost_motion_arcmin:.0f} arcmin of backlash, "
                   f"{a.mass.total_mass_g:.0f} g assembled, running at "
                   f"{a.thermal.temperature_C:.0f} C in still air.", body),

@@ -25,6 +25,7 @@ from .lubrication import FULL_FILM_LAMBDA, LubricationResult
 from .mass import MassResult, analyse_mass
 from .mechanics import ContactResult, analyse_contacts, torque_capacity
 from .motor import COMFORTABLE_MARGIN, MotorResult, analyse_motor
+from .peak import PeakResult, analyse_peak, ring_contact_yield_rigid_Nm
 from .stiffness import (
     StiffnessResult,
     TransmissionErrorResult,
@@ -51,6 +52,8 @@ class DesignAnalysis:
     motor: MotorResult
     duty: DutyResult
     torque_capacity_Nm: float
+    #: What it survives for a moment - see :mod:`cycloidgen.analysis.peak`.
+    peak: PeakResult
 
     @property
     def lubrication(self) -> LubricationResult:
@@ -103,7 +106,8 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     rep = validate(spec)
     contact = analyse_contacts(spec)
     capacity = torque_capacity(spec, contact=contact)
-    stiff = analyse_stiffness(spec, capacity_Nm=capacity)
+    stiff = analyse_stiffness(spec, capacity_Nm=capacity,
+                              peak_rigid_Nm=ring_contact_yield_rigid_Nm(spec, contact))
     te = analyse_transmission_error(spec)
     # Efficiency and temperature come out together, because with a lubricant in
     # the design they decide each other: friction heats the oil, the hot oil
@@ -905,8 +909,24 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                 f"the driven part clear of them, or tap the plate for the screws "
                 f"and lose the nuts.", proud, 0.0)
 
+    # What a stall, a crash or a hard stop does, against what the motor can put
+    # through the ratio standing still: the load the duty never mentions.
+    peak = analyse_peak(spec, contact, stiff.load_concentration_at_peak, mass,
+                        bearings, eff, therm.temperature_C)
+    if peak.motor_can_bend_it and peak.first is not None:
+        first = peak.first
+        current = spec.motor_rated_current_A * peak.torque_Nm / peak.motor_Nm
+        rep.add(Severity.WARNING, "MOTOR_OVERLOADS_DRIVE",
+                f"Standing still at full current this motor puts {peak.motor_Nm:.1f} "
+                f"Nm through the ratio, and the drive starts to yield at "
+                f"{peak.torque_Nm:.1f} Nm - the {first.part} first, at {first.how}. "
+                f"A stall against a hard stop or a crash does that to it. Hold the "
+                f"driver to about {current:.1f} A, which keeps the motor under it, "
+                f"or make the {first.part} stronger.",
+                peak.motor_Nm, peak.torque_Nm)
+
     return DesignAnalysis(spec=spec, report=rep, contact=contact, efficiency=eff,
                           stiffness=stiff, transmission_error=te, thermal=therm,
                           mass=mass, fatigue=fatigue, bearings=bearings,
                           motor=motor, duty=duty,
-                          torque_capacity_Nm=capacity)
+                          torque_capacity_Nm=capacity, peak=peak)

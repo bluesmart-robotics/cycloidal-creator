@@ -502,6 +502,20 @@ EXPLANATIONS: dict[str, Explanation] = {
         "accelerate its own inertia and break away from stiction first, and "
         "this curve is an upper bound rather than a measured one.",
         keep="above", unit="Nm"),
+    "MOTOR_OVERLOADS_DRIVE": Explanation(
+        "The motor can bend the drive",
+        "T_motor(0) * i * efficiency  <  the momentary torque",
+        "The rated torque is what the drive does all day. A stall against a hard "
+        "stop, a crash or a jammed load puts the motor's whole standstill torque "
+        "through the ratio at once, whatever the duty says, and past the "
+        "momentary torque the first part yields - an output pin bent, a "
+        "bearing's races dented, a contact flattened - and the drive comes back "
+        "with play or a notch it did not have.",
+        "Limit the driver's current, which is what caps a stepper's or a DC "
+        "motor's torque; or strengthen what the datasheet names as yielding "
+        "first - thicker output pins, a bearing with a higher static rating, a "
+        "stronger disc material. A smaller motor or less reduction work too.",
+        keep="below", unit="Nm"),
     "MOTOR_SUPPLY_VOLTAGE": Explanation(
         "The supply cannot push the motor's rated current, even standing still",
         "V / R  >=  rated current",

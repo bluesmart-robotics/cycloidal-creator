@@ -228,6 +228,9 @@ class StiffnessResult:
     #: rises and more pins share it, so it is lower.  Equal to
     #: ``load_concentration`` when no capacity was asked about.
     load_concentration_at_capacity: float = 0.0
+    #: And at the torque the ring contact starts to yield at, which is further
+    #: up again - see :mod:`cycloidgen.analysis.peak`.
+    load_concentration_at_peak: float = 0.0
 
     #: How many rings the position tolerance was sampled over.  One means the
     #: drawing carries no tolerance and the pins are where it says they are, in
@@ -596,7 +599,8 @@ def _concentration_at_capacity(spec: GearSpec, rings: list, torque_per_disc: flo
 
 def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS,
                       samples: int = DEFAULT_SAMPLES,
-                      capacity_Nm: float | None = None) -> StiffnessResult:
+                      capacity_Nm: float | None = None,
+                      peak_rigid_Nm: float | None = None) -> StiffnessResult:
     """Torsional stiffness, lost motion and clearance-aware load sharing.
 
     With a position tolerance entered this solves ``samples`` different rings
@@ -605,6 +609,8 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS,
     rigid-disc torque capacity; given it, the load sharing is solved again at
     the torque the clearance-derated capacity turns out to be, which is what
     :attr:`StiffnessResult.load_concentration_at_capacity` reports.
+    ``peak_rigid_Nm`` is the same for the ring contact's first yield, and
+    :attr:`StiffnessResult.load_concentration_at_peak` its answer.
     """
     torque_total_Nmm = spec.output_torque_Nm * 1000.0
     torque_per_disc = torque_total_Nmm / spec.disc_count
@@ -705,10 +711,14 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS,
     lost_p90 = tail([2.0 * r.gap_close / RAD_PER_ARCMIN + lost_out
                      for r in rings], 90.0)
 
-    at_capacity = middling.concentration
-    if capacity_Nm is not None and math.isfinite(capacity_Nm) and capacity_Nm > 0.0:
-        at_capacity = _concentration_at_capacity(spec, rings, torque_per_disc,
-                                                 capacity_Nm, middle)
+    def solved_at(rigid_Nm: float | None) -> float:
+        if rigid_Nm is None or not math.isfinite(rigid_Nm) or rigid_Nm <= 0.0:
+            return middling.concentration
+        return _concentration_at_capacity(spec, rings, torque_per_disc, rigid_Nm,
+                                          middle)
+
+    at_capacity = solved_at(capacity_Nm)
+    at_peak = solved_at(peak_rigid_Nm)
 
     return StiffnessResult(
         stiffness_Nm_per_arcmin=to_nm_arcmin(k_series),
@@ -734,6 +744,7 @@ def analyse_stiffness(spec: GearSpec, steps: int = _STIFFNESS_STEPS,
         load_concentration=middling.concentration,
         max_gap_spread_mm=middling.spread,
         load_concentration_at_capacity=at_capacity,
+        load_concentration_at_peak=at_peak,
         rings_sampled=len(rings),
         stiffness_p10_Nm_per_arcmin=to_nm_arcmin(
             tail([whole_drive(r) for r in rings], 10.0)),

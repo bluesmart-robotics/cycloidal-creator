@@ -150,8 +150,10 @@ PRESETS: tuple[Preset, ...] = (
             ("pin_circle_radius", 34.0), ("pin_radius", 2.5),
             ("eccentricity", 1.1), ("disc_thickness", 20.0),
             ("eccentric_cam_diameter", 15.0), ("center_bore_diameter", 21.0),
+            # 6 mm, where 5 would do for the duty: stalled at full current the
+            # motor bends a 5 mm pin, and this one it does not.
             ("output_bolt_circle_radius", 20.5), ("output_pin_count", 6),
-            ("output_pin_diameter", 5.0))),
+            ("output_pin_diameter", 6.0))),
     Preset("nema23-machined-21", "NEMA 23 - 21:1, machined", "NEMA 23 stepper",
            "Steel discs in an aluminium housing: 25 Nm at 15 rpm off a 48 V "
            "driver, on an 83 mm housing.", 21,
@@ -173,10 +175,19 @@ PRESETS: tuple[Preset, ...] = (
             ("eccentricity", 0.75), ("disc_thickness", 14.0),
             ("eccentric_cam_diameter", 15.0), ("center_bore_diameter", 21.0),
             ("output_bolt_circle_radius", 21.5), ("output_pin_count", 5),
-            ("output_pin_diameter", 12.0))),
+            ("output_pin_diameter", 12.0),
+            # At this ratio the motor stalled at full current dents a 6900's
+            # races: a 35 mm boss leaves room for a 6000 on the shaft, and puts
+            # a 6807 round the boss exactly.  Named, since a 6900 lasts and the
+            # selection takes the smallest that does.  It is 2 mm wider, and
+            # the motor's register would take the lip that holds it in: the
+            # plates go to 16 mm, the next thickness the motor's screws seat in
+            # as well.
+            ("output_hub_diameter", 35.0), ("shaft_bearing", "6000"),
+            ("end_plate_thickness", 16.0))),
     Preset("nema34-machined-29", "NEMA 34 - 29:1, machined", "NEMA 34 stepper",
            "A large machined drive: 80 Nm at 8 rpm off a 70 V driver, on a "
-           "109 mm housing.", 29,
+           "111 mm housing.", 29,
            (*_MACHINED, *_NEMA34, *_duty(80.0, 8.0, 29),
             ("pin_circle_radius", 45.0), ("pin_radius", 3.0),
             ("eccentricity", 1.0), ("output_bolt_circle_radius", 29.5),
@@ -186,14 +197,17 @@ PRESETS: tuple[Preset, ...] = (
             # wide as the cup, since no narrower cup that size is listed.
             ("input_shaft_diameter", 20.0), ("eccentric_cam_diameter", 30.0),
             ("center_bore_diameter", 37.0), ("disc_thickness", 20.0),
-            # The crank's reaction on a pin circle this size wants a 6904 to
-            # carry the shaft, and the 32 mm the default boss leaves it holds
-            # nothing that lasts: a 45 mm boss leaves 37.  The 6809 the boss
-            # then sits in is 58 across, so the wall it is bored through goes
-            # to 6.5 mm to make the seat that wide.
-            ("output_hub_diameter", 45.0), ("housing_wall", 6.5),
-            # Room for the register, the lip and the flanged motor's nuts.
-            ("end_plate_thickness", 16.0))),
+            # The crank's reaction on a pin circle this size wants more on the
+            # shaft than the 32 mm the default boss leaves room for: a 6904
+            # lasts, but the motor stalled at full current dents its races,
+            # and a 6004 it does not.  That is a 50 mm boss, and the 6810 round
+            # it is 65 across, so the wall it is bored through goes to 7.5 mm
+            # to make the seat that wide.
+            ("output_hub_diameter", 50.0), ("housing_wall", 7.5),
+            ("shaft_bearing", "6004"),
+            # Room for the register, the lip beyond a 12 mm wide 6004 and the
+            # flanged motor's nuts, at a thickness its screws seat in.
+            ("end_plate_thickness", 21.0))),
     Preset("outrunner-8108-machined-15", "8108 outrunner - 15:1",
            "Brushless outrunner",
            "A robot joint: 8 Nm at 30 rpm, the outrunner's can bolted to a hub "

@@ -431,6 +431,8 @@ CODE_FIELDS: dict[str, tuple[str, ...]] = {
     "OUTPUT_BOLT_CLASH": ("output_bolt_count", "output_bolt_diameter",
                           "housing_bolt_count", "housing_wall", "housing_shape"),
     "MOTOR_FACE_CLASH": ("motor_frame", "housing_wall", "output_hub_diameter"),
+    "MOTOR_OVERLOADS_DRIVE": ("motor_rated_current_A", "output_pin_diameter",
+                              "shaft_bearing", "cam_bearing", "motor_frame"),
     "MOTOR_RADIAL_LOAD": ("motor_frame", "shaft_bearings_fitted", "output_torque_Nm"),
     "BEARING_DOES_NOT_FIT": ("cam_bearing", "shaft_bearing", "output_bearing",
                              "eccentric_cam_diameter", "center_bore_diameter"),

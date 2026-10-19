@@ -42,7 +42,7 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Seventy-two checks that explain themselves.** Each says what it tests, what
+- **Seventy-three checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -195,7 +195,7 @@ round the motor that make it buildable: plates thick enough for the motor's
 register to leave the bearing a lip and its screws a full thread. A machined
 one is the smallest drive that carries its duty at a safety factor of 1.5 and
 outlasts what its motor can put through the ratio: 83 and 90 mm on a NEMA 23,
-109 mm on a NEMA 34, 86 mm on the 87 mm outrunner. A printed one is 85 mm, twice
+111 mm on a NEMA 34, 86 mm on the 87 mm outrunner. A printed one is 85 mm, twice
 its NEMA 17, and rated at the 0.8 or 0.65 Nm the printed contact model gives it
 at the same safety factor - a continuous rating against an allowable that
 assumes the plastic creeps, and well under what its motor can put through it.
@@ -528,6 +528,15 @@ Beyond the geometry checks, every design gets a datasheet:
 
 - **Torque capacity**, both on the ideal load share and derated for what
   clearance actually does to it.
+- **Momentary torque** — what it survives for a moment rather than runs at: a
+  hard stop, a crash, the motor stalled against something that will not give.
+  The torque at which the first part starts to yield, and which part: the ring
+  contact and the output pins in their holes at 1.67 times the softer body's
+  yield (a line contact's first yield is below its surface — Johnson, *Contact
+  Mechanics*, §4.2), the output pins in bending, the disc web in shear, and
+  every bearing the torque loads against its static rating. With a motor
+  stated, `MOTOR_OVERLOADS_DRIVE` says when it can put more than that through
+  the ratio standing still, and what current to hold the driver to.
 - **What the motor can actually deliver**, if you state one. Everything else in
   the datasheet is what the drive can *take*; this is what it will be *given*,
   and on most designs here it is the smaller number. A motor is a curve rather
@@ -590,7 +599,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Seventy-two of them. Errors block export; warnings do not; several are readings
+Seventy-three of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -625,7 +634,7 @@ rather than tests.
 `PLATES_NOT_LOCATED` · `PLATE_DOWEL_CLASH`
 
 **The motor** — `MOTOR_OPERATING_POINT` · `MOTOR_TORQUE_SHORT` ·
-`MOTOR_SUPPLY_VOLTAGE`
+`MOTOR_SUPPLY_VOLTAGE` · `MOTOR_OVERLOADS_DRIVE`
 
 **The duty cycle** — `DUTY_CYCLE` · `DUTY_RATING_MISMATCH` ·
 `DUTY_MOTOR_SHORT` · `DUTY_BEARING_LIFE`

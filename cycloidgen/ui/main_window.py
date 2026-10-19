@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import traceback
 from pathlib import Path
 
@@ -2466,6 +2467,10 @@ class MainWindow(QMainWindow):
                  f"concentration at that torque"),
                 ("Safety factor", f"{a.pin_safety_factor_with_clearance:.2f}",
                  "on ring contact stress, with clearance"),
+                ("Momentary torque", f"{a.peak.torque_Nm:.1f} Nm",
+                 (f"first to yield: {a.peak.first.part}" if a.peak.first else "")
+                 + (f"; the motor can put {a.peak.motor_Nm:.1f} Nm through"
+                    if math.isfinite(a.peak.motor_Nm) else "")),
                 ("Efficiency", f"{100 * a.efficiency.efficiency:.1f} %",
                  "upper bound - seals and churning not modelled"),
                 ("Power density",
