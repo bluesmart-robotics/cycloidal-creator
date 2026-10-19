@@ -26,12 +26,16 @@ catalogue bearing's bore.
 A printed one cannot be sized that way.  On the printed contact model a drive
 as wide as a machined one's ratio to its motor carries a fifth of a newton
 metre at that safety factor - less than the motor does with no gearbox at all.
-So the printed ones are 85 mm across, twice their motor, the shortest drive
-that size that carries the most it can at the same safety factor - and their
-duty is what that is, 0.8 and 0.65 Nm.  That is a continuous rating, held for
-thousands of hours against a contact allowable chosen because plastic creeps:
-it is a long way under what the motor can put through the ratio, and under
-what the drive survives for a moment.
+So the printed ones are 85 mm across, twice their motor, with 10 mm discs.
+On a printed drive the continuous rating goes with the length of the disc -
+the clearance leaves one or two pins carrying it whatever the diameter - but
+a longer disc is a longer output pin, and past about 12 mm the drive survives
+less for a moment, not more.  At 10 mm it is rated at 0.35 and 0.3 Nm, what
+it carries at that safety factor, and survives ten and eleven for a moment.
+The rating is held for thousands of hours against a contact allowable chosen
+because plastic creeps, and it is a long way under what the motor can put
+through the ratio: the momentary torque is the number that says it will not
+break.
 
 ``tests/test_presets.py`` holds every motor preset to analysing with no error,
 no warning about its motor, its mounting or its bearings, a capacity over its
@@ -130,30 +134,28 @@ PRESETS: tuple[Preset, ...] = (
              "Geometry for the reduction, at the default duty in PLA; no motor "
              "named.", r) for r in (10, 15, 21, 29, 39, 59)),
     Preset("nema17-printed-15", "NEMA 17 - 15:1, printed", "NEMA 17 stepper",
-           "A printed joint for a small arm or a camera head: 0.8 Nm at 20 rpm, "
-           "PETG, the motor straight into the input shaft, on an 85 mm "
+           "A printed joint for a small arm or a camera head: 0.35 Nm at 20 "
+           "rpm, PETG, the motor straight into the input shaft, on an 85 mm "
            "housing.", 15,
-           (*_PRINTED, *_NEMA17, *_MOTOR_PLATE, *_duty(0.8, 20.0, 15),
-            # 5 mm ring pins on a 68 mm circle and two 22 mm discs: on a
-            # printed drive the length is where the strength is, since the
-            # clearance leaves one or two pins carrying it whatever the
-            # diameter.  The cam on an HK1512, six 5 mm output pins.
+           (*_PRINTED, *_NEMA17, *_MOTOR_PLATE, *_duty(0.35, 20.0, 15),
+            # 5 mm ring pins on a 68 mm circle and two 10 mm discs.  The cam
+            # on an HK1808, which is the width of the disc, and six 5 mm
+            # output pins round it.
             ("pin_circle_radius", 34.0), ("pin_radius", 2.5),
-            ("eccentricity", 1.2), ("disc_thickness", 22.0),
-            ("eccentric_cam_diameter", 15.0), ("center_bore_diameter", 21.0),
-            ("output_bolt_circle_radius", 20.5), ("output_pin_count", 6),
+            ("eccentricity", 1.2), ("disc_thickness", 10.0),
+            ("eccentric_cam_diameter", 18.0), ("center_bore_diameter", 24.0),
+            ("output_bolt_circle_radius", 21.0), ("output_pin_count", 6),
             ("output_pin_diameter", 5.0))),
     Preset("nema17-printed-21", "NEMA 17 - 21:1, printed", "NEMA 17 stepper",
-           "More reduction in the same motor: 0.65 Nm at 15 rpm, PETG, on an "
-           "85 mm housing.", 21,
-           (*_PRINTED, *_NEMA17, *_MOTOR_PLATE, *_duty(0.65, 15.0, 21),
+           "More reduction in the same motor, for finer steps rather than more "
+           "torque - the plastic sets that: 0.3 Nm at 15 rpm, PETG, on an 85 mm "
+           "housing.", 21,
+           (*_PRINTED, *_NEMA17, *_MOTOR_PLATE, *_duty(0.3, 15.0, 21),
             ("pin_circle_radius", 34.0), ("pin_radius", 2.5),
-            ("eccentricity", 1.1), ("disc_thickness", 20.0),
-            ("eccentric_cam_diameter", 15.0), ("center_bore_diameter", 21.0),
-            # 6 mm, where 5 would do for the duty: stalled at full current the
-            # motor bends a 5 mm pin, and this one it does not.
-            ("output_bolt_circle_radius", 20.5), ("output_pin_count", 6),
-            ("output_pin_diameter", 6.0))),
+            ("eccentricity", 1.1), ("disc_thickness", 10.0),
+            ("eccentric_cam_diameter", 18.0), ("center_bore_diameter", 24.0),
+            ("output_bolt_circle_radius", 21.0), ("output_pin_count", 6),
+            ("output_pin_diameter", 5.0))),
     Preset("nema23-machined-21", "NEMA 23 - 21:1, machined", "NEMA 23 stepper",
            "Steel discs in an aluminium housing: 25 Nm at 15 rpm off a 48 V "
            "driver, on an 83 mm housing.", 21,
