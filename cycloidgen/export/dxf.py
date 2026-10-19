@@ -41,6 +41,9 @@ LAYERS = {
     # The dowels that put the plates on the ring's axis: reamed, so a second
     # operation after the laser or the drill, like a seat.
     "DOWELS": 140,
+    # The counterbores a ring drive's plate screws' heads are let into: from
+    # the other face, so a second operation as well.
+    "COUNTERBORE": 210,
 }
 
 
@@ -147,15 +150,31 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
         note += (f"  |  2 x {spec.plate_dowel_hole:g} dowel"
                  + ("" if spec.printed else " H7, ream on assembly"))
 
-    if spec.tie_bolt_centres:
+    counterbore = spec.tie_counterbore
+    if spec.tie_bolt_centres and counterbore is not None:
+        # Under a ring drive's housing: its screws come up through clearance,
+        # their heads let into counterbores from the outside face.
+        ties = spec.tie_bolt_centres
+        size = spec.tie_bolt_size
+        if not spec.square_housing:
+            msp.add_circle((0, 0), spec.cup_screw_radius,
+                           dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
+        for c in ties:
+            msp.add_circle(c, size.clearance / 2.0, dxfattribs={"layer": "BOLTS"})
+            msp.add_circle(c, counterbore[0] / 2.0,
+                           dxfattribs={"layer": "COUNTERBORE"})
+            _cross(msp, c)
+        where = (f"{2 * abs(ties[0][0]):g} square" if spec.square_housing
+                 else f"BC {2 * spec.cup_screw_radius:g}, between the ring pins")
+        note += (f"  |  {len(ties)} x {size.name} clearance {size.clearance:g}, "
+                 f"c'bore {counterbore[0]:g} x {counterbore[1]:g} deep from the "
+                 f"outside, on {where}")
+    elif spec.tie_bolt_centres:
         ties = spec.tie_bolt_centres
         if not spec.square_housing:
             msp.add_circle((0, 0), spec.housing_bolt_radius,
                            dxfattribs={"layer": "PITCH", "linetype": "DASHED"})
-        # The input plate of a ring drive is tapped for them, at the tap drill,
-        # or holds an insert for them, at its hole.
-        tapped = motor_face and spec.tie_screws_tapped
-        hole = spec.tie_thread_hole if tapped else spec.housing_bolt_diameter
+        hole = spec.housing_bolt_diameter
         for c in ties:
             msp.add_circle(c, hole / 2.0, dxfattribs={"layer": "BOLTS"})
             _cross(msp, c)
@@ -163,10 +182,7 @@ def _end_plate(spec: GearSpec, directory: Path, name: str, bore: float,
         named = f" ({size.name})" if size else ""
         where = (f"{2 * abs(ties[0][0]):g} square" if spec.square_housing
                  else f"BC {2 * spec.housing_bolt_radius:g}")
-        what = (f"{size.name} heat-set insert, {hole:g} hole," if tapped
-                and spec.tie_insert is not None else
-                f"{size.name} tapped, {hole:g} drill," if tapped
-                else f"{hole:g}{named}")
+        what = f"{hole:g}{named}"
         note += f"  |  {len(ties)} x {what} tie on {where}"
 
     # ``motor_face`` marks the input-side plate rather than promising a motor.
@@ -354,9 +370,11 @@ def write_part_dxfs(spec: GearSpec, directory: str | Path) -> list[Path]:
     # The input plate's bore is not always the shaft support's: with a frame
     # the second main bearing sits in it, and this used to drill that plate to
     # the 22 mm support seat while the STEP plate had the 42 mm bearing seat.
-    written.append(_end_plate(spec, directory, "input_end_plate",
-                              bores.input_plate, motor_face=True,
-                              shoulders=bores.shoulders))
+    # On a ring drive the input end is the housing's own closed top.
+    if not spec.ground_frame_fitted:
+        written.append(_end_plate(spec, directory, "input_end_plate",
+                                  bores.input_plate, motor_face=True,
+                                  shoulders=bores.shoulders))
     written.append(_end_plate(spec, directory, "output_end_plate",
                               bores.output_plate, shoulders=bores.shoulders))
     return written

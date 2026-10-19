@@ -29,12 +29,13 @@ from ..core import profile as prof
 from ..core.fasteners import (
     BRASS_DENSITY,
     HeatSetInsert,
+    MetricSize,
     insert_volume,
     nut_volume,
     screw_volume,
 )
 from ..core.motor import COUPLING_SLOT_DEPTH, COUPLING_SLOT_WIDTH, COUPLING_SLOTS
-from ..core.spec import MATERIALS, GearSpec, OutputMember, d_section_area
+from ..core.spec import CUP_CEILING, MATERIALS, GearSpec, OutputMember, d_section_area
 from .bearings import BearingChoice, SeatBores, bearing_schedule, pin_diameters, seat_bores
 
 __all__ = ["MassResult", "analyse_mass", "insert_mass_g", "plate_dowel_mass_g",
@@ -242,12 +243,72 @@ def plate_dowel_mass_g(spec: GearSpec) -> float:
     return math.pi * (spec.plate_dowel_diameter / 2.0) ** 2 * length * _MM3_TO_CM3 * rho
 
 
-def insert_mass_g(spec: GearSpec, insert: HeatSetInsert) -> float:
-    """One heat-set insert for the tie screws' size, grams, in brass."""
-    size = spec.tie_bolt_size
+def insert_mass_g(spec: GearSpec, insert: HeatSetInsert,
+                  size: MetricSize | None = None) -> float:
+    """One heat-set insert, grams, in brass: for ``size``, or the tie screws'."""
+    size = size or spec.tie_bolt_size
     if size is None:
         return 0.0
     return insert_volume(insert, size) * _MM3_TO_CM3 * BRASS_DENSITY
+
+
+def _blind(spec: GearSpec) -> list[tuple[list[tuple[float, float]], float, float]]:
+    """A ring drive's housing's blind holes: ``(centres, diameter, depth)`` -
+    up into its underside for the plate's screws and its dowels, and down into
+    its face for the driven machine's screws."""
+    return [(spec.tie_bolt_centres, spec.tie_thread_hole, spec.tie_thread_depth),
+            (spec.plate_dowel_centres, spec.plate_dowel_diameter,
+             spec.housing_dowel_depth),
+            (spec.output_face_bolt_centres, spec.output_face_hole,
+             spec.output_face_hole_depth)]
+
+
+def _cup_holes_volume(spec: GearSpec) -> float:
+    """What the blind holes in a ring drive's housing take out of it, mm^3."""
+    return sum(len(centres) * math.pi * (d / 2.0) ** 2 * depth
+               for centres, d, depth in _blind(spec))
+
+
+def _cup_holes_polar(spec: GearSpec) -> float:
+    """The integral of r^2 dV over those holes - see :func:`_cup_holes_volume`."""
+    return sum(_polar_off_axis(d / 2.0, math.hypot(x, y), depth)
+               for centres, d, depth in _blind(spec) for x, y in centres)
+
+
+def _turning_plate_volume(spec: GearSpec, bores: SeatBores) -> float:
+    """The plate under a ring drive's housing, mm^3: the outline less the main
+    bearing's seat, its screws' clearance and their counterbores, and its
+    dowels' holes, with the lip put back."""
+    t = spec.housing_plate_thickness
+    volume = (spec.housing_section_area
+              - math.pi * (bores.output_plate / 2.0) ** 2) * t
+    volume -= (len(spec.plate_dowel_centres) * math.pi
+               * (spec.plate_dowel_hole / 2.0) ** 2 * t)
+    counterbore = spec.tie_counterbore
+    if counterbore is not None:
+        width, depth = counterbore
+        clearance = spec.tie_bolt_size.clearance
+        n = len(spec.tie_bolt_centres)
+        volume -= n * math.pi * ((clearance / 2.0) ** 2 * t
+                                 + ((width / 2.0) ** 2 - (clearance / 2.0) ** 2) * depth)
+    return volume + _lip_volume(bores, "output_end_plate")
+
+
+def _turning_plate_polar(spec: GearSpec, bores: SeatBores, outline: float) -> float:
+    """The integral of r^2 dV over that plate - see :func:`_turning_plate_volume`."""
+    t = spec.housing_plate_thickness
+    polar = (outline - _polar(bores.output_plate / 2.0, 0.0, 1.0)) * t
+    polar -= sum(_polar_off_axis(spec.plate_dowel_hole / 2.0, math.hypot(x, y), t)
+                 for x, y in spec.plate_dowel_centres)
+    counterbore = spec.tie_counterbore
+    if counterbore is not None:
+        width, depth = counterbore
+        clearance = spec.tie_bolt_size.clearance
+        for x, y in spec.tie_bolt_centres:
+            r = math.hypot(x, y)
+            polar -= (_polar_off_axis(clearance / 2.0, r, t - depth)
+                      + _polar_off_axis(width / 2.0, r, depth))
+    return polar + _lip_polar(bores, "output_end_plate")
 
 
 def tie_bolt_mass_g(spec: GearSpec) -> float:
@@ -317,8 +378,22 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     # material, which on a printed drive is the whole point of the option and
     # is lighter than the steel dowels it replaces.
     pins_in_barrel = pocket_area if spec.ring_pins_integral else -pocket_area
-    housing_mass = (max(ring_area + pins_in_barrel - bolt_area - dowel_area, 0.0)
-                    * spec.barrel_height * _MM3_TO_CM3 * rho_house)
+    housing_volume = (max(ring_area + pins_in_barrel - bolt_area - dowel_area, 0.0)
+                      * spec.barrel_height)
+    if spec.ground_frame_fitted:
+        # A ring drive's housing: no hole goes through it.  Its screws' and
+        # dowels' holes are blind up into its underside, which is all that
+        # came off above; its top, bored for the second main bearing with the
+        # lip past it, and the ceiling over that, closing it; and the driven
+        # machine's screw holes blind down into the face.
+        housing_volume = (max(ring_area + pins_in_barrel, 0.0) * spec.barrel_height
+                          - _cup_holes_volume(spec))
+        housing_volume += ((spec.housing_section_area
+                            - math.pi * (bores.input_plate / 2.0) ** 2)
+                           * spec.housing_plate_thickness
+                           + _lip_volume(bores, "housing")
+                           + spec.housing_section_area * CUP_CEILING)
+    housing_mass = housing_volume * _MM3_TO_CM3 * rho_house
 
     # Each pin at its own length and its own diameter, and neither length is the
     # disc stack: a ring pin spans the barrel it is trapped in, an output pin the
@@ -367,7 +442,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     # being - 3.4 cm3 of boss on every preset that only the STEP file had.
     flange_volume += math.pi * ((spec.hub_diameter / 2.0) ** 2
                                 - (bores.hub / 2.0) ** 2) * (
-        spec.plate_thickness + spec.boss_protrusion)
+        spec.housing_plate_thickness + spec.boss_protrusion)
     flange_volume -= math.pi * (bores.hub / 2.0) ** 2 * spec.output_flange_thickness
     # And, on a ring-output drive, the base on the end of that boss - the plate
     # the whole gearbox is bolted down by.  It is housing-sized and as thick as
@@ -405,7 +480,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
                       * spec.output_flange_thickness
                       + math.pi * ((spec.hub_diameter / 2.0) ** 2
                                    - (bores.cap / 2.0) ** 2)
-                      * spec.plate_thickness)
+                      * (spec.cap_boss_top - spec.end_cap_top))
     if spec.ground_frame_fitted:
         cap_volume += _lip_volume(bores, "end_cap")
     cap_mass = max(cap_volume, 0.0) * _MM3_TO_CM3 * rho_house
@@ -422,11 +497,7 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     output_bolt_area = (spec.output_bolt_count * math.pi
                         * (spec.output_bolt_diameter / 2.0) ** 2
                         if spec.ground_frame_fitted else 0.0)
-    # A tapped input plate is drilled at the thread's tap drill, not through
-    # clearance.
-    input_tie_area = (len(spec.tie_bolt_centres) * math.pi
-                      * (spec.tie_thread_hole / 2.0) ** 2
-                      if spec.tie_screws_tapped else bolt_area)
+    input_tie_area = bolt_area
     plates_volume = (2.0 * outer_area
                      - math.pi * (bores.input_plate / 2.0) ** 2
                      - math.pi * (bores.output_plate / 2.0) ** 2
@@ -436,6 +507,8 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
                      ) * spec.plate_thickness
     plates_volume += (_lip_volume(bores, "input_end_plate")
                       + _lip_volume(bores, "output_end_plate"))
+    if spec.ground_frame_fitted:
+        plates_volume = _turning_plate_volume(spec, bores)
     # Through a coupling, the motor stands on a mount that is part of the
     # plate at its end of the drive: the input plate, or the carrier's base.
     mount_volume = spec.motor_mount_volume
@@ -459,12 +532,18 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
 
     tie_mass = tie_bolt_mass_g(spec) * len(spec.tie_bolt_centres)
     hub_screws_mass = rotor_hub_screw_mass_g(spec) * len(spec.rotor_hub_bolt_centres)
-    dowels_mass = plate_dowel_mass_g(spec) * 2 * len(spec.plate_dowel_centres)
+    dowels_mass = (plate_dowel_mass_g(spec) * len(spec.plate_dowel_spans)
+                   * len(spec.plate_dowel_centres))
     fasteners_mass = (tie_mass + dowels_mass + hub_screws_mass
                       + motor_screw_mass_g(spec) * len(spec.motor_bolt_centres))
     if spec.base_insert is not None:
-        fasteners_mass += (insert_mass_g(spec, spec.base_insert)
+        fasteners_mass += (insert_mass_g(spec, spec.base_insert,
+                                         spec.bolt_size_asked)
                            * len(spec.base_mount_centres))
+    if spec.output_insert is not None:
+        fasteners_mass += (insert_mass_g(spec, spec.output_insert,
+                                         spec.output_bolt_size)
+                           * len(spec.output_face_bolt_centres))
 
     coupling = spec.coupling
     coupling_polar = 0.0
@@ -559,28 +638,17 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
         # bore: its area at R, plus its first moment outward, plus its own.
         pocket = (0.5 * math.pi * rp ** 2 * R ** 2 + 4.0 * R * rp ** 3 / 3.0
                   + math.pi * rp ** 4 / 4.0)
-        bolt_r = spec.housing_bolt_diameter / 2.0
-        bolts = sum(math.pi * bolt_r ** 2 * (x * x + y * y + bolt_r ** 2 / 2.0)
-                    for x, y in spec.tie_bolt_centres)
-        def holes(r: float) -> float:
-            return sum(math.pi * r ** 2 * (cx * cx + cy * cy + r ** 2 / 2.0)
-                       for cx, cy in spec.plate_dowel_centres)
-        dowels = holes(dowel_r)
-        barrel_polar = (outline - math.pi * R ** 4 / 2.0
-                        + (1.0 if spec.ring_pins_integral else -1.0)
-                        * spec.pin_count * pocket - bolts - dowels) * spec.barrel_height
-        out_bolt_r = spec.output_bolt_diameter / 2.0
-        plates_polar = (
-            (outline * 2.0
-             - _polar(bores.input_plate / 2.0, 0.0, 1.0)
-             - _polar(bores.output_plate / 2.0, 0.0, 1.0)
-             - 2.0 * bolts
-             - 2.0 * holes(slip_r)
-             - spec.output_bolt_count * math.pi * out_bolt_r ** 2
-             * (spec.output_face_bolt_radius ** 2 + out_bolt_r ** 2 / 2.0))
-            * spec.plate_thickness
-            + _lip_polar(bores, "input_end_plate")
-            + _lip_polar(bores, "output_end_plate"))
+        # The housing that turns is the barrel and its closed top in one, and
+        # one plate under it: see the volumes above.
+        barrel_polar = ((outline - math.pi * R ** 4 / 2.0
+                         + (1.0 if spec.ring_pins_integral else -1.0)
+                         * spec.pin_count * pocket) * spec.barrel_height
+                        - _cup_holes_polar(spec)
+                        + (outline - _polar(bores.input_plate / 2.0, 0.0, 1.0))
+                        * spec.housing_plate_thickness
+                        + _lip_polar(bores, "housing")
+                        + outline * CUP_CEILING)
+        plates_polar = _turning_plate_polar(spec, bores, outline)
         pins_polar = (0.0 if spec.ring_pins_integral else spec.pin_count
                       * _polar_off_axis(ring_pin_d / 2.0, R, spec.ring_pin_length))
         output_inertia = (((barrel_polar + plates_polar) * rho_house
@@ -591,6 +659,11 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
                           + tie_bolt_mass_g(spec) / 1000.0
                           * sum(x * x + y * y for x, y in spec.tie_bolt_centres)
                           + dowels_mass / 1000.0 * spec.housing_bolt_radius ** 2
+                          + (insert_mass_g(spec, spec.output_insert,
+                                           spec.output_bolt_size) / 1000.0
+                             * sum(x * x + y * y
+                                   for x, y in spec.output_face_bolt_centres)
+                             if spec.output_insert is not None else 0.0)
                           + _rollers_on_circle(bearings, "Ring pin roller", R))
     input_inertia = shaft_inertia + reflected + output_inertia / spec.ratio ** 2
 

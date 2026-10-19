@@ -54,7 +54,9 @@ KINDS = ("printed", "machined", "ring", "nema17", "nema17_coupled", "nema17_thic
 def test_every_seat_is_the_bearing_the_solid_is_bored_to(kind):
     spec = _design(kind)
     bores = seat_bores(spec)
-    for name, bore in zip(PLATES, (bores.input_plate, bores.output_plate), strict=True):
+    seats = {"input_end_plate": bores.input_plate, "output_end_plate": bores.output_plate}
+    for name in manifest.sheet_names(spec):
+        bore = seats[name]
         f = sheets.plate_features(spec, name)
         assert f.seat is not None
         assert f.seat.diameter == pytest.approx(bore)
@@ -72,7 +74,7 @@ def test_a_machined_seat_in_a_plate_is_held_by_interference(kind):
     either plate always has its load turning round it: an M or N fit, never the
     sliding H that a stationary load would take."""
     spec = _design(kind)
-    for name in PLATES:
+    for name in manifest.sheet_names(spec):
         fit = sheets.plate_features(spec, name).seat.fit
         assert fit is not None and fit.tolerance_class in ("M7", "N7")
         assert fit.upper_um <= 0
@@ -135,9 +137,7 @@ def test_a_position_tolerance_still_lets_every_screw_through(kind):
                 # Reamed on assembly with the barrel, so no zone between parts.
                 assert p.position is None
                 continue
-            # A tapped pattern is the thread itself: the clearance it is held
-            # to is the other parts' holes, the one every tie hole is but its.
-            hole = spec.housing_bolt_diameter if p.thread else p.hole
+            hole = p.hole
             screw = size_for_hole(hole).d
             offset = 2.0 * p.position if p.fixed else p.position
             assert _common_circle_fits(hole, offset, screw), p.label
@@ -258,7 +258,7 @@ def test_the_cutting_file_states_the_depth_the_sheet_does():
 def test_a_sheet_weighs_the_plate_the_bill_does(kind):
     spec = _design(kind)
     lines = {item.part: item for item in bom_items(analyse(spec))}
-    for name in PLATES:
+    for name in manifest.sheet_names(spec):
         sheet = sheets.plate_sheet(spec, name)
         line = next(item for item in lines.values() if name in item.assembly)
         assert sheet.mass_g == pytest.approx(line.mass_each_g)

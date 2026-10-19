@@ -497,6 +497,49 @@ class _Builder:
                           _circle(0.0, 0.0, min(r, wider), segments), z1,
                           up=wider > r)
 
+    def layered(self, outer: np.ndarray, layers) -> None:
+        """A part built up in layers along the axis, closed where they meet.
+
+        ``layers`` is ``(z0, z1, bore, holes)`` from the bottom up: ``bore``
+        the loop on the axis or None where the part is solid across, and
+        ``holes`` a dict of the other loops through that layer by name.  A
+        hole that is in one layer and not the next is a blind one, and its
+        end is emitted facing back into it; a bore that changes is a step,
+        emitted as the annulus between the two facing the wider one; a bore
+        that stops is a floor or a ceiling.  The same name has to carry the
+        same loop wherever it appears, so that the faces meet.  Everything
+        else between two layers is interior and is left out, as
+        :meth:`cap` explains.
+        """
+        def area(loop: np.ndarray) -> float:
+            x, y = loop[:, 0], loop[:, 1]
+            return abs(0.5 * float(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1))))
+
+        for z0, z1, bore, holes in layers:
+            loops = ([bore] if bore is not None else []) + list(holes.values())
+            self.prism(outer, loops, z0, z1, cap_bottom=False, cap_top=False)
+        first, last = layers[0], layers[-1]
+        self.cap(outer, ([first[2]] if first[2] is not None else [])
+                 + list(first[3].values()), first[0], up=False)
+        self.cap(outer, ([last[2]] if last[2] is not None else [])
+                 + list(last[3].values()), last[1], up=True)
+        for (_, z, below, h_below), (_, _, above, h_above) in pairwise(layers):
+            if below is not above:
+                if below is None:
+                    self.cap(above, (), z, up=True)
+                elif above is None:
+                    self.cap(below, (), z, up=False)
+                elif area(below) > area(above):
+                    self.cap(below, (above,), z, up=False)
+                else:
+                    self.cap(above, (below,), z, up=True)
+            for name, loop in h_below.items():
+                if name not in h_above:
+                    self.cap(loop, (), z, up=False)
+            for name, loop in h_above.items():
+                if name not in h_below:
+                    self.cap(loop, (), z, up=True)
+
     def build(self, spec: GearSpec) -> Mesh:
         outer = [lp[0] for lp in self._loops]
         counts = np.array([len(o) for o in outer], dtype=np.int32)
@@ -629,11 +672,6 @@ def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
     bolted down, the driven machine's when the housing is what turns.
     """
     holes = tie_bolt_holes(spec) + plate_dowel_holes(spec, plate=True)
-    if motor_face and spec.tie_screws_tapped:
-        # Tapped for the tie screws, at the tap drill or an insert's hole.
-        holes = ([_circle(x, y, spec.tie_thread_hole / 2.0, 12)
-                  for x, y in spec.tie_bolt_centres]
-                 + plate_dowel_holes(spec, plate=True))
     if not motor_face:
         return holes
     if spec.ground_frame_fitted:
@@ -641,6 +679,139 @@ def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
     if spec.coupled:
         return holes                  # the motor's are on its mount's flange
     return holes + motor_bolt_holes(spec)
+
+
+def _crossing(hub: np.ndarray, hub_r: float, holes: list[np.ndarray]):
+    """A boss of ``hub`` standing on a plate with ``holes`` through it, where
+    some of those holes run in under the boss.
+
+    Returns the boss's loop and the holes' with the points where they cross put
+    into both, the loops the plate's top is cut by round the boss - the boss
+    and every hole crossing it as one, and the rest as they are - and the
+    lens-shaped pieces of the boss's underside that each crossing hole leaves
+    showing.  With no hole crossing, the boss and the holes as they came."""
+    def dist(p: np.ndarray, c: np.ndarray) -> float:
+        return float(np.hypot(p[0] - c[0], p[1] - c[1]))
+
+    def with_points(loop: np.ndarray, centre: np.ndarray, extra) -> np.ndarray:
+        pts = np.vstack([loop, np.asarray(extra)])
+        return pts[np.argsort(np.arctan2(pts[:, 1] - centre[1], pts[:, 0] - centre[0]))]
+
+    origin = np.zeros(2)
+    crossing, apart = [], []
+    for hole in holes:
+        c = hole.mean(axis=0)
+        r, d = dist(hole[0], c), dist(c, origin)
+        if abs(hub_r - r) < d < hub_r + r:
+            a = (hub_r ** 2 - r ** 2 + d ** 2) / (2.0 * d)
+            h = math.sqrt(max(hub_r ** 2 - a * a, 0.0))
+            u = c / d
+            n = np.array([-u[1], u[0]])
+            crossing.append((c, r, [a * u + h * n, a * u - h * n]))
+        else:
+            apart.append(hole)
+    if not crossing:
+        return hub, holes, (hub, *holes), []
+    hub = with_points(hub, origin, [x for _, _, pts in crossing for x in pts])
+    loops = [with_points(_circle(c[0], c[1], r, 20), c, pts) for c, r, pts in crossing]
+
+    def on(p: np.ndarray, pts) -> bool:
+        return any(dist(p, x) < 1e-9 for x in pts)
+
+    def under(p: np.ndarray) -> bool:
+        return any(dist(p, c) < r - 1e-9 for c, r, _ in crossing)
+
+    # Round the boss, and out round each hole wherever it runs in under it.
+    boundary = []
+    for i, p in enumerate(hub):
+        if not under(p):
+            boundary.append(p)
+        q = hub[(i + 1) % len(hub)]
+        for (c, r, pts), loop in zip(crossing, loops, strict=True):
+            if on(p, pts) and dist((p + q) / 2.0, c) < r - 1e-9:
+                k = next(k for k in range(len(loop)) if dist(loop[k], p) < 1e-9)
+                step = 1 if dist(loop[(k + 1) % len(loop)], origin) > hub_r else -1
+                k = (k + step) % len(loop)
+                while not on(loop[k], pts):
+                    boundary.append(loop[k])
+                    k = (k + step) % len(loop)
+    lenses = []
+    for (c, r, _), loop in zip(crossing, loops, strict=True):
+        lens = [p for p in hub if dist(p, c) <= r + 1e-9]
+        lens += [p for p in loop if dist(p, origin) < hub_r - 1e-9]
+        lens = np.array(lens)
+        middle = lens.mean(axis=0)
+        lenses.append(lens[np.argsort(np.arctan2(lens[:, 1] - middle[1],
+                                                 lens[:, 0] - middle[0]))])
+    return hub, [*apart, *loops], (np.array(boundary), *apart), lenses
+
+
+def _cup_layers(spec: GearSpec, bores: SeatBores, pocketed: np.ndarray) -> list:
+    """A ring drive's housing as :meth:`_Builder.layered` takes it: the
+    pocketed barrel, the top bored for the second main bearing with its lip,
+    then the ceiling - with the plate's screw holes and its dowels' blind up
+    into the underside, and the driven machine's screw holes blind down into
+    the face.  As :func:`cycloidgen.export.solid._cup` cuts them."""
+    zb, zt = spec.barrel_bottom, spec.barrel_top
+    zh, zc = zt + spec.housing_plate_thickness, spec.cup_top
+    runs = _bore_runs(bores.input_plate / 2.0, bores.shoulders, "housing", zt, zh)
+    circles = {r: _circle(0.0, 0.0, r, 48) for _, _, r in runs}
+    blind_up = [(f"screw {k}", _circle(x, y, spec.tie_thread_hole / 2.0, 12),
+                 zb + spec.tie_thread_depth)
+                for k, (x, y) in enumerate(spec.tie_bolt_centres)
+                if spec.tie_thread_depth > 0.0]
+    blind_up += [(f"dowel {k}", _circle(x, y, spec.plate_dowel_diameter / 2.0, 12),
+                  zb + spec.housing_dowel_depth)
+                 for k, (x, y) in enumerate(spec.plate_dowel_centres)]
+    face = zc - spec.output_face_hole_depth
+    blind_down = [(f"face {k}", _circle(x, y, spec.output_face_hole / 2.0, 12))
+                  for k, (x, y) in enumerate(spec.output_face_bolt_centres)]
+    cuts = {zb, zt, zh, zc, *(z for _, _, z in blind_up),
+            *(face for _ in blind_down), *(z for z0, z1, _ in runs for z in (z0, z1))}
+    zs = sorted(z for z in cuts if zb - 1e-9 <= z <= zc + 1e-9)
+    layers = []
+    for z0, z1 in pairwise(zs):
+        if z1 - z0 < 1e-9:
+            continue
+        mid = 0.5 * (z0 + z1)
+        if mid < zt:
+            bore = pocketed
+        elif mid < zh:
+            bore = circles[next(r for a, c, r in runs if a <= mid <= c)]
+        else:
+            bore = None
+        holes = {name: loop for name, loop, top in blind_up if mid < top}
+        holes.update({name: loop for name, loop in blind_down if mid > face})
+        layers.append((z0, z1, bore, holes))
+    return layers
+
+
+def _counterbored_plate_layers(spec: GearSpec, seat: float, bores: SeatBores,
+                               name: str, z0: float, z1: float) -> list:
+    """The plate under a ring drive's housing as :meth:`_Builder.layered`
+    takes it: bored for the lower main bearing with its lip, its screws
+    through it from counterbores in its underside, and its dowels' holes."""
+    runs = _bore_runs(max(seat, 1e-3) / 2.0, bores.shoulders, name, z0, z1)
+    circles = {r: _circle(0.0, 0.0, r, 48) for _, _, r in runs}
+    width, depth = spec.tie_counterbore
+    clearance = spec.tie_bolt_size.clearance
+    floor = z0 + depth
+    dowels = {f"dowel {k}": loop
+              for k, loop in enumerate(plate_dowel_holes(spec, plate=True))}
+    cuts = sorted({z0, z1, floor, *(z for a, c, _ in runs for z in (a, c))})
+    layers = []
+    for a, c in pairwise(cuts):
+        if c - a < 1e-9 or not (z0 - 1e-9 <= a and c <= z1 + 1e-9):
+            continue
+        mid = 0.5 * (a + c)
+        bore = circles[next(r for p, q, r in runs if p <= mid <= q)]
+        wide = mid < floor
+        holes = {f"{'counterbore' if wide else 'screw'} {k}":
+                 _circle(x, y, (width if wide else clearance) / 2.0, 16)
+                 for k, (x, y) in enumerate(spec.tie_bolt_centres)}
+        holes.update(dowels)
+        layers.append((a, c, bore, holes))
+    return layers
 
 
 def _pilot_recess(spec: GearSpec, bore: float) -> float:
@@ -721,12 +892,15 @@ def build_mesh(spec: GearSpec,
         # them, and it is what the frame turns inside.  The pockets run its
         # whole length, which is what a bore broached in one setup looks like
         # and is why this is one prism.
-        b.prism(housing_outline(spec),
-                (pocketed_bore(spec.pin_circle_radius, spec.pin_radius,
-                               spec.pin_count,
-                               integral=spec.ring_pins_integral),
-                 *tie_bolt_holes(spec), *plate_dowel_holes(spec, plate=False)),
-                spec.barrel_bottom, spec.barrel_top)
+        bore = pocketed_bore(spec.pin_circle_radius, spec.pin_radius,
+                             spec.pin_count, integral=spec.ring_pins_integral)
+        if spec.ground_frame_fitted:
+            b.layered(housing_outline(spec), _cup_layers(spec, bores, bore))
+        else:
+            b.prism(housing_outline(spec),
+                    (bore, *tie_bolt_holes(spec),
+                     *plate_dowel_holes(spec, plate=False)),
+                    spec.barrel_bottom, spec.barrel_top)
 
     # A pin carrying a roller loses its outside to it - drawn at full size it
     # would be inside its own sleeve.
@@ -911,9 +1085,12 @@ def build_mesh(spec: GearSpec,
         # touching faces put four of them on the bore circle - the plate's
         # underside, the boss's top, and the two halves of the bore wall - and
         # a solid with an internal wall cannot be capped by the section.
-        b.prism(_circle(0.0, 0.0, plate_r, 72),
-                (_circle(0.0, 0.0, bore_r, 28),), plate_bottom, -drop,
-                cap_bottom=False)
+        # On a ring drive the shaft support sits in the plate, and the lip
+        # past it starts there: the bore runs through plate and boss as one.
+        in_plate = _bore_runs(bore_r, bores.shoulders, "output_flange",
+                              plate_bottom, -drop)
+        b.bored_prism(_circle(0.0, 0.0, plate_r, 72), (), in_plate, 28,
+                      cap_bottom=False)
         b.ring(_circle(0.0, 0.0, plate_r, 72), _circle(0.0, 0.0, hub_r, 40),
                plate_bottom, up=False)
         # The boss the drive turns on: the output bearing rides its outside and
@@ -921,9 +1098,14 @@ def build_mesh(spec: GearSpec,
         # is its bottom whenever there is a base under it.
         boss_bottom = spec.boss_bottom
         # Stepped where the lip that holds the outboard support in runs down it.
-        b.bored_prism(_circle(0.0, 0.0, hub_r, 40), (),
-                      _bore_runs(bore_r, bores.shoulders, "output_flange",
-                                 boss_bottom, plate_bottom), 28,
+        in_boss = _bore_runs(bore_r, bores.shoulders, "output_flange",
+                             boss_bottom, plate_bottom)
+        below, above = in_boss[-1][2], in_plate[0][2]
+        if abs(below - above) > 1e-9:
+            b.ring(_circle(0.0, 0.0, max(below, above), 28),
+                   _circle(0.0, 0.0, min(below, above), 28), plate_bottom,
+                   up=above > below)
+        b.bored_prism(_circle(0.0, 0.0, hub_r, 40), (), in_boss, 28,
                       cap_top=False, cap_bottom=not spec.ground_frame_fitted)
         if spec.ground_frame_fitted:
             # The base the gearbox is bolted down by, on the end of the boss.
@@ -1021,38 +1203,54 @@ def build_mesh(spec: GearSpec,
     if spec.ground_frame_fitted:
         cap_r = plate_r
         cap_hub_r = spec.hub_diameter / 2.0
-        cap_bore = _circle(0.0, 0.0, bores.cap / 2.0, 28)
         pin_holes = [
             _circle(spec.output_bolt_circle_radius * math.cos(a),
                     spec.output_bolt_circle_radius * math.sin(a),
                     (shank + spec.hole_clearance) / 2.0, 20)
             for a in (2.0 * np.pi * k / spec.output_pin_count
                       for k in range(spec.output_pin_count))]
+        # A large pin on a small circle runs its hole in under the boss: there
+        # the boss's underside is the hole's end, and the plate's top is what is
+        # outside both.  The loops carry the points where they cross, so the
+        # faces that meet there share them.
+        hub, pin_holes, around, lenses = _crossing(
+            _circle(0.0, 0.0, cap_hub_r, 40), cap_hub_r, pin_holes)
         with b.part("end_cap", "End cap", "carrier",
                     _tint(PART_COLOURS["carrier"], 0.86),
                     explode=-_EXPLODE["carrier"],
                     spin=1.0 / spec.lobes):
-            b.prism(_circle(0.0, 0.0, cap_r, 72), (cap_bore, *pin_holes),
-                    spec.end_cap_bottom, spec.end_cap_top, cap_top=False)
+            # The bore runs through the plate and the boss as one, and the lip
+            # past the shaft support may start in either.
+            lower = _bore_runs(bores.cap / 2.0, bores.shoulders, "end_cap",
+                               spec.end_cap_bottom, spec.end_cap_top)
+            upper = _bore_runs(bores.cap / 2.0, bores.shoulders, "end_cap",
+                               spec.end_cap_top, spec.cap_boss_top)
+            b.bored_prism(_circle(0.0, 0.0, cap_r, 72), pin_holes, lower, 28,
+                          cap_top=False)
             # The boss stands on it, so only the ring outside the boss is a
             # surface of this plate - and the pin holes are open through it.
-            b.cap(_circle(0.0, 0.0, cap_r, 72),
-                  (_circle(0.0, 0.0, cap_hub_r, 40), *pin_holes),
-                  spec.end_cap_top, up=True)
-            b.bored_prism(_circle(0.0, 0.0, cap_hub_r, 40), (),
-                          _bore_runs(bores.cap / 2.0, bores.shoulders, "end_cap",
-                                     spec.end_cap_top, spec.cap_boss_top), 28,
-                          cap_bottom=False)
+            b.cap(_circle(0.0, 0.0, cap_r, 72), around, spec.end_cap_top, up=True)
+            for lens in lenses:
+                b.cap(lens, (), spec.end_cap_top, up=False)
+            below, above = lower[-1][2], upper[0][2]
+            if abs(below - above) > 1e-9:
+                b.ring(_circle(0.0, 0.0, max(below, above), 28),
+                       _circle(0.0, 0.0, min(below, above), 28), spec.end_cap_top,
+                       up=above > below)
+            b.bored_prism(hub, (), upper, 28, cap_bottom=False)
 
     # The two plates that close the housing.  They do not move, they are the
     # same colour as the barrel they bolt to, and they are why the shaft
-    # supports and the output bearing have somewhere to be.
-    for name, label, bore, z0, apart, motor in (
-            ("input_end_plate", "Input end plate", bores.input_plate,
-             spec.barrel_top, 2.0, True),
-            ("output_end_plate", "Output end plate",
-             bores.output_plate,
-             plate_bottom - spec.plate_thickness, -1.6, False)):
+    # supports and the output bearing have somewhere to be.  On a ring drive
+    # the housing's own top closes that end, and only the lower one is a plate.
+    t_plate = spec.housing_plate_thickness
+    plates = [("input_end_plate", "Input end plate", bores.input_plate,
+               spec.barrel_top, 2.0, True),
+              ("output_end_plate", "Output end plate", bores.output_plate,
+               plate_bottom - t_plate, -1.6, False)]
+    if spec.ground_frame_fitted:
+        plates = plates[1:]
+    for name, label, bore, z0, apart, motor in plates:
         # Each comes off its own face rather than staying with the barrel: they
         # are bolted on, and an exploded view that leaves them there is showing
         # a housing nobody can assemble.
@@ -1060,7 +1258,13 @@ def build_mesh(spec: GearSpec,
                     explode=apart):
             bolts = _plate_bolt_holes(spec, motor)
             outer = housing_outline(spec)
-            top = z0 + spec.plate_thickness
+            top = z0 + t_plate
+            if spec.tie_counterbore is not None:
+                # Under a ring drive's housing: its screws come up through it
+                # from counterbores in its underside.
+                b.layered(outer, _counterbored_plate_layers(spec, bore, bores, name,
+                                                            z0, top))
+                continue
             recess = (_pilot_recess(spec, bore)
                       if motor and not spec.ground_frame_fitted
                       and not spec.coupled else 0.0)
@@ -1154,7 +1358,7 @@ def build_mesh(spec: GearSpec,
                                 cap_top=False)
                     b.ring(shank, thread, start, up=True)
                     b.prism(thread, (), start, z0 + length, cap_bottom=False)
-            face = spec.barrel_top + spec.plate_thickness
+            face = spec.barrel_top + spec.housing_plate_thickness
             if not spec.tie_screws_tapped:
                 with b.part("tie_nuts", "Tie bolt nuts", "fasteners",
                             PART_COLOURS["fasteners"]):
@@ -1427,6 +1631,12 @@ def mesh_fingerprint(spec: GearSpec,
         # Whether the input plate is tapped for the tie screws, and at what:
         # its holes and the nuts' being there at all.
         spec.tie_screws_tapped, spec.tie_thread_hole, spec.base_mount_hole,
+        # A ring drive's housing and the plate under it: the closed top, the
+        # screws' counterbores and blind holes, and the face's own holes.
+        spec.housing_plate_thickness, spec.cup_top, spec.tie_counterbore,
+        spec.tie_thread_depth, spec.housing_dowel_depth,
+        tuple(spec.output_face_bolt_centres), spec.output_face_hole,
+        spec.output_face_hole_depth, tuple(spec.plate_dowel_spans),
         # The base's pad, flange and the holes it is bolted down by.
         spec.base_has_flange, spec.base_pad, tuple(spec.base_pad_outline()),
         spec.base_flange_thickness,

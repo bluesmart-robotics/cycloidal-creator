@@ -936,8 +936,10 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
          if s.ring_pins_integral else
          f"Press the {s.pin_count} ring pins into the housing pockets on the "
          f"{2 * s.pin_circle_radius:g} mm circle. They are "
-         f"{s.ring_pin_length:g} mm long - the barrel's whole length, so the two "
-         f"end plates trap them and nothing can walk out of mesh."
+         f"{s.ring_pin_length:g} mm long - the barrel's whole length, so "
+         + ("the housing's closed top and the plate under it trap them"
+            if s.ground_frame_fitted else "the two end plates trap them")
+         + " and nothing can walk out of mesh."
          + ("" if not s.ring_pins_are_rollers else
             " These are meant to turn, so the pins must be a running fit in the "
             "pockets or carry rollers - a press fit here throws away the "
@@ -958,6 +960,13 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
             f"and the cap are one rigid body, and it is what the housing turns "
             f"around. Do it before the housing goes on, because the cap lives "
             f"inside the barrel.")
+        steps.append(
+            "Lower the housing over the stack, closed end up, turning it until "
+            "the discs drop into mesh with its pins: its top bearing goes onto "
+            "the end cap's boss. Then the plate under it, its bearing onto the "
+            f"carrier's boss, and its {len(s.tie_bolt_centres)} screws up "
+            "through it into the housing - their heads go into the plate's "
+            "counterbores, clear of the base.")
     if s.disc_count > 1:
         steps.append(
             "Check the phasing before closing it up: at any crank angle the "
@@ -972,7 +981,7 @@ def _write_pdf(a: DesignAnalysis, path: str | Path) -> Path:
         "Bolt the drive down by the carrier's base - that is the plate the "
         "motor is on, and it is the member that must not turn. The output is "
         "the housing itself, so the load goes on the "
-        f"{s.output_bolt_count} bolts through the input end plate, and it "
+        f"{s.output_bolt_count} screws into the housing's closed face, and it "
         f"turns <i>with</i> the input, one turn for every {s.ratio}. Leave the "
         "barrel free: anything clamping it is clamping the output.")
     steps.append(

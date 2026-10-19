@@ -220,10 +220,12 @@ def test_a_clash_names_the_parts_it_is_about():
 
     ring = preset(21)
     ring.output_member = "ring housing"
-    nuts = analyse(ring)
-    (finding,) = [f for f in nuts.report.findings
-                  if f.code == "TIE_NUTS_ON_OUTPUT_FACE"]
-    assert set(finding_parts(nuts, finding)) == {"tie_nuts", "input_end_plate"}
+    ring.housing_wall = 2.5                     # no plate screw's head fits
+    thin = analyse(ring)
+    (finding,) = [f for f in thin.report.findings
+                  if f.code == "HOUSING_BOLT_CLASH"]
+    assert set(finding_parts(thin, finding)) == {"housing", "output_end_plate",
+                                                 "tie_bolts"}
 
     for f in motor.report.findings:
         if f.code in ("PRESSURE_ANGLE", "MASS", "LOST_MOTION"):

@@ -67,7 +67,10 @@ def sheet_names(spec: GearSpec) -> list[str]:
 
     The end plates: the made parts whose whole job is holes - two bearing
     seats and the patterns the drive is bolted together and onto a motor by.
+    On a ring drive only the one under the housing: its top is the housing's.
     """
+    if spec.ground_frame_fitted:
+        return ["output_end_plate"]
     return ["input_end_plate", "output_end_plate"]
 
 
@@ -97,6 +100,8 @@ def part_names(spec: GearSpec) -> list[str]:
     """
     names = ["housing", "eccentric_shaft", *spacer_names(spec), "output_flange",
              "input_end_plate", "output_end_plate"]
+    if spec.ground_frame_fitted:
+        names.remove("input_end_plate")    # the housing's own closed top
     if not spec.ring_pins_integral:
         names.insert(1, "ring_pins")
     if spec.ground_frame_fitted:
@@ -181,8 +186,8 @@ MANIFEST: tuple[Output, ...] = (
            "plates carry the tie-bolt circle and the motor pattern on layers of "
            "their own.",
            contents=lambda s: [f"{n}.dxf" for n in disc_names(s)]
-           + ["ring_plate.dxf", "output_carrier.dxf",
-              "input_end_plate.dxf", "output_end_plate.dxf"]),
+           + ["ring_plate.dxf", "output_carrier.dxf"]
+           + [f"{n}.dxf" for n in sheet_names(s)]),
     Output("sketch_dxf", "sketch/", "drawings", "DXF",
            "Editable sketch, one per disc",
            "The same disc outline as one closed cubic spline instead of the "

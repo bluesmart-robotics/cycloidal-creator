@@ -617,17 +617,14 @@ EXPLANATIONS: dict[str, Explanation] = {
         keep="above", unit="mm"),
     "OUTPUT_BOLT_CLASH": Explanation(
         "The output face's bolts have nowhere to go",
-        "output bolt < housing wall, and clear of the tie bolt beside it",
+        "output bolt < housing wall, where its hole runs down the wall",
         "A ring-output drive turns its housing, so the load cannot bolt to a "
-        "shaft end - it bolts to the end plate that turns with it. Those bolts "
-        "want barrel wall behind them to thread into, and the only radius on "
-        "that plate with any is the one the tie bolts already use. So the two "
-        "patterns share a circle and are held apart by half a tie-bolt pitch, "
-        "which is as far apart as they can be and is far enough only while the "
-        "counts line up: equal counts interleave perfectly, seven against six "
-        "does not, and twelve against six lands one hole straight on another.",
-        "Match the two counts, or make one a multiple of the other. If it is "
-        "the wall rather than the spacing, thicken it or use a smaller bolt.",
+        "shaft end - it bolts to the housing's closed top. Its screws go in the "
+        "solid middle of that top, unless their holes are deeper than it; then "
+        "they go down the middle of the barrel's wall, the one radius there "
+        "with metal round it, and a bolt as wide as the wall has the ring-pin "
+        "pockets on one side and open air on the other.",
+        "Use a smaller bolt, whose hole stays in the top, or thicken the wall.",
         keep="above", unit="mm"),
     "MOTOR_FACE_CLASH": Explanation(
         "The motor's bolt pattern misses the metal",
@@ -707,19 +704,6 @@ EXPLANATIONS: dict[str, Explanation] = {
         "pattern on that circle that none of those rules knew about.",
         "Change the count of the bolts it runs into, or a smaller motor frame.",
         keep="above", unit="mm"),
-    "TIE_NUTS_ON_OUTPUT_FACE": Explanation(
-        "Tie-bolt nuts standing on the face the load bolts to",
-        "nothing proud of the turning face  (ring-output drives)",
-        "The tie bolts are socket head screws from the output end plate, "
-        "clamped by nuts on the input one. With the ring housing as the output "
-        "the input end plate turns, and it is what the driven machine bolts "
-        "to - through output bolts on the tie bolts' own circle - so the nuts "
-        "and the screw ends past them stand between the plate and whatever is "
-        "bolted to it.",
-        "Thicken the end plates until the input plate takes a tapped thread "
-        "and covers the screw's tip - the app then taps it and the nuts go - "
-        "or space the driven part off the face on a ring that clears them.",
-        unit="mm"),
     "INSERTS_DO_NOT_FIT": Explanation(
         "Heat-set inserts with no room round them",
         "wall round the insert's hole  >  1.5 mm, part as deep as the insert",

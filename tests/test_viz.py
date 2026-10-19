@@ -915,8 +915,8 @@ def test_a_square_housing_matches_its_solids(ring):
     volumes = _part_volumes(mesh)
     solids = {**solid.parts(s), "tie_bolts": solid.tie_bolts(s),
               "plate_dowels": solid.plate_dowels(s)}
-    names = {"housing", "input_end_plate", "output_end_plate", "tie_bolts",
-             "plate_dowels"} | ({"output_flange"} if ring else set())
+    names = {"housing", "output_end_plate", "tie_bolts", "plate_dowels"} | (
+        {"output_flange", "end_cap"} if ring else {"input_end_plate"})
     seen = set()
     for i, part in enumerate(mesh.parts):
         if part.name in names:
@@ -956,28 +956,33 @@ def test_the_motor_stands_still_with_what_it_is_bolted_to(ring, direct):
 
 
 @pytest.mark.parametrize("key", ["nema17-printed-15", "nema23-machined-21",
-                                 "nema34-machined-29", None, "inserts"])
-def test_a_ring_drive_s_base_draws_what_its_solid_encloses(key):
+                                 "nema23-machined-29", "nema34-machined-29", None,
+                                 "inserts", "inserts square"])
+def test_a_ring_drive_draws_what_its_solids_enclose(key):
     """The base as a flange round a pad, with blind holes tapped up into the
-    flange: the preview encloses what the solid does and is a closed surface.
-    With heat-set inserts, the turning plate's wider holes as well."""
+    flange; the housing closed at the top with its blind holes above and below;
+    the plate under it with its screws' counterbores; and the end cap, which on
+    the 29:1s runs its pin holes in under its boss.  The preview encloses what
+    each solid does and is a closed surface."""
     from cycloidgen.core.presets import by_key
     from cycloidgen.core.spec import HousingShape, OutputMember
     from cycloidgen.viz.vtkbridge import closed_polydata
 
-    s = (by_key("nema17-printed-15" if key == "inserts" else key).spec() if key
+    inserts = key is not None and key.startswith("inserts")
+    s = (by_key("nema17-printed-15" if inserts else key).spec() if key
          else preset(21))
     s.output_member = OutputMember.RING
-    names = ["output_flange"]
-    if key == "inserts":
+    if inserts:
         s.heat_set_inserts = True
-        s.housing_shape = HousingShape.SQUARE
-        assert s.tie_insert is not None and s.base_insert is not None
-        names.append("input_end_plate")
+        if key.endswith("square"):
+            s.housing_shape = HousingShape.SQUARE
+        assert (s.tie_insert is not None and s.base_insert is not None
+                and s.output_insert is not None)
     mesh = build_mesh(s)
     made = solid.parts(s)
-    for name in names:
+    for name, rel in (("output_flange", 0.01), ("housing", 0.01),
+                      ("output_end_plate", 0.01), ("end_cap", 0.015)):
         i = next(k for k, p in enumerate(mesh.parts) if p.name == name)
         assert _part_volumes(mesh)[i] == pytest.approx(
-            made[name].val().Volume(), rel=0.01), name
-        assert _edge_counts(closed_polydata(mesh, mesh.parts[i])) == (0, 0)
+            made[name].val().Volume(), rel=rel), name
+        assert _edge_counts(closed_polydata(mesh, mesh.parts[i])) == (0, 0), name

@@ -20,6 +20,7 @@ from OCP.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
 
 from ..analysis.bearings import (
     BY_NAME,
+    LIP_LAND,
     BearingPlacement,
     SeatBores,
     Shoulder,
@@ -222,9 +223,10 @@ def _break_edges(wp: cq.Workplane, radii: Sequence[float],
 def _host_offset(spec: GearSpec, host: str) -> float:
     """Where a part's own frame sits along the axis once it is assembled."""
     return {"input_end_plate": spec.barrel_top,
-            "output_end_plate": spec.barrel_bottom - spec.plate_thickness,
+            "output_end_plate": spec.barrel_bottom - spec.housing_plate_thickness,
             "output_flange": -CARRIER_DROP,
-            "end_cap": 0.0}[host]
+            "end_cap": 0.0,
+            "housing": 0.0}[host]
 
 
 def _add_shoulders(wp: cq.Workplane, spec: GearSpec,
@@ -340,7 +342,7 @@ def disc_solid(spec: GearSpec, hole_phase: float = 0.0,
                         min(spec.edge_chamfer, spec.disc_thickness / 4.0))
 
 
-def ring_housing(spec: GearSpec) -> cq.Workplane:
+def ring_housing(spec: GearSpec, bores: SeatBores | None = None) -> cq.Workplane:
     """Fixed ring: pins sit half-embedded in pockets on the bore.
 
     It runs from the output end plate's face up to the input one's, which is
@@ -352,7 +354,12 @@ def ring_housing(spec: GearSpec) -> cq.Workplane:
     A pocket and the pin that fills it are one shape read from either side, so
     the whole difference between a housing that takes dowels and one that is
     printed with its pins on is ``cut`` against ``union``.
+
+    On a ring-output drive it is the part that turns, closed at the top - see
+    :func:`_cup`.
     """
+    if spec.ground_frame_fitted:
+        return _cup(spec, bores or seat_bores(spec))
     z0, h = spec.barrel_bottom, spec.barrel_height
     body = _outline_prism(spec, z0, h).cut(
         cq.Workplane("XY").workplane(offset=z0 - 1.0)
@@ -380,6 +387,50 @@ def ring_housing(spec: GearSpec) -> cq.Workplane:
     # disc runs; and the rim's break stops at half the metal between it and the
     # tie-bolt holes, which on the default wall is under a millimetre.
     return _break_edges(body, [spec.housing_outer_radius],
+                        min(spec.edge_chamfer, _rim_land(spec) / 2.0), outline=spec)
+
+
+def _cup(spec: GearSpec, bores: SeatBores) -> cq.Workplane:
+    """A ring-output drive's housing: the barrel and its closed top in one.
+
+    The pockets run up the barrel to the top, which stops the pins; the top is
+    bored for the second main bearing, which rides the end cap's boss, with
+    the lip past it; and :data:`~cycloidgen.core.spec.CUP_CEILING` closes it -
+    the face the driven machine bolts to, with its screws' holes blind in it.
+    Underneath, the screws that hold the plate under it thread up into blind
+    holes, and its dowels are pressed into blind holes beside them.
+    """
+    z0, h = spec.barrel_bottom, spec.barrel_height
+    top = spec.barrel_top
+    body = _outline_prism(spec, z0, spec.cup_top - z0).cut(
+        cq.Workplane("XY").workplane(offset=z0 - 1.0)
+        .circle(spec.pin_circle_radius).extrude(h + 1.0))
+    pins = (cq.Workplane("XY").workplane(offset=z0)
+            .polarArray(spec.pin_circle_radius, 0, 360, spec.pin_count)
+            .circle(spec.pin_radius)
+            .extrude(h))
+    body = body.union(pins) if spec.ring_pins_integral else body.cut(pins)
+    # The top bearing's seat, bored through the top as the plate that used to
+    # be there was, and the lip put back past the bearing.
+    body = body.cut(cq.Workplane("XY").workplane(offset=top - 1.0)
+                    .circle(bores.input_plate / 2.0)
+                    .extrude(spec.housing_plate_thickness + 1.0))
+    body = _add_shoulders(body, spec, bores.shoulders, "housing")
+    if spec.tie_bolt_centres and spec.tie_thread_depth > 0.0:
+        body = body.cut(cq.Workplane("XY").workplane(offset=z0 - 1.0)
+                        .pushPoints(spec.tie_bolt_centres)
+                        .circle(spec.tie_thread_hole / 2.0)
+                        .extrude(spec.tie_thread_depth + 1.0))
+    body = _cut_dowel_holes(body, spec, z0, spec.housing_dowel_depth,
+                            spec.plate_dowel_diameter, blind=True)
+    if spec.output_face_bolt_centres:
+        depth = spec.output_face_hole_depth
+        body = body.cut(cq.Workplane("XY").workplane(offset=spec.cup_top - depth)
+                        .pushPoints(spec.output_face_bolt_centres)
+                        .circle(spec.output_face_hole / 2.0)
+                        .extrude(depth + 1.0))
+    return _break_edges(body, [spec.housing_outer_radius, bores.input_plate / 2.0,
+                               *_lips(bores.shoulders, "housing")],
                         min(spec.edge_chamfer, _rim_land(spec) / 2.0), outline=spec)
 
 
@@ -675,7 +726,7 @@ def output_flange(spec: GearSpec,
     plate = cq.Workplane("XY").circle(plate_r).extrude(-t)
     hub = (cq.Workplane("XY").workplane(offset=-t)
            .circle(spec.hub_diameter / 2.0)
-           .extrude(-(spec.plate_thickness + spec.boss_protrusion)))
+           .extrude(-(spec.housing_plate_thickness + spec.boss_protrusion)))
     pins = (cq.Workplane("XY")
             .polarArray(spec.output_bolt_circle_radius, 0, 360, spec.output_pin_count)
             .circle(shank / 2.0)
@@ -809,10 +860,13 @@ def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = (),
             .extrude(spec.cap_boss_top - spec.end_cap_bottom))
     body = _add_shoulders(plate.union(boss).cut(pins).cut(bore), spec,
                           bores.shoulders, "end_cap")
+    # A lip in the boss's end is broken on both faces: held to leave its land.
+    lips = [(s.thickness - LIP_LAND) / 2.0 for s in bores.shoulders
+            if s.host == "end_cap"]
     return _round_inside(_break_edges(
         body, [plate_r, spec.hub_diameter / 2.0, seat / 2.0,
                *_lips(bores.shoulders, "end_cap")],
-        min(spec.edge_chamfer, spec.output_flange_thickness / 4.0)))
+        max(0.0, min(spec.edge_chamfer, spec.output_flange_thickness / 4.0, *lips))))
 
 
 def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
@@ -831,22 +885,28 @@ def housing_end_plate(spec: GearSpec, bore: float, motor_face: bool = False,
     is what the driven machine bolts to instead - the same plate, the opposite
     end of the power flow.
     """
-    plate = _outline_prism(spec, 0.0, spec.plate_thickness).cut(
+    t = spec.housing_plate_thickness
+    plate = _outline_prism(spec, 0.0, t).cut(
         cq.Workplane("XY").workplane(offset=-1.0)
-        .circle(max(bore, 1e-3) / 2.0).extrude(spec.plate_thickness + 2.0))
+        .circle(max(bore, 1e-3) / 2.0).extrude(t + 2.0))
 
     if spec.tie_bolt_centres:
-        # The input plate of a ring drive is tapped for them: drawn at the tap
-        # drill, which is the metal the thread is cut in - or at the hole a
-        # heat-set insert is pressed into, where it takes one.
-        tapped = motor_face and spec.tie_screws_tapped
-        hole = spec.tie_thread_hole if tapped else spec.housing_bolt_diameter
+        # Under a ring drive's housing the screws come up through this plate,
+        # from a counterbore in its underside, at their own clearance.
+        counterbore = spec.tie_counterbore
+        size = spec.tie_bolt_size
+        hole = (size.clearance if counterbore is not None
+                else spec.housing_bolt_diameter)
         plate = plate.cut(cq.Workplane("XY").workplane(offset=-1.0)
                           .pushPoints(spec.tie_bolt_centres)
                           .circle(hole / 2.0)
-                          .extrude(spec.plate_thickness + 2.0))
-    plate = _cut_dowel_holes(plate, spec, 0.0, spec.plate_thickness,
-                             spec.plate_dowel_hole)
+                          .extrude(t + 2.0))
+        if counterbore is not None:
+            plate = plate.cut(cq.Workplane("XY").workplane(offset=-1.0)
+                              .pushPoints(spec.tie_bolt_centres)
+                              .circle(counterbore[0] / 2.0)
+                              .extrude(counterbore[1] + 1.0))
+    plate = _cut_dowel_holes(plate, spec, 0.0, t, spec.plate_dowel_hole)
 
     if motor_face and spec.ground_frame_fitted:
         if spec.output_bolt_count:
@@ -1039,20 +1099,22 @@ def spacer_parts(spec: GearSpec,
 
 
 def _cut_dowel_holes(body: cq.Workplane, spec: GearSpec, z0: float,
-                     length: float, diameter: float) -> cq.Workplane:
+                     length: float, diameter: float,
+                     blind: bool = False) -> cq.Workplane:
     """Cut the plate dowels' holes through ``body`` from ``z0`` for ``length``.
 
     ``diameter`` is the dowel's in the barrel, a press, and
     :attr:`~cycloidgen.core.spec.GearSpec.plate_dowel_hole` in a plate - the
     dowel's again when machined, since the fit is a drawing note and not a
-    hundredth of a millimetre a solid could show.
+    hundredth of a millimetre a solid could show.  ``blind``: up from ``z0``
+    and stopping ``length`` in, as into a ring drive's closed housing.
     """
     centres = spec.plate_dowel_centres
     if not centres:
         return body
     holes = (cq.Workplane("XY").workplane(offset=z0 - 1.0)
              .pushPoints(centres).circle(diameter / 2.0)
-             .extrude(length + 2.0))
+             .extrude(length + (1.0 if blind else 2.0)))
     return body.cut(holes)
 
 
@@ -1196,7 +1258,7 @@ def tie_nuts(spec: GearSpec) -> cq.Workplane | None:
     size = spec.tie_bolt_size
     if size is None or spec.tie_screws_tapped:
         return None
-    face = spec.barrel_top + spec.plate_thickness
+    face = spec.barrel_top + spec.housing_plate_thickness
     shapes = []
     for cx, cy, a in _bolt_centres(spec):
         try:
@@ -1226,7 +1288,7 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
     planar: dict[str, cq.Location] = {}
     identity = cq.Location(cq.Vector(0, 0, 0))
 
-    assy.add(ring_housing(spec), name="housing",
+    assy.add(ring_housing(spec, bores), name="housing",
              color=_part_colour("housing"))
     planar["housing"] = identity
     if not spec.ring_pins_integral:
@@ -1267,21 +1329,23 @@ def build_assembly(spec: GearSpec) -> cq.Assembly:
 
     # The plates close the housing, one on each face.  The output one sits
     # outboard of the carrier, so the boss passes through it and the pins stay
-    # inside; the input one sits straight on top of the barrel - which reaches
-    # past the discs to cover the end cap when there is one.
-    assy.add(housing_end_plate(spec, bores.input_plate, motor_face=True,
-                               shoulders=bores.shoulders),
-             name="input_end_plate",
-             loc=cq.Location(cq.Vector(0, 0, spec.barrel_top)),
-             color=_part_colour("input_end_plate"))
+    # inside; the input one sits straight on top of the barrel.  On a ring
+    # drive the housing's own top closes that end instead.
+    if not spec.ground_frame_fitted:
+        assy.add(housing_end_plate(spec, bores.input_plate, motor_face=True,
+                                   shoulders=bores.shoulders),
+                 name="input_end_plate",
+                 loc=cq.Location(cq.Vector(0, 0, spec.barrel_top)),
+                 color=_part_colour("input_end_plate"))
+        planar["input_end_plate"] = identity
     assy.add(housing_end_plate(spec, bores.output_plate,
                                shoulders=bores.shoulders),
              name="output_end_plate",
              loc=cq.Location(cq.Vector(
                  0, 0, -CARRIER_DROP - spec.output_flange_thickness
-                 - spec.plate_thickness)),
+                 - spec.housing_plate_thickness)),
              color=_part_colour("output_end_plate"))
-    planar["input_end_plate"] = planar["output_end_plate"] = identity
+    planar["output_end_plate"] = identity
 
     for name, body in bearing_solids(spec, placements).items():
         host = next(p.host for p in placements if p.name == name)
@@ -1329,7 +1393,7 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
     placements = tuple(bearing_placements(spec, choices))
     bores = seat_bores(spec, choices)
     out = {
-        "housing": ring_housing(spec),
+        "housing": ring_housing(spec, bores),
         "eccentric_shaft": eccentric_shaft(spec),
         **spacer_parts(spec, bores),
         "output_flange": output_flange(spec, placements, bores),
@@ -1339,6 +1403,8 @@ def parts(spec: GearSpec) -> dict[str, cq.Workplane]:
         "output_end_plate": housing_end_plate(spec, bores.output_plate,
                                               shoulders=bores.shoulders),
     }
+    if spec.ground_frame_fitted:
+        del out["input_end_plate"]           # the housing's own top
     if spec.ground_frame_fitted:
         out["end_cap"] = end_cap(spec, placements, bores)
     hub = rotor_hub(spec)

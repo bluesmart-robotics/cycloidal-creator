@@ -53,12 +53,14 @@ def test_a_part_goes_down_on_the_face_that_needs_no_support():
     """The end cap's boss stands up off its plate: plate down needs nothing
     held up; boss down would hang the whole plate in the air.  And the input
     plate goes down on its outside, where the shoulder ring is, because that
-    face has more on the bed."""
+    face has more on the bed.  A ring drive's housing goes down on its closed
+    top, which is a whole face; open end down it would print its top over the
+    bore as a bridge."""
     spec = preset(21)
+    assert printing.face_down(solid.parts(spec)["input_end_plate"].val())
     spec.output_member = "ring housing"
     assert not printing.face_down(solid.end_cap(spec).val())
-    plate = solid.parts(spec)["input_end_plate"].val()
-    assert printing.face_down(plate)
+    assert printing.face_down(solid.parts(spec)["housing"].val())
 
 
 def test_fdm_breaks_the_bed_edge_and_nothing_else_does():

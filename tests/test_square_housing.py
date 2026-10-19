@@ -112,25 +112,17 @@ def test_a_square_wall_takes_a_bolt_a_round_one_cannot():
     assert clash(square(housing_bolt_diameter=12.5))
 
 
+@pytest.mark.parametrize("square_housing", [False, True])
 @pytest.mark.parametrize("count", [4, 5, 6, 7, 8, 12])
-def test_the_output_bolt_check_is_the_chord_on_a_round_housing(count):
-    """The check measures centre to centre now, so that it holds for corner
-    bolts too.  On a round housing that is the chord between the two patterns
-    on their shared circle, which is what it used to compute."""
-    spec = preset(21)
+def test_the_output_bolts_meet_no_screw_whatever_the_count(count, square_housing):
+    """They used to share a plate with the tie bolts, so a count could put one
+    through the other.  They are in the housing's closed top now, and the
+    screws are under it."""
+    spec = square() if square_housing else preset(21)
     spec.output_member = OutputMember.RING
     spec.output_bolt_count = count
-    ties = [2.0 * math.pi * j / spec.housing_bolt_count
-            for j in range(spec.housing_bolt_count)]
-    outs = [spec.output_bolt_phase + 2.0 * math.pi * k / count for k in range(count)]
-    closest = min(abs(math.remainder(o - t, 2.0 * math.pi)) for o in outs for t in ties)
-    chord = 2.0 * spec.output_face_bolt_radius * math.sin(closest / 2.0)
-    metal = chord - (spec.output_bolt_diameter + spec.housing_bolt_diameter) / 2.0
-    found = [f for f in analyse(spec).report.findings if f.code == "OUTPUT_BOLT_CLASH"]
-    if metal < 1.5:
-        assert found and found[0].value == pytest.approx(metal, abs=1e-9)
-    else:
-        assert not found
+    assert not [f for f in analyse(spec).report.findings
+                if f.code == "OUTPUT_BOLT_CLASH"]
 
 
 @pytest.mark.parametrize("ring", [False, True])
@@ -293,6 +285,7 @@ def test_a_square_part_weighs_what_its_solid_encloses(ring_output, motor, direct
     if ring_output:
         expected[("end_cap",)] = m.end_cap_mass_g
     for names, grams in expected.items():
+        names = tuple(n for n in names if n in parts)
         enclosed = sum(parts[n].val().Volume() for n in names)
         assert grams / density * 1000.0 == pytest.approx(enclosed, rel=0.02), names
         assert all(parts[n].val().isValid() for n in names), names
@@ -314,10 +307,9 @@ def test_a_square_ring_turns_with_the_inertia_of_its_solids():
     spec = square(output_member=OutputMember.RING)
     spec.pin_material = spec.housing_material
     m = analyse(spec).mass
-    parts = {**solid.parts(spec), "tie_bolts": solid.tie_bolts(spec),
-             "tie_nuts": solid.tie_nuts(spec)}
-    turning = ["housing", "input_end_plate", "output_end_plate", "ring_pins",
-               "tie_bolts", "tie_nuts"]
+    parts = {**solid.parts(spec), "tie_bolts": solid.tie_bolts(spec)}
+    assert solid.tie_nuts(spec) is None and "input_end_plate" not in parts
+    turning = ["housing", "output_end_plate", "ring_pins", "tie_bolts"]
     occt = sum(cq.Shape.matrixOfInertia(parts[n].val())[2][2] for n in turning) \
         * spec.housing_mat.density_g_cm3 * 1e-6
     assert m.output_inertia_kg_mm2 == pytest.approx(occt, rel=0.02)

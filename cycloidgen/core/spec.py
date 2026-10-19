@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 from .duty import DutyCycle
 from .fasteners import (
     SCREW_LENGTHS,
+    SIZES,
     HeatSetInsert,
     MetricSize,
     dowel_for_wall,
@@ -379,9 +380,26 @@ CARRIER_RIM_GAP = 0.5
 #: coupling or a clamp hub grips it, mm.
 COUPLING_GRIP = 8.0
 
-#: Air between the tie screws' heads, on the plate that turns, and the base
-#: that does not on a ring-output drive, mm.
+#: Air between the turning housing's underside and the base that does not on
+#: a ring-output drive, mm.  The screws that hold that plate on are let into
+#: it, so nothing stands in the gap.
 BASE_RUNNING_GAP = 1.0
+
+#: The closed end of a ring-output drive's housing, over its top bearing, mm:
+#: the face the driven machine bolts to.
+CUP_CEILING = 3.0
+
+#: Air between the end cap's boss - and the shaft's end in it - and that
+#: ceiling, which turns over them, mm.
+CAP_CLEARANCE = 1.0
+
+#: How much deeper than its dowel a blind dowel hole in a ring drive's
+#: housing is, mm, so the dowel bottoms on nothing.
+DOWEL_SUMP = 0.5
+
+#: Metal left between a counterbore in the turning plate and the outside of
+#: the housing, mm, for the screw size that plate's screws are held to.
+COUNTERBORE_LAND = 0.75
 
 #: Wall a heat-set insert needs round its hole in a printed part, mm: the
 #: plastic it melts into is what holds it, and a thinner wall bursts.
@@ -481,6 +499,13 @@ class GearSpec(BaseModel):
         None,
         description="the two plates that close the housing and hold the shaft "
                     "supports and the output bearing; defaults to the housing wall",
+    )
+    turning_plate_thickness: float | None = Field(
+        None, gt=0,
+        description="ring output only: the plate under the turning housing and "
+                    "the housing's own closed top, which carry the main "
+                    "bearings; defaults to the housing wall plus 2 mm - the end "
+                    "plate thickness is then the base's, which the motor stands on",
     )
     output_hub_diameter: float | None = Field(
         None,
@@ -963,6 +988,24 @@ class GearSpec(BaseModel):
         return self.housing_wall + 2.0
 
     @property
+    def housing_plate_thickness(self) -> float:
+        """The plates that close the housing, mm.
+
+        The end plates off the carrier.  Off the ring, the plate under the
+        turning housing and the housing's own closed top, each of which carries
+        a main bearing and nothing else - while :attr:`plate_thickness` is then
+        the base the motor stands on, which is what a 12 mm plate on a motor
+        preset was sized for.  So these take :attr:`turning_plate_thickness`,
+        or a housing wall and 2 mm: a 12 mm plate under a 7 mm bearing was a
+        drive 8 mm longer than it needed to be.
+        """
+        if not self.ground_frame_fitted:
+            return self.plate_thickness
+        if self.turning_plate_thickness is not None:
+            return self.turning_plate_thickness
+        return self.housing_wall + 2.0
+
+    @property
     def shaft_overhang(self) -> float:
         """How far the input shaft stands past the disc stack at each end.
 
@@ -972,7 +1015,7 @@ class GearSpec(BaseModel):
         """
         return max(SHAFT_OVERHANG,
                    CARRIER_DROP + self.output_flange_thickness
-                   + self.plate_thickness + 3.0)
+                   + self.housing_plate_thickness + 3.0)
 
     @property
     def carrier_radius(self) -> float:
@@ -1023,7 +1066,7 @@ class GearSpec(BaseModel):
         when the carrier is the output, and the base the drive is bolted down
         by is on it when the carrier is the ground.
         """
-        return (self.barrel_bottom - self.plate_thickness
+        return (self.barrel_bottom - self.housing_plate_thickness
                 - self.boss_protrusion)
 
     @property
@@ -1032,19 +1075,17 @@ class GearSpec(BaseModel):
 
         What is stated, if anything is.  Otherwise off the carrier
         :data:`COUPLING_GRIP` of it for a coupling to grip, and off the ring
-        only the gap the turning plate needs over the base it turns against:
-        the tie screws' heads, which stand on that plate, and
-        :data:`BASE_RUNNING_GAP` past them.  That gap used to be the coupling's
-        grip as well - eight millimetres of open neck with the heads turning in
-        it, under a drive that had nothing there to grip.
+        only :data:`BASE_RUNNING_GAP`, the air the turning plate needs over the
+        base it turns against.  That gap used to be the coupling's grip as well
+        - eight millimetres of open neck under a drive that had nothing there
+        to grip - and then the tie screws' heads and a millimetre, turning in
+        it; the screws that hold that plate on are let into it now.
         """
         if self.output_boss_protrusion is not None:
             return self.output_boss_protrusion
         if not self.ground_frame_fitted:
             return COUPLING_GRIP
-        size = self.tie_bolt_size
-        heads = size.head_h if size is not None and self.tie_bolt_centres else 0.0
-        return heads + BASE_RUNNING_GAP
+        return BASE_RUNNING_GAP
 
     @property
     def ground_frame_fitted(self) -> bool:
@@ -1087,12 +1128,29 @@ class GearSpec(BaseModel):
     def cap_boss_top(self) -> float:
         """The far end of the end cap's boss.
 
-        Flush with the input end plate's outer face.  It does not stand proud
-        the way the carrier's does: nothing grips this one, it is inside the
-        frame, and its whole job is to hold the output bearing on its outside
-        and the shaft support in its bore.
+        Inside the turning housing's top, :data:`CAP_CLEARANCE` short of the
+        ceiling that closes it.  It does not stand proud the way the carrier's
+        does: nothing grips this one, it is inside the frame, and its whole job
+        is to hold the output bearing on its outside and the shaft support in
+        its bore.  It used to come up flush with the face the load bolts to -
+        a stationary disc in the middle of the one face that turns.
         """
-        return self.barrel_top + self.plate_thickness
+        return self.barrel_top + self.housing_plate_thickness - CAP_CLEARANCE
+
+    @property
+    def cup_top(self) -> float:
+        """The housing's closed face on a ring drive, which the driven machine
+        bolts to: the top that holds the second main bearing, then
+        :data:`CUP_CEILING` over it.  The barrel's top on a carrier drive,
+        where an end plate closes the housing instead.
+
+        One part with the barrel, which is the point: the plate that used to
+        bolt on there turned with the barrel anyway, and took a joint, six
+        screws and two dowels to do it.
+        """
+        if not self.ground_frame_fitted:
+            return self.barrel_top
+        return self.barrel_top + self.housing_plate_thickness + CUP_CEILING
 
     @property
     def base_plate_bottom(self) -> float:
@@ -1151,7 +1209,7 @@ class GearSpec(BaseModel):
             return self.plate_thickness
         insert = self.base_insert
         hole = (insert.length + INSERT_SUMP if insert is not None
-                else self._thread_engagement(None))
+                else self._thread_engagement(None, self.bolt_size_asked))
         return min(self.plate_thickness, max(self.housing_wall, hole + TAPPED_COVER))
 
     @property
@@ -1171,7 +1229,7 @@ class GearSpec(BaseModel):
         each on an axis - the middle of a stepper's flat, out of its corners'
         way - halfway out from the pad to the edge.  None where that leaves no
         wall either side of the thread's drill."""
-        if not self.base_has_flange or self.tie_bolt_size is None:
+        if not self.base_has_flange or self.bolt_size_asked is None:
             return []
         pad = self.base_pad[1] / 2.0                   # the pad's reach along x
         edge = self.housing_outer_radius
@@ -1187,7 +1245,7 @@ class GearSpec(BaseModel):
         thread a tapped one needs."""
         insert = self.base_insert
         need = (insert.length + INSERT_SUMP if insert is not None
-                else self._thread_engagement(None))
+                else self._thread_engagement(None, self.bolt_size_asked))
         return min(need, self.base_flange_thickness - TAPPED_COVER)
 
     @property
@@ -1215,8 +1273,23 @@ class GearSpec(BaseModel):
         drawing one hole through another.  A square housing keeps the circle
         - the middle of its wall at the flats - and its tie bolts go out into
         the corners, off it.
+
+        Since the face became the housing's closed top it is solid from the
+        second main bearing's seat out to the rim, and the holes go in the
+        middle of that, where they have the most round them - an insert's
+        would not fit down the middle of a 6 mm wall.  Unless they are deeper
+        than the top, and would go on down into the barrel: only the middle of
+        its wall clears the pin pockets, so there they stay.
         """
-        return self.housing_bolt_radius
+        if not self.ground_frame_fitted:
+            return self.housing_bolt_radius
+        wanted = (insert_for(self.output_bolt_size) if self.heat_set_inserts
+                  and self.housing_mat.E_GPa < 10.0 else None)
+        if (self._face_hole_depth(wanted)
+                > self.housing_plate_thickness + CUP_CEILING - CAP_CLEARANCE):
+            return self.housing_bolt_radius
+        return 0.5 * (self.output_bearing_seat_diameter / 2.0
+                      + self.housing_outer_radius)
 
     @property
     def output_bolt_phase(self) -> float:
@@ -1232,6 +1305,84 @@ class GearSpec(BaseModel):
         if not self.housing_bolt_count or self.square_housing:
             return 0.0
         return math.pi / self.housing_bolt_count
+
+    # ---- the face a driven machine bolts to -----------------------------------
+    #
+    # On a ring drive it is the housing's own closed top, and the machine's
+    # screws thread into it - blind holes down into solid wall, where the plate
+    # that used to be there had clearance holes with nothing under them but the
+    # barrel's end.  Tapped, or with heat-set inserts in a printed one.
+    @property
+    def output_bolt_size(self) -> MetricSize | None:
+        """The screw the output bolt hole is the clearance for: what the
+        driven machine is bolted to a ring drive's face with."""
+        if not self.output_bolt_count:
+            return None
+        return size_for_hole(self.output_bolt_diameter)
+
+    @property
+    def output_face_bolt_centres(self) -> list[tuple[float, float]]:
+        """Where the driven machine's screws go into a ring drive's face."""
+        if not self.ground_frame_fitted or not self.output_bolt_count:
+            return []
+        r, n = self.output_face_bolt_radius, self.output_bolt_count
+        return [(r * math.cos(self.output_bolt_phase + 2.0 * math.pi * k / n),
+                 r * math.sin(self.output_bolt_phase + 2.0 * math.pi * k / n))
+                for k in range(n)]
+
+    @property
+    def output_insert(self) -> HeatSetInsert | None:
+        """The insert the driven machine's screws thread into in a printed
+        ring drive's face: asked for, and a wall of :data:`INSERT_WALL` round
+        its hole."""
+        if (not self.heat_set_inserts or self.housing_mat.E_GPa >= 10.0
+                or not self.output_face_bolt_centres):
+            return None
+        wanted = insert_for(self.output_bolt_size)
+        if wanted is None or self.face_insert_wall(wanted.hole) < INSERT_WALL:
+            return None
+        return wanted
+
+    def face_insert_wall(self, hole: float) -> float:
+        """The least wall round holes of ``hole`` in a ring drive's face, mm:
+        to the outline, and in towards the second main bearing's seat - or,
+        where they are down the middle of the wall because they go on into the
+        barrel, to the pin pockets as well."""
+        centres = self.output_face_bolt_centres
+        if not centres:
+            return math.inf
+        if self.output_face_bolt_radius == self.housing_bolt_radius:
+            return self._wall_round(centres, hole)
+        seat = self.output_bearing_seat_diameter / 2.0
+        return min(min(self._inside_outline(x, y), math.hypot(x, y) - seat)
+                   for x, y in centres) - hole / 2.0
+
+    @property
+    def output_face_hole(self) -> float:
+        """The hole in a ring drive's face for each of the driven machine's
+        screws: the insert's, the tap drill, or with no screw named for the
+        output bolt hole that hole as it is given."""
+        insert = self.output_insert
+        if insert is not None:
+            return insert.hole
+        size = self.output_bolt_size
+        return size.d - size.pitch if size else self.output_bolt_diameter
+
+    @property
+    def output_face_hole_depth(self) -> float:
+        """How deep those holes go down into the face, mm: the insert and its
+        sump, or the thread a screw needs - one and a half diameters in metal,
+        two in a polymer - and two pitches past it for the tap to run out in."""
+        return self._face_hole_depth(self.output_insert)
+
+    def _face_hole_depth(self, insert: HeatSetInsert | None) -> float:
+        if insert is not None:
+            return insert.length + INSERT_SUMP
+        size = self.output_bolt_size
+        if size is None:
+            return self.housing_plate_thickness + CUP_CEILING
+        polymer = self.housing_mat.E_GPa < 10.0
+        return (2.0 if polymer else 1.5) * size.d + 2.0 * size.pitch
 
     @property
     def motor_face(self) -> MotorFrame:
@@ -1277,7 +1428,7 @@ class GearSpec(BaseModel):
         a carrier drive, the carrier's base on a ring one."""
         if self.ground_frame_fitted:
             return self.base_plate_bottom
-        return self.barrel_top + self.plate_thickness
+        return self.barrel_top + self.housing_plate_thickness
 
     @property
     def coupling(self) -> Coupling | None:
@@ -1410,6 +1561,10 @@ class GearSpec(BaseModel):
                 hi = end
             else:
                 lo = end
+        if self.ground_frame_fitted:
+            # Its far end is in the end cap's boss, under the housing's closed
+            # top: flush with the boss, not out through the face that turns.
+            hi = min(hi, self.cap_boss_top)
         return lo, hi
 
     @property
@@ -1608,9 +1763,16 @@ class GearSpec(BaseModel):
     @property
     def rim_land(self) -> float:
         """Metal between the tie-bolt holes and the outside of the housing,
-        which is what an edge break on the rim has to stay within."""
+        which is what an edge break on the rim has to stay within.  On a ring
+        drive the widest of those holes is the counterbore in the plate under
+        the housing, and the land is what is left outside it."""
         if not self.housing_bolt_count:
             return self.housing_wall
+        counterbore = self.tie_counterbore
+        if counterbore is not None:
+            return self._counterbore_room / 2.0 + COUNTERBORE_LAND - counterbore[0] / 2.0
+        if self.ground_frame_fitted:
+            return 0.0                  # no screw's counterbore fits there
         if self.square_housing:
             # A corner bolt sits on its corner's centre: the arc is as far
             # from it as the two flat sides are.
@@ -1713,9 +1875,65 @@ class GearSpec(BaseModel):
         if self.square_housing:
             c = self.housing_outer_radius - self.housing_corner_radius
             return [(c, c), (-c, c), (-c, -c), (c, -c)]
+        if self.ground_frame_fitted:
+            r = self.cup_screw_radius
+            return [(r * math.cos(a), r * math.sin(a)) for a in self._cup_screw_angles]
         r = self.housing_bolt_radius
         return [(r * math.cos(2.0 * math.pi * k / n), r * math.sin(2.0 * math.pi * k / n))
                 for k in range(n)]
+
+    # ---- the screws under a ring drive's housing ----------------------------------
+    #
+    # The housing is one part with its closed top there, so the only joint left
+    # is the plate under it, which carries the lower main bearing.  Its screws
+    # come up from below into the barrel and their heads are let into the plate
+    # - nothing turns in the gap over the base.  A counterbore is wider than
+    # the screw, and down the middle of a 6 mm wall it breaks out of the rim;
+    # midway between the ring pins and the outside, and between two pins, is
+    # where both it and the thread past it have metal round them.  The screw is
+    # then the largest, no bigger than the tie-bolt hole asks for, whose
+    # counterbore leaves :data:`COUNTERBORE_LAND` to the outside.
+    @property
+    def cup_screw_radius(self) -> float:
+        """The circle a round ring drive's plate screws are on: midway between
+        the pin circle and the outside."""
+        return 0.5 * (self.pin_circle_radius + self.housing_outer_radius)
+
+    @property
+    def _cup_screw_angles(self) -> list[float]:
+        """``housing_bolt_count`` angles as nearly equally spaced as the gaps
+        between the ring pins allow, each in the middle of one - the pins sit
+        at whole pitches from the +x axis."""
+        pitch = 2.0 * math.pi / self.pin_count
+        out: list[float] = []
+        for j in range(self.housing_bolt_count):
+            target = 2.0 * math.pi * j / self.housing_bolt_count
+            a = (math.floor(target / pitch) + 0.5) * pitch
+            if not any(abs(math.remainder(a - b, 2.0 * math.pi)) < 1e-9 for b in out):
+                out.append(a)
+        return out
+
+    @property
+    def _counterbore_room(self) -> float:
+        """The widest counterbore the plate under a ring drive's housing takes
+        round each screw, mm: to :data:`COUNTERBORE_LAND` of the outside - a
+        round housing's rim, or a square one's corner arc."""
+        if self.square_housing:
+            reach = self.housing_corner_radius
+        else:
+            reach = self.housing_outer_radius - self.cup_screw_radius
+        return 2.0 * (reach - COUNTERBORE_LAND)
+
+    @property
+    def tie_counterbore(self) -> tuple[float, float] | None:
+        """``(diameter, depth)`` of the counterbore a ring drive's plate screw
+        is let into from below: the head and 0.6 mm, 0.3 mm deeper than the
+        head, as the motor's screws are let into a plate.  None off the ring,
+        where the heads stand on the output plate."""
+        size = self.tie_bolt_size
+        if not self.ground_frame_fitted or size is None or not self.tie_bolt_centres:
+            return None
+        return size.head_d + 0.6, size.head_h + 0.3
 
     # ---- the dowels that locate the end plates on the barrel -------------------
     #
@@ -1757,8 +1975,16 @@ class GearSpec(BaseModel):
         and any other hole through the input plate, mm, and which hole."""
         r, d = self.housing_bolt_radius, self.plate_dowel_diameter
         x, y = r * math.cos(angle), r * math.sin(angle)
+        holes = self.input_plate_holes
+        if self.ground_frame_fitted:
+            # The only plate is the one under the housing, and what it has
+            # round the dowels is its screws' counterbores.
+            counterbore = self.tie_counterbore
+            width = counterbore[0] if counterbore else self.housing_bolt_diameter
+            holes = [(hx, hy, width, "a plate screw's counterbore")
+                     for hx, hy in self.tie_bolt_centres]
         return min(((math.hypot(hx - x, hy - y) - (d + hd) / 2.0, what)
-                    for hx, hy, hd, what in self.input_plate_holes),
+                    for hx, hy, hd, what in holes),
                    default=(math.inf, ""))
 
     @property
@@ -1777,7 +2003,9 @@ class GearSpec(BaseModel):
         """
         if not self.plate_dowel_diameter:
             return ()
-        if self.square_housing:
+        if self.square_housing or self.ground_frame_fitted:
+            # Off the quarter-pitch rule's circle: in the corners, or between
+            # the ring pins.  Searched for instead.
             return self._square_dowel_angles()
         n = len(self.tie_bolt_centres) or 6
         pitch = 2.0 * math.pi / n
@@ -1861,7 +2089,7 @@ class GearSpec(BaseModel):
         the barrel one and a half diameters, the usual hold for a press fit.
         """
         d = self.plate_dowel_diameter
-        return (max(self.plate_thickness - 0.5, 0.0), 1.5 * d)
+        return (max(self.housing_plate_thickness - 0.5, 0.0), 1.5 * d)
 
     @property
     def plate_dowel_length(self) -> float | None:
@@ -1883,19 +2111,36 @@ class GearSpec(BaseModel):
         into_plate = self.plate_dowel_engagement[0]
         top = self.barrel_top + into_plate
         bottom = self.barrel_bottom - into_plate
+        if self.ground_frame_fitted:
+            # One joint: the housing's top is the housing.
+            return [(bottom, bottom + length)]
         return [(top - length, top), (bottom, bottom + length)]
+
+    @property
+    def housing_dowel_depth(self) -> float:
+        """How far a ring drive's dowel holes go up into the housing's
+        underside: as far as the dowel does, and :data:`DOWEL_SUMP`.  The
+        housing is closed at the top, so they are blind."""
+        spans = self.plate_dowel_spans
+        if not self.ground_frame_fitted or not spans:
+            return 0.0
+        return spans[0][1] - self.barrel_bottom + DOWEL_SUMP
 
     @property
     def edge_break(self) -> float:
         """The 45 degree break the end plates actually get: the design's, held
         to a quarter of the plate and half the rim land so it cannot run into
         the tie-bolt holes or through a thin plate."""
-        return min(self.edge_chamfer, self.plate_thickness / 4.0, self.rim_land / 2.0)
+        return min(self.edge_chamfer, self.housing_plate_thickness / 4.0,
+                   self.rim_land / 2.0)
 
     @property
     def tie_bolt_bottom(self) -> float:
-        """Where a tie bolt starts: the outer face of the output end plate."""
-        return self.barrel_bottom - self.plate_thickness
+        """Where a tie bolt starts: the outer face of the output end plate, or
+        on a ring drive the floor of the counterbore its head is let into."""
+        bottom = self.barrel_bottom - self.housing_plate_thickness
+        counterbore = self.tie_counterbore
+        return bottom + counterbore[1] if counterbore is not None else bottom
 
     @property
     def tie_bolt_length(self) -> float:
@@ -1906,7 +2151,12 @@ class GearSpec(BaseModel):
         plates it bolts to, this did not follow it - so the drive was ordering
         bolts seven millimetres short of the thing they had to pass through.
         One property now, read by the bill of materials and by both renderers.
+
+        On a ring drive, what the screw passes through before it threads into
+        the housing: the plate under it, below its counterbore.
         """
+        if self.ground_frame_fitted:
+            return self.barrel_bottom - self.tie_bolt_bottom
         return self.barrel_height + 2.0 * self.plate_thickness
 
     @property
@@ -1950,8 +2200,23 @@ class GearSpec(BaseModel):
 
         ``None`` with no tie bolts, or a hole too small for any size in the
         table - in which case the drive is drawn and ordered as it always was,
-        by the hole and a length.
+        by the hole and a length.  On a ring drive no bigger than that, and no
+        bigger than a counterbore in the plate under the housing takes - and
+        ``None`` where none does, which ``HOUSING_BOLT_CLASH`` stops.
         """
+        if not self.housing_bolt_count:
+            return None
+        asked = self.bolt_size_asked
+        if not self.ground_frame_fitted or asked is None:
+            return asked
+        room = self._counterbore_room
+        fits = [s for s in SIZES if s.d <= asked.d + 1e-9 and s.head_d + 0.6 <= room + 1e-9]
+        return fits[-1] if fits else None
+
+    @property
+    def bolt_size_asked(self) -> MetricSize | None:
+        """The screw the tie-bolt hole is the clearance for - what the base's
+        own screws are, whatever the housing's turned out to be."""
         if not self.housing_bolt_count:
             return None
         return size_for_hole(self.housing_bolt_diameter)
@@ -1966,15 +2231,11 @@ class GearSpec(BaseModel):
         size = self.tie_bolt_size
         return screw_length(self.tie_bolt_length, size) if size else None
 
-    # ---- a tapped input plate --------------------------------------------------
+    # ---- threaded into the housing ---------------------------------------------
     #
-    # On a ring-output drive the input end plate turns, and it is the face the
-    # driven machine bolts to: nuts on it stand proud of the very face that has
-    # to be flat.  So there it is tapped for the screws instead, and each screw
-    # stops short of the face.  Not a counterbore, and an insert only where one
-    # is asked for and has room: the bolt circle runs down the middle of the
-    # housing wall, and either would break out of a 6 mm wall where a tapped
-    # hole does not.
+    # On a ring-output drive the plate under the housing is screwed up into the
+    # housing's underside: tapped there, or with an insert where one is asked
+    # for and has room.  See the screws under a ring drive's housing, above.
     @property
     def tie_thread_engagement(self) -> float:
         """The least thread a tie screw has in a tapped plate, mm: one and a
@@ -1982,8 +2243,9 @@ class GearSpec(BaseModel):
         thread shears first."""
         return self._thread_engagement(self.tie_insert)
 
-    def _thread_engagement(self, insert: HeatSetInsert | None) -> float:
-        size = self.tie_bolt_size
+    def _thread_engagement(self, insert: HeatSetInsert | None,
+                           size: MetricSize | None = None) -> float:
+        size = size or self.tie_bolt_size
         if size is None:
             return 0.0
         polymer = self.housing_mat.E_GPa < 10.0 and insert is None
@@ -1993,12 +2255,13 @@ class GearSpec(BaseModel):
     #
     # A printed part's own thread strips at a fraction of what the screw takes;
     # a knurled brass insert pressed in hot carries it on its whole length.  Asked
-    # for with ``heat_set_inserts`` and only in a polymer.  In the turning plate
-    # it is pressed in from the face that meets the barrel, so the screw finds it
-    # first, and the hole runs on through at its size; the screw stops short of
-    # the far face as a tapped one does.  It needs a wall round it the tapped
-    # thread did not, and where the housing's wall has not got it the plate is
-    # tapped as before and ``INSERTS_DO_NOT_FIT`` says what would take them.
+    # for with ``heat_set_inserts`` and only in a polymer.  On a ring drive they
+    # go wherever a screw threads into the print: up into the turning housing's
+    # underside for the screws that hold the plate under it, down into its face
+    # for the driven machine's, and up into the base for the screws that hold
+    # it down.  Each needs a wall round it the tapped thread did not, and where
+    # there is not one that part is tapped as before and ``INSERTS_DO_NOT_FIT``
+    # says what would take them.
     @property
     def tie_insert_wanted(self) -> HeatSetInsert | None:
         """The insert the tie screws' size takes, where inserts are asked for
@@ -2009,29 +2272,52 @@ class GearSpec(BaseModel):
 
     @property
     def tie_insert_wall(self) -> float:
-        """Wall left round a tie screw's insert hole, mm: the rim land, less what
-        the insert's hole is wider than the screw's clearance by."""
+        """Wall left round the insert hole a ring drive's plate screw threads
+        into in the housing's underside, mm: to the outside, and on a round
+        housing to the ring-pin pockets either side of it as well."""
         wanted = self.tie_insert_wanted
-        if wanted is None:
+        if wanted is None or not self.tie_bolt_centres:
             return math.inf
-        return self.rim_land - (wanted.hole - self.housing_bolt_diameter) / 2.0
+        return self._wall_round(self.tie_bolt_centres, wanted.hole)
+
+    def _wall_round(self, centres: list[tuple[float, float]], hole: float) -> float:
+        """The least wall round holes of ``hole`` at ``centres`` in the
+        barrel's wall: to the outline, and to the nearest ring-pin pocket."""
+        pins = [(self.pin_circle_radius * math.cos(2.0 * math.pi * k / self.pin_count),
+                 self.pin_circle_radius * math.sin(2.0 * math.pi * k / self.pin_count))
+                for k in range(self.pin_count)]
+        walls = []
+        for x, y in centres:
+            walls.append(self._inside_outline(x, y) - hole / 2.0)
+            walls.append(min(math.hypot(x - px, y - py) for px, py in pins)
+                         - self.pin_radius - hole / 2.0)
+        return min(walls)
+
+    def _inside_outline(self, x: float, y: float) -> float:
+        """How far ``(x, y)`` is inside the housing's outline, mm: off the
+        circle, or off the square's flats and rounded corners."""
+        if not self.square_housing:
+            return self.housing_outer_radius - math.hypot(x, y)
+        rc = self.housing_corner_radius
+        k = self.housing_outer_radius - rc
+        qx, qy = abs(x) - k, abs(y) - k
+        return rc - math.hypot(max(qx, 0.0), max(qy, 0.0)) - min(max(qx, qy), 0.0)
 
     @property
     def tie_insert(self) -> HeatSetInsert | None:
-        """The insert a ring drive's turning plate takes its tie screws in:
-        asked for, a wall of :data:`INSERT_WALL` round it, and the plate as
-        thick as it is long."""
+        """The insert a ring drive's housing takes the screws that hold the
+        plate under it in: asked for, and a wall of :data:`INSERT_WALL` round
+        its hole."""
         wanted = self.tie_insert_wanted
         if (wanted is None or not self.ground_frame_fitted
-                or self.tie_insert_wall < INSERT_WALL
-                or wanted.length > self.plate_thickness):
+                or self.tie_insert_wall < INSERT_WALL):
             return None
         return wanted
 
     @property
     def tie_thread_hole(self) -> float:
-        """The hole the tie screws thread into in the turning plate: the
-        insert's where there is one, otherwise the tap drill."""
+        """The hole a ring drive's plate screws thread into in the housing:
+        the insert's where there is one, otherwise the tap drill."""
         insert = self.tie_insert
         return insert.hole if insert is not None else self.tie_tap_drill
 
@@ -2040,7 +2326,9 @@ class GearSpec(BaseModel):
         """The insert the base's own screws thread into, asked for in a
         polymer base - its flange has the room round it the housing wall may
         not, and takes its length and cover where the pad is that thick."""
-        wanted = self.tie_insert_wanted
+        if not self.heat_set_inserts or self.housing_mat.E_GPa >= 10.0:
+            return None
+        wanted = insert_for(self.bolt_size_asked)
         if (wanted is None or not self.base_has_flange
                 or wanted.length + INSERT_SUMP + TAPPED_COVER > self.plate_thickness):
             return None
@@ -2049,9 +2337,12 @@ class GearSpec(BaseModel):
     @property
     def base_mount_hole(self) -> float:
         """The hole the base is bolted down into: the insert's, or the tap
-        drill."""
+        drill of the screw the tie-bolt hole asks for."""
         insert = self.base_insert
-        return insert.hole if insert is not None else self.tie_tap_drill
+        if insert is not None:
+            return insert.hole
+        size = self.bolt_size_asked
+        return size.d - size.pitch if size else 0.0
 
     @property
     def tie_tap_drill(self) -> float:
@@ -2062,21 +2353,32 @@ class GearSpec(BaseModel):
 
     @property
     def _tapped_tie_screw_length(self) -> float | None:
+        """The shortest preferred length with the thread it needs in the
+        housing past the plate - the hole is drilled to suit it."""
         if not self.ground_frame_fitted or self.tie_bolt_size is None:
             return None
-        through = self.barrel_height + self.plate_thickness
-        shortest = through + self.tie_thread_engagement
-        longest = through + self.plate_thickness - TAPPED_COVER
-        fits = [n for n in SCREW_LENGTHS if shortest - 1e-9 <= n <= longest + 1e-9]
-        return max(fits) if fits else None
+        need = self.tie_bolt_length + self.tie_thread_engagement
+        return next((n for n in SCREW_LENGTHS if n >= need - 1e-9), None)
+
+    @property
+    def tie_thread_depth(self) -> float:
+        """How deep the hole a ring drive's plate screw threads into goes up
+        into the housing from its underside: the screw's end and
+        :data:`TAPPED_COVER` past it, or the insert and its sump."""
+        length = self.tie_screw_length
+        if not self.ground_frame_fitted or length is None:
+            return 0.0
+        depth = length - self.tie_bolt_length + TAPPED_COVER
+        insert = self.tie_insert
+        if insert is not None:
+            depth = max(depth, insert.length + INSERT_SUMP)
+        return depth
 
     @property
     def tie_screws_tapped(self) -> bool:
-        """Whether the tie screws thread into the input end plate rather than
-        taking nuts on it: on a ring-output drive, where a preferred length
-        engages the thread and stops :data:`TAPPED_COVER` short of the face.
-        Where none does the nuts stay, and ``TIE_NUTS_ON_OUTPUT_FACE`` says
-        what they cost."""
+        """Whether the tie screws thread into a part rather than taking nuts:
+        on a ring-output drive, where the plate under the housing is screwed
+        up into the housing's underside."""
         return self._tapped_tie_screw_length is not None
 
     @property
@@ -2233,10 +2535,10 @@ class GearSpec(BaseModel):
         protrusion is structure between two faces of the machine, with the
         plate you bolt it down by on the end of it.
         """
-        length = self.barrel_height + 2.0 * self.plate_thickness
         if self.ground_frame_fitted:
-            length += self.boss_protrusion + self.plate_thickness
-        return length
+            # The base's underside to the housing's closed face.
+            return self.cup_top - self.base_plate_bottom
+        return self.barrel_height + 2.0 * self.plate_thickness
 
     @property
     def cooling_area_mm2(self) -> float:

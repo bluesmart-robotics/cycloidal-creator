@@ -115,12 +115,8 @@ class Pattern:
     angles: tuple[float, ...] = ()
     #: The fit the holes are reamed to, for a pattern that locates.
     fit: str = ""
-    #: The thread the holes are tapped to, for a pattern a screw threads into;
-    #: ``hole`` is then the tap drill.
-    thread: str = ""
-    #: The heat-set insert pressed into them instead, ``"M4 x 8.1"``, and then
-    #: ``hole`` is the insert's.
-    insert: str = ""
+    #: Whether ``recess`` is cut in the outside face rather than the inside one.
+    recess_outside: bool = False
 
 
 @dataclass(frozen=True)
@@ -233,7 +229,7 @@ def plate_features(spec: GearSpec, name: str) -> PlateFeatures:
     bores = seat_bores(spec, choices)
     placements = bearing_placements(spec, choices)
     printed = spec.printed
-    t = spec.plate_thickness
+    t = spec.housing_plate_thickness
     inside = spec.barrel_top if name == "input_end_plate" else spec.barrel_bottom
     toward_outside = 1.0 if name == "input_end_plate" else -1.0
     bore = bores.input_plate if name == "input_end_plate" else bores.output_plate
@@ -271,26 +267,35 @@ def plate_features(spec: GearSpec, name: str) -> PlateFeatures:
 
     # ---- hole patterns --------------------------------------------------------
     patterns: list[Pattern] = []
-    if spec.tie_bolt_centres:
+    counterbore = spec.tie_counterbore
+    if spec.tie_bolt_centres and counterbore is not None:
+        # Under a ring drive's housing: up through clearance into its thread,
+        # the heads let into the outside face.
         size = spec.tie_bolt_size
         ties = tuple(spec.tie_bolt_centres)
         square = 2.0 * abs(ties[0][0]) if spec.square_housing else None
-        # Threaded into the input plate on a ring drive: tapped there, and
-        # either plate's holes then share one clearance - a fixed fastener.
-        tapped = spec.tie_screws_tapped
+        patterns.append(Pattern(
+            label="plate screws", centres=ties, hole=size.clearance,
+            circle=None if square else 2.0 * spec.cup_screw_radius, square=square,
+            screw=size.name,
+            position=_position(size.clearance, size.d, fixed=True),
+            fixed=True, datums=("A", "B"),
+            angles=() if square else tuple(
+                round(math.degrees(math.atan2(y, x)) % 360.0, 3) for x, y in ties),
+            recess=("counterbore", counterbore[0], counterbore[1]),
+            recess_outside=True))
+    elif spec.tie_bolt_centres:
+        size = spec.tie_bolt_size
+        ties = tuple(spec.tie_bolt_centres)
+        square = 2.0 * abs(ties[0][0]) if spec.square_housing else None
         patterns.append(Pattern(
             label="tie bolts", centres=ties,
-            hole=(spec.tie_thread_hole if tapped and name == "input_end_plate"
-                  else spec.housing_bolt_diameter),
+            hole=spec.housing_bolt_diameter,
             circle=None if square else 2.0 * spec.housing_bolt_radius, square=square,
             screw=size.name if size else "",
             position=_position(spec.housing_bolt_diameter,
-                               size.d if size else None, fixed=tapped),
-            fixed=tapped, datums=("A", "B"),
-            thread=size.name if tapped and name == "input_end_plate" else "",
-            insert=(f"{spec.tie_insert.thread} x {spec.tie_insert.length:g}"
-                    if tapped and name == "input_end_plate"
-                    and spec.tie_insert is not None else "")))
+                               size.d if size else None, fixed=False),
+            fixed=False, datums=("A", "B")))
     if (name == "input_end_plate" and spec.ground_frame_fitted
             and spec.output_bolt_count):
         size = size_for_hole(spec.output_bolt_diameter)
@@ -396,7 +401,8 @@ def _material(f: PlateFeatures, z: float, r: float, side: float) -> bool:
                     continue
                 if abs(r - abs(cx)) < p.hole / 2.0:
                     return False
-                if (p.recess is not None and z < p.recess[2]
+                into = t - z if p.recess_outside else z
+                if (p.recess is not None and into < p.recess[2]
                         and abs(r - abs(cx)) < p.recess[1] / 2.0):
                     return False
         return True
@@ -433,7 +439,7 @@ def _breaks(f: PlateFeatures) -> tuple[list[float], list[float]]:
                 if p.recess is not None:
                     rs.update({abs(cx) - p.recess[1] / 2.0,
                                abs(cx) + p.recess[1] / 2.0})
-                    zs.add(p.recess[2])
+                    zs.add(t - p.recess[2] if p.recess_outside else p.recess[2])
     m = f.mount
     if m is not None:
         top = t + m.height + m.flange
@@ -551,7 +557,9 @@ def _front(f: PlateFeatures, mirror: float) -> list:
             if p.recess is not None:
                 kind, size, _ = p.recess
                 if kind == "counterbore":
-                    items.append(Circle(c, size / 2.0, HIDDEN))
+                    # Seen from the outside: one cut in that face is in view.
+                    items.append(Circle(c, size / 2.0) if p.recess_outside
+                                 else Circle(c, size / 2.0, HIDDEN))
                 else:
                     # Across corners on the cut axis, as the solid's hexagon.
                     rr = size / math.sqrt(3.0)
@@ -583,19 +591,15 @@ def _pattern_lines(p: Pattern, f: PlateFeatures) -> tuple[str, ...]:
         where = f"ON Ø{_fmt(p.circle)} EQ SP"
     else:
         where = f"ON {_fmt(p.square)} x {_fmt(p.square)} SQUARE"
-    size = (f"Ø{_fmt(p.hole)}" if p.insert else
-             p.thread or f"Ø{_fmt(p.hole)} {p.fit}".strip())
+    size = f"Ø{_fmt(p.hole)} {p.fit}".strip()
     lines = [f"{n}x {size} THRU {where}"]
-    if p.insert:
-        lines.append(f"HEAT-SET INSERT {p.insert} FROM A")
-    elif p.thread:
-        lines.append(f"TAP DRILL Ø{_fmt(p.hole)}")
     if p.phase:
         lines.append(f"{p.phase:.1f}° FROM THE TIE BOLTS")
     if p.recess is not None:
         kind, size, depth = p.recess
         if kind == "counterbore":
-            lines.append(f"C'BORE Ø{_fmt(size)} x {_fmt(depth)} DEEP FROM A")
+            face = "THE OUTSIDE" if p.recess_outside else "A"
+            lines.append(f"C'BORE Ø{_fmt(size)} x {_fmt(depth)} DEEP FROM {face}")
         else:
             lines.append(f"HEX POCKET {_fmt(size)} A/F x {_fmt(depth)} DEEP FROM A")
     if p.fit:
@@ -768,14 +772,7 @@ def plate_sheet(spec: GearSpec, name: str) -> Sheet:
                "half the clearance" if p.fixed else
                "each screw floats through clearance in every part, so the "
                "whole clearance")
-        # A tapped pattern's own hole is the thread: the clearance it shares is
-        # the other parts', which every tie hole but these is drilled to.
-        held = (f"threaded into a {p.insert} heat-set insert pressed into this "
-                f"plate from A, through a Ø{_fmt(spec.housing_bolt_diameter)} "
-                f"hole in the others" if p.insert else
-                f"threaded into this plate through a "
-                f"Ø{_fmt(spec.housing_bolt_diameter)} hole in the others"
-                if p.thread else f"in a Ø{_fmt(p.hole)} hole")
+        held = f"in a Ø{_fmt(p.hole)} hole"
         notes.append(f"{p.label[0].upper()}{p.label[1:]}: position "
                      f"Ø{_fmt(p.position)} at maximum material - an {p.screw} "
                      f"{held}, {how}.")
@@ -829,6 +826,8 @@ def _plate_mass(spec: GearSpec, name: str) -> float:
     if spec.coupled and not spec.ground_frame_fitted:
         plain = (m.plates_mass_g - m.mount_mass_g) / 2.0
         return plain + m.mount_mass_g if name == "input_end_plate" else plain
+    if spec.ground_frame_fitted:
+        return m.plates_mass_g          # the one plate, under the housing
     return m.plates_mass_g / 2.0
 
 

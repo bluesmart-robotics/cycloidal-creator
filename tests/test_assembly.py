@@ -10,6 +10,8 @@ must stay inside its hole at every crank angle.
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -523,14 +525,12 @@ def test_no_spacer_shares_space_with_another_part(output):
             assert overlap < 1e-6, f"{name} goes {overlap:.4f} mm^3 into {other}"
 
 
-@pytest.mark.parametrize("output", ["output pin carrier", "ring housing"])
-def test_the_screws_and_nuts_clamp_the_stack_and_go_into_none_of_it(output):
+def test_the_screws_and_nuts_clamp_the_stack_and_go_into_none_of_it():
     """Heads on the output plate's outside, nuts on the input plate's, shanks
     through the clearance holes - touching every plate, inside none of them."""
     from cycloidgen.export import solid
 
     spec = preset(21)
-    spec.output_member = output
     size = spec.tie_bolt_size
     assy = solid.build_assembly(spec)
     placed = {c.name: c.obj.val().moved(c.loc) for c in assy.children}
@@ -543,6 +543,26 @@ def test_the_screws_and_nuts_clamp_the_stack_and_go_into_none_of_it(output):
             assert overlap < 1e-6, f"{fastener} goes {overlap:.3f} mm^3 into {other}"
 
 
+def test_a_ring_drive_s_plate_screws_go_into_the_plate_only_through_its_holes():
+    """Up through the plate under the housing, heads in its counterbores: inside
+    none of it, and no nut anywhere.  Into the housing they go by their thread,
+    which is the tapped hole's wall and no more."""
+    from cycloidgen.export import solid
+
+    spec = preset(21)
+    spec.output_member = "ring housing"
+    size = spec.tie_bolt_size
+    assy = solid.build_assembly(spec)
+    placed = {c.name: c.obj.val().moved(c.loc) for c in assy.children}
+    assert "tie_nuts" not in placed and "input_end_plate" not in placed
+    assert placed["tie_bolts"].intersect(placed["output_end_plate"]).Volume() < 1e-6
+    thread = (len(spec.tie_bolt_centres) * math.pi / 4.0
+              * (size.d ** 2 - spec.tie_thread_hole ** 2)
+              * (spec.tie_screw_length - spec.tie_bolt_length))
+    into = placed["tie_bolts"].intersect(placed["housing"]).Volume()
+    assert 0.0 < into <= thread
+
+
 def test_the_bill_names_the_screw_and_the_nut():
     from cycloidgen.export.bom import bom_items
 
@@ -552,19 +572,6 @@ def test_the_bill_names_the_screw_and_the_nut():
     assert items["Tie bolt nut"].size == "M4 hexagon nut, ISO 4032"
     assert items["Tie bolt"].quantity == items["Tie bolt nut"].quantity == \
         spec.housing_bolt_count
-
-
-def test_nuts_on_a_turning_output_face_are_reported():
-    """On a ring drive the input plate is what the load bolts to."""
-    def raised(spec):
-        return [f for f in analyse(spec).report.findings
-                if f.code == "TIE_NUTS_ON_OUTPUT_FACE"]
-
-    assert not raised(preset(21))
-    ring = preset(21)
-    ring.output_member = "ring housing"
-    (found,) = raised(ring)
-    assert found.value == pytest.approx(ring.tie_screw_length - ring.tie_bolt_length)
 
 
 @pytest.mark.parametrize("output", ["output pin carrier", "ring housing"])
@@ -649,7 +656,7 @@ def test_every_made_part_weighs_what_its_solid_encloses(ring_output, motor, dire
     if spec.rotor_hub is not None:
         expected[("rotor_hub",)] = volume(m.rotor_hub_mass_g, spec.shaft_mat)
     for names, analytic in expected.items():
-        enclosed = sum(parts[n].val().Volume() for n in names)
+        enclosed = sum(parts[n].val().Volume() for n in names if n in parts)
         assert analytic == pytest.approx(enclosed, rel=0.02), names
 
 
@@ -678,8 +685,9 @@ def test_the_inertia_is_the_inertia_of_the_exported_solids(ring_output, coupled)
         spec.motor_frame = "NEMA 17"
         spec.motor_drives_the_shaft = False
     m = analyse(spec).mass
-    parts = {**solid.parts(spec), "tie_bolts": solid.tie_bolts(spec),
-             "tie_nuts": solid.tie_nuts(spec)}
+    parts = {**solid.parts(spec), "tie_bolts": solid.tie_bolts(spec)}
+    if solid.tie_nuts(spec) is not None:
+        parts["tie_nuts"] = solid.tie_nuts(spec)
 
     def inertia(names, material):          # kg mm^2, about the drive's axis
         return sum(cq.Shape.matrixOfInertia(parts[n].val())[2][2] for n in names) \
@@ -697,8 +705,9 @@ def test_the_inertia_is_the_inertia_of_the_exported_solids(ring_output, coupled)
             parts["coupling"].val().Volume() * aluminium.density_g_cm3 / 1000.0,
             rel=0.02)
     assert m.shaft_inertia_kg_mm2 == pytest.approx(shaft, rel=0.02)
-    turning = (["housing", "input_end_plate", "output_end_plate", "ring_pins",
-                "tie_bolts", "tie_nuts"] if ring_output else ["output_flange"])
+    turning = ([n for n in ("housing", "input_end_plate", "output_end_plate",
+                            "ring_pins", "tie_bolts", "tie_nuts") if n in parts]
+               if ring_output else ["output_flange"])
     assert m.output_inertia_kg_mm2 == pytest.approx(
         inertia(turning, spec.housing_mat), rel=0.02)
     assert m.input_inertia_kg_mm2 == pytest.approx(

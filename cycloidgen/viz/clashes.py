@@ -21,7 +21,7 @@ CLASH_CODES = frozenset({
     "HOLE_HITS_BORE", "HOLE_BREAKS_RIM", "OUTPUT_HOLES_OVERLAP",
     "ECCENTRIC_TIGHT", "HOUSING_BOLT_CLASH", "OUTPUT_BOLT_CLASH",
     "MOTOR_FACE_CLASH", "BEARING_DOES_NOT_FIT", "SEAT_HAS_NO_SHOULDER",
-    "TIE_NUTS_ON_OUTPUT_FACE", "PLATE_DOWEL_CLASH",
+    "PLATE_DOWEL_CLASH",
 })
 
 #: Where a bearing that will not go in would have gone, by its role: the parts
@@ -55,19 +55,20 @@ def finding_parts(analysis, finding) -> tuple[str, ...]:
         return ("housing",) if spec.ring_pins_integral else ("ring_pins", "housing")
     if code == "ECCENTRIC_TIGHT":
         return (*discs, "eccentric_shaft")
+    # On a ring drive the input end plate is the housing's own closed top.
+    top = "housing" if spec.ground_frame_fitted else "input_end_plate"
     if code == "HOUSING_BOLT_CLASH":
-        return ("housing", "input_end_plate", "output_end_plate", "tie_bolts")
+        return tuple(dict.fromkeys(("housing", top, "output_end_plate", "tie_bolts")))
     if code == "OUTPUT_BOLT_CLASH":
-        return ("input_end_plate",)
+        return (top,)
     if code == "MOTOR_FACE_CLASH":
         return ("output_flange",) if spec.motor_mounts_on_carrier else (
             "input_end_plate",)
-    if code == "TIE_NUTS_ON_OUTPUT_FACE":
-        return ("tie_nuts", "input_end_plate")
     if code == "PLATE_DOWEL_CLASH":
-        return ("plate_dowels", "input_end_plate")
+        return ("plate_dowels", "output_end_plate" if spec.ground_frame_fitted
+                else "input_end_plate")
     if code == "PLATES_NOT_LOCATED":
-        return ("housing", "input_end_plate", "output_end_plate")
+        return tuple(dict.fromkeys(("housing", top, "output_end_plate")))
     if code == "SEAT_HAS_NO_SHOULDER":
         from ..analysis.bearings import seat_bores
 
@@ -86,7 +87,7 @@ def finding_parts(analysis, finding) -> tuple[str, ...]:
             out.append("end_cap" if spec.ground_frame_fitted else "input_end_plate")
         elif seat == "input_main_seat":
             if spec.ground_frame_fitted:
-                out.append("input_end_plate")
+                out.append("housing")
         elif seat == "main_journal":
             if spec.ground_frame_fitted:
                 out.append("end_cap")          # the input side's boss

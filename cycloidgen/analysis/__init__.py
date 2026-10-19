@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from ..core.fasteners import insert_for
 from ..core.motor import (
     COUPLING_GAP,
     MIN_ENGAGEMENT,
@@ -16,6 +17,7 @@ from ..core.motor import (
     MOTOR_HUB_WALL,
 )
 from ..core.spec import (
+    COUNTERBORE_LAND,
     INSERT_SUMP,
     INSERT_WALL,
     PROCESS_POSITION_TOLERANCE,
@@ -446,7 +448,17 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
     # In a square housing the bolts are in the corners, where the arc and both
     # flat sides are a wall away and the pockets are far off: there the same
     # question is whether the hole is wider than twice that wall.
-    if spec.tie_bolt_centres and spec.rim_land <= 0.0:
+    if spec.ground_frame_fitted and spec.housing_bolt_count and spec.rim_land <= 0.0:
+        # A ring drive's: the plate under its housing is screwed on from below
+        # with the heads let into it, and no screw's counterbore fits.
+        rep.add(Severity.ERROR, "HOUSING_BOLT_CLASH",
+                f"No screw fits the plate under the housing: the smallest one's "
+                f"counterbore does not leave {COUNTERBORE_LAND:g} mm to the "
+                f"outside of a {spec.housing_wall:g} mm housing wall. Thicken "
+                f"the wall.",
+                spec.housing_bolt_diameter,
+                spec.housing_wall * (2.0 if spec.square_housing else 1.0))
+    elif spec.tie_bolt_centres and spec.rim_land <= 0.0:
         where = ("It sits on its corner's centre, so at this size it breaks out "
                  "through the corner." if spec.square_housing else
                  "It runs up the middle of that wall, so at this size it breaks "
@@ -461,54 +473,22 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
 
     # The output face's own bolts, which exist only on a ring-output drive: the
     # turning member there is a barrel, and a barrel has nowhere to grip, so the
-    # load bolts to the end plate.  They share the tie bolts' circle because
-    # that is the one radius on that plate with barrel wall behind it to thread
-    # into - so the two patterns are kept apart by angle, and whether that
-    # actually works depends on two counts the user sets independently.
-    if spec.ground_frame_fitted and spec.output_bolt_count:
-        if spec.output_bolt_diameter >= spec.housing_wall:
-            rep.add(Severity.ERROR, "OUTPUT_BOLT_CLASH",
-                    f"A {spec.output_bolt_diameter:g} mm output bolt does not fit "
-                    f"in a {spec.housing_wall:g} mm housing wall. It lands on the "
-                    f"middle of that wall, so at this size there is nothing "
-                    f"behind it but the ring-pin pockets on one side and open "
-                    f"air on the other. Thicken the wall or use a smaller bolt.",
-                    spec.output_bolt_diameter, spec.housing_wall)
-        elif spec.tie_bolt_centres:
-            # Centre to centre, whichever outline: on a round housing the two
-            # patterns share a circle and this is the chord between them; on a
-            # square one the tie bolts are in the corners, off that circle.
-            r = spec.output_face_bolt_radius
-            outs = [(r * math.cos(a), r * math.sin(a))
-                    for a in (spec.output_bolt_phase
-                              + 2.0 * math.pi * k / spec.output_bolt_count
-                              for k in range(spec.output_bolt_count))]
-            gap = min(math.hypot(ox - tx, oy - ty)
-                      for ox, oy in outs for tx, ty in spec.tie_bolt_centres)
-            metal = gap - (spec.output_bolt_diameter
-                           + spec.housing_bolt_diameter) / 2.0
-            if metal <= 0.0 and spec.square_housing:
-                rep.add(Severity.ERROR, "OUTPUT_BOLT_CLASH",
-                        "An output bolt lands on a diagonal and runs into the "
-                        "corner tie bolt outside it. A count of output bolts "
-                        "that is not a multiple of eight keeps every one off "
-                        "the diagonals; a thicker wall moves the corners out.",
-                        metal, 0.0)
-            elif metal <= 0.0:
-                rep.add(Severity.ERROR, "OUTPUT_BOLT_CLASH",
-                        f"The {spec.output_bolt_count} output bolts and the "
-                        f"{spec.housing_bolt_count} tie bolts share one circle "
-                        f"and at these counts they run into each other. Match "
-                        f"the counts, or make one of them a multiple of the "
-                        f"other, so the two patterns interleave.",
-                        metal, 0.0)
-            elif metal < 1.5:
-                where = ("in the corner outside it" if spec.square_housing
-                         else "beside it on the same circle")
-                rep.add(Severity.WARNING, "OUTPUT_BOLT_CLASH",
-                        f"Only {metal:.2f} mm of metal between an output bolt "
-                        f"and the tie bolt {where}.",
-                        metal, 1.5)
+    # load bolts to its closed top.  In the solid middle of the top, unless
+    # they are deeper than it and go on down the middle of the barrel's wall -
+    # and there a bolt as wide as the wall has nothing round it.  They shared
+    # a plate and a circle with the tie bolts once, and the counts decided
+    # whether a hole went through a hole; the tie bolts are under the housing
+    # now.
+    if (spec.ground_frame_fitted and spec.output_bolt_count
+            and spec.output_bolt_diameter >= spec.housing_wall
+            and spec.output_face_bolt_radius == spec.housing_bolt_radius):
+        rep.add(Severity.ERROR, "OUTPUT_BOLT_CLASH",
+                f"A {spec.output_bolt_diameter:g} mm output bolt does not fit "
+                f"in a {spec.housing_wall:g} mm housing wall. Its hole is deeper "
+                f"than the housing's top, so it goes down the middle of that "
+                f"wall, with the ring-pin pockets on one side and open air on "
+                f"the other. Thicken the wall or use a smaller bolt.",
+                spec.output_bolt_diameter, spec.housing_wall)
 
     # The plates carry the shaft supports and the output bearing, so they set
     # the crank's axis; the ring pins are in the barrel.  What puts the one on
@@ -898,89 +878,51 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                 f"in: {why}. A shoulder takes {MIN_SHOULDER:g} mm past the bearing.",
                 missing.room, MIN_SHOULDER)
 
-    # The tie bolts are clamped by nuts on the input end plate.  On a carrier
-    # drive that face is the motor's, outside its spigot; on a ring drive it is
-    # the turning face the driven machine bolts to, so the plate is tapped for
-    # the screws instead - and where it is too thin to take the thread and
-    # cover the tip, the nuts and the screw ends past them stay on that face.
-    size = spec.tie_bolt_size
-    if (spec.ground_frame_fitted and size is not None and spec.tie_screw_length
-            and not spec.tie_screws_tapped):
-        proud = spec.tie_screw_length - spec.tie_bolt_length
-        ties = spec.tie_bolt_centres
-        where = (f"at the corners of a {2 * abs(ties[0][0]):.1f} mm square"
-                 if spec.square_housing else
-                 f"on a {2 * spec.housing_bolt_radius:.1f} mm circle")
-        # The thinnest plate that would take the thread: a preferred length
-        # has to land between enough thread and the face, and they come in
-        # 5 mm steps, so it is found rather than worked out.
-        thick = next((t / 2.0 for t in range(int(2 * spec.plate_thickness) + 1,
-                                             int(2 * spec.plate_thickness) + 41)
-                      if spec.model_copy(update={"end_plate_thickness": t / 2.0})
-                      .tie_screws_tapped), None)
-        how = (f"At {thick:g} mm it would take a tapped thread - "
-               f"{spec.tie_thread_engagement:g} mm of {size.name} with "
-               f"{TAPPED_COVER:g} mm over the tip of a preferred length - and "
-               f"the app would tap it and drop the nuts; thicken the end plates "
-               f"to that, or space the driven part clear of them."
-               if thick is not None else
-               "Space the driven part clear of them.")
-        rep.add(Severity.WARNING, "TIE_NUTS_ON_OUTPUT_FACE",
-                f"The input end plate turns and is what the driven machine bolts "
-                f"to, and the {len(ties)} tie-bolt nuts are on it: they and the "
-                f"screw ends past them stand {proud:.1f} mm proud {where}. The "
-                f"{spec.plate_thickness:g} mm plate is too thin to tap for them. "
-                f"{how}", proud, 0.0)
-
-    # Heat-set inserts asked for where a part has no room for one: the wall
-    # round the turning plate's, the plate's length for it, the base's depth.
-    # Each part goes back to what it was - a thread cut in the plastic, or the
-    # nuts - and this says which, and what would take them.
-    wanted = spec.tie_insert_wanted
-    if wanted is not None and spec.ground_frame_fitted and spec.tie_bolt_centres:
+    # Heat-set inserts asked for where a part has no room for one: round the
+    # holes the plate under a ring drive's housing is screwed up into, round
+    # the driven machine's in its face, and the base's depth.  Each part goes
+    # back to a thread cut in the plastic, and this says which, and what would
+    # take them.
+    if (spec.heat_set_inserts and spec.housing_mat.E_GPa < 10.0
+            and spec.ground_frame_fitted):
         short, value, limit = [], 0.0, 0.0
 
-        def thicker(fits) -> float | None:
-            # The thinnest end plates that would, found rather than worked
-            # out: the screws come in 5 mm steps, as for the nuts above.
-            return next((t / 2.0 for t in range(int(2 * spec.plate_thickness) + 1,
-                                                 int(2 * spec.plate_thickness) + 41)
-                         if fits(spec.model_copy(
-                             update={"end_plate_thickness": t / 2.0}))), None)
+        def walls(holes: str, wall: float, hole: float, fits) -> str:
+            # The thinnest wall that would, found rather than worked out.
+            least = next((w / 2.0 for w in range(int(2 * spec.housing_wall) + 1,
+                                                 int(2 * spec.housing_wall) + 41)
+                          if fits(spec.model_copy(update={"housing_wall": w / 2.0}))),
+                         None)
+            square = spec.model_copy(update={"housing_shape": HousingShape.SQUARE})
+            fixes = ([f"a {least:g} mm housing wall"] if least is not None else []) + (
+                ["a square housing"] if not spec.square_housing and fits(square)
+                else [])
+            return (f"{holes} tapped instead, since an insert's Ø{hole:g} hole "
+                    f"would leave {max(wall, 0.0):.1f} mm of plastic round it "
+                    f"where it needs {INSERT_WALL:g} mm to hold"
+                    + (f" - {' or '.join(fixes)} would give it that" if fixes else ""))
 
-        if spec.tie_insert is None or not spec.tie_screws_tapped:
-            plate_is = ("the input end plate "
-                        + ("is tapped for the tie screws" if spec.tie_screws_tapped
-                           else "keeps the tie screws' nuts") + " instead, since")
-            if spec.tie_insert_wall < INSERT_WALL:
-                value, limit = spec.tie_insert_wall, INSERT_WALL
-                walls = spec.model_copy(update={"housing_shape": HousingShape.SQUARE})
-                wall = next((w / 2.0 for w in range(int(2 * spec.housing_wall) + 1,
-                                                     int(2 * spec.housing_wall) + 41)
-                             if spec.model_copy(update={"housing_wall": w / 2.0})
-                             .tie_insert_wall >= INSERT_WALL), None)
-                fixes = ([f"a {wall:g} mm housing wall"] if wall is not None else []) + (
-                    ["a square housing"] if not spec.square_housing
-                    and walls.tie_insert_wall >= INSERT_WALL else [])
-                short.append(f"{plate_is} an insert's Ø{wanted.hole:g} hole would "
-                             f"leave {max(value, 0.0):.1f} mm of plastic outside it "
-                             f"where it needs {INSERT_WALL:g} mm to hold"
-                             + (f" - {' or '.join(fixes)} would give it that"
-                                if fixes else ""))
-            else:
-                plate = thicker(lambda c: c.tie_insert is not None
-                                and c.tie_screws_tapped)
-                value, limit = spec.plate_thickness, plate or wanted.length
-                why = (f"it is {spec.plate_thickness:g} mm thick and the insert "
-                       f"{wanted.length:g} mm long" if spec.tie_insert is None else
-                       "no preferred length of screw ends in the insert and short "
-                       "of its face")
-                short.append(f"{plate_is} {why}"
-                             + (f" - end plates {plate:g} mm thick would take it"
-                                if plate is not None else ""))
-        if spec.base_has_flange and spec.base_insert is None:
-            need = wanted.length + INSERT_SUMP + TAPPED_COVER
-            plate = thicker(lambda c: c.base_insert is not None)
+        wanted = spec.tie_insert_wanted
+        if wanted is not None and spec.tie_bolt_centres and spec.tie_insert is None:
+            value, limit = spec.tie_insert_wall, INSERT_WALL
+            short.append(walls("the housing's underside is",
+                               spec.tie_insert_wall, wanted.hole,
+                               lambda c: c.tie_insert is not None))
+        face = insert_for(spec.output_bolt_size)
+        if (face is not None and spec.output_face_bolt_centres
+                and spec.output_insert is None):
+            wall = spec.face_insert_wall(face.hole)
+            if not short:
+                value, limit = wall, INSERT_WALL
+            short.append(walls("the face the driven machine bolts to is", wall,
+                               face.hole, lambda c: c.output_insert is not None))
+        base = insert_for(spec.bolt_size_asked)
+        if base is not None and spec.base_has_flange and spec.base_insert is None:
+            need = base.length + INSERT_SUMP + TAPPED_COVER
+            plate = next((t / 2.0 for t in range(int(2 * spec.plate_thickness) + 1,
+                                                 int(2 * spec.plate_thickness) + 41)
+                          if spec.model_copy(update={"end_plate_thickness": t / 2.0})
+                          .base_insert is not None), None)
             if not short:
                 value, limit = spec.plate_thickness, need
             short.append(f"the base is tapped from below instead, since the insert, "
@@ -990,9 +932,8 @@ def analyse(spec: GearSpec) -> DesignAnalysis:
                             if plate is not None else ""))
         if short:
             rep.add(Severity.WARNING, "INSERTS_DO_NOT_FIT",
-                    f"Heat-set inserts are asked for, and the {wanted.thread} x "
-                    f"{wanted.length:g} does not fit everywhere: {'; '.join(short)}.",
-                    value, limit)
+                    f"Heat-set inserts are asked for, and they do not fit "
+                    f"everywhere: {'; '.join(short)}.", value, limit)
 
     # What a stall, a crash or a hard stop does, against what the motor can put
     # through the ratio standing still: the load the duty never mentions.

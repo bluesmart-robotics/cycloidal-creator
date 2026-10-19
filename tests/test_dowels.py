@@ -105,7 +105,10 @@ def test_the_bill_orders_the_dowels_it_weighs(member):
     spec.output_member = member
     a = analyse(spec)
     line = next(i for i in bom_items(a) if i.part == "Plate dowel")
-    assert line.quantity == 4 and line.assembly == ("plate_dowels",)
+    # Two at each end, or under a ring drive's housing only: its top is the
+    # housing itself.
+    assert line.quantity == (2 if spec.ground_frame_fitted else 4)
+    assert line.assembly == ("plate_dowels",)
     assert "ISO 8734" in line.size and f"x {spec.plate_dowel_length:g}" in line.size
     assert line.mass_each_g == pytest.approx(plate_dowel_mass_g(spec))
     spec.plate_dowels = False

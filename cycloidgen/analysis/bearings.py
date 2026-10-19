@@ -9,7 +9,15 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ..core.spec import AUTOMATIC, CARRIER_DROP, DRY, MATERIALS, GearSpec, OutputMember
+from ..core.spec import (
+    AUTOMATIC,
+    CAP_CLEARANCE,
+    CARRIER_DROP,
+    DRY,
+    MATERIALS,
+    GearSpec,
+    OutputMember,
+)
 from .lubrication import ContactFilm, LubricationResult
 
 __all__ = ["BEARING_FILL", "CATALOGUE", "LIP_LAND", "MIN_SHOULDER", "Bearing", "BearingChoice",
@@ -598,8 +606,13 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
         # Both of them sit in a bore of the same size - the plate at one end, the
         # carrier's boss at the other - which is what lets one part number do for
         # both.  Width against twice the plate: a bearing may stand proud of it.
+        # On a ring drive each sits in a frame plate and its boss together -
+        # the carrier's or the end cap's - which are bored through as one.
+        support_room = (spec.output_flange_thickness + spec.housing_plate_thickness
+                        - CAP_CLEARANCE if spec.ground_frame_fitted
+                        else spec.plate_thickness)
         shaft = _fill(_Seat(spec.input_shaft_diameter, spec.hub_bore,
-                            spec.plate_thickness, shaft_load, shaft_rpm,
+                            support_room, shaft_load, shaft_rpm,
                             ("ball",), journal="input shaft"),
                       spec.shaft_bearing, spec.bearing_min_life_hours)
         b5, why5 = shaft.bearing, shaft.problem
@@ -617,7 +630,7 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
             problem=why5, fits=shaft.fits,
             note=("" if (b5 or why5) else
                   f"nothing in the catalogue both fits a {spec.hub_bore:.1f} mm "
-                  f"bore {spec.plate_thickness:g} mm deep and lasts "
+                  f"bore {support_room:g} mm deep and lasts "
                   f"{spec.bearing_min_life_hours:,.0f} h at {shaft_load:.0f} N: "
                   f"open the carrier boss, thicken the end plates, or take a "
                   f"shorter life"),
@@ -646,9 +659,13 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
                  f"{turning} free to tilt loads the output pins unevenly.",
         ))
     else:
+        # On a ring drive the top one rides the end cap's boss, which stops
+        # short of the housing's closed top - that is its seat's length.
+        room = spec.housing_plate_thickness - (CAP_CLEARANCE if spec.ground_frame_fitted
+                                               else 0.0)
         output = _fill(_Seat(spec.hub_diameter,
                              spec.output_bearing_seat_diameter,
-                             spec.plate_thickness, radial, spec.output_rpm,
+                             room, radial, spec.output_rpm,
                              ("ball",), journal="carrier boss"),
                        spec.output_bearing, spec.bearing_min_life_hours)
         b3, why3 = output.bearing, output.problem
@@ -663,9 +680,9 @@ def select_bearings(spec: GearSpec, eccentric_load_N: float,
                     + (", and the moment it applies - which is what having two "
                        "of them is for" if spec.ground_frame_fitted else ""),
             seat=f"one on each {spec.hub_diameter:.1f} mm boss of the frame, in "
-                 f"the {spec.output_bearing_seat_diameter:.1f} mm bores of the "
-                 f"two end plates - the bosses are held by {held} and the "
-                 f"plates turn"
+                 f"{spec.output_bearing_seat_diameter:.1f} mm bores in the plate "
+                 f"under the housing and in the housing's closed top - the "
+                 f"bosses are held by {held} and the housing turns"
                  if spec.ground_frame_fitted else
                  f"on the {spec.hub_diameter:.1f} mm carrier boss, in the "
                  f"{spec.output_bearing_seat_diameter:.1f} mm bore of the output "
@@ -944,8 +961,8 @@ def _shoulders(spec: GearSpec, placements: Sequence[BearingPlacement], *,
     bearing has no other job, and a lip that runs to the face is one less step
     to machine.  A register cut into the same face comes off the end of it.
     """
-    outside_input = spec.barrel_top + spec.plate_thickness
-    outside_output = spec.barrel_bottom - spec.plate_thickness
+    outside_input = spec.barrel_top + spec.housing_plate_thickness
+    outside_output = spec.barrel_bottom - spec.housing_plate_thickness
     boss_end = (spec.base_plate_bottom if spec.ground_frame_fitted
                 else spec.boss_bottom)
     found: list[Shoulder] = []
@@ -1209,22 +1226,28 @@ def bearing_placements(spec: GearSpec,
         reach = (-spec.shaft_overhang, spec.stack_height + spec.shaft_overhang)
         seats = (
             ("bearing_shaft_input", "Input shaft support, input side",
-             _span(spec.stack_height, spec.stack_height + spec.plate_thickness,
+             _span(spec.stack_height,
+                   spec.stack_height + spec.housing_plate_thickness,
                    width), "input_end_plate"),
             ("bearing_shaft_output", "Input shaft support, output side",
-             _span(outboard - spec.plate_thickness, outboard, width),
+             _span(outboard - spec.housing_plate_thickness, outboard, width),
              "output_flange"),
         )
         if spec.ground_frame_fitted:
             # Both supports move into the frame's two bosses.  The input-side
             # one was in the end plate, and that plate turns now - a bearing
             # with a turning outer ring and a turning inner one is not a shaft
-            # support, it is a second output bearing nobody asked for.
+            # support, it is a second output bearing nobody asked for.  Each
+            # against the inside end of its plate and boss, which are bored
+            # through as one: all the spare length is then on the outside,
+            # where the lip that holds it is.
             seats = (
                 ("bearing_shaft_input", "Input shaft support, input side",
-                 _span(spec.end_cap_top, spec.cap_boss_top, width), "end_cap"),
+                 _flush(spec.end_cap_bottom, spec.cap_boss_top, width,
+                        inside_at_top=False), "end_cap"),
                 ("bearing_shaft_output", "Input shaft support, output side",
-                 _span(outboard - spec.plate_thickness, outboard, width),
+                 _flush(outboard - spec.housing_plate_thickness, -CARRIER_DROP,
+                        width, inside_at_top=True),
                  "output_flange"),
             )
         for name, label, (z0, z1), host in seats:
@@ -1255,18 +1278,19 @@ def bearing_placements(spec: GearSpec,
     main = by_role.get("Main output bearing")
     if main is not None and main.bearing is not None:
         top = -CARRIER_DROP - spec.output_flange_thickness
-        z0, z1 = _flush(top - spec.plate_thickness, top, main.bearing.width,
-                        inside_at_top=True)
+        z0, z1 = _flush(top - spec.housing_plate_thickness, top,
+                        main.bearing.width, inside_at_top=True)
         seats = [("bearing_output_main", "Main output bearing",
                   (z0, z1), "output_end_plate")]
         if spec.ground_frame_fitted:
             seats[0] = ("bearing_output_main", "Main output bearing, output side",
                         (z0, z1), "output_end_plate")
+            # In the housing's own top, which is one part with the barrel.
             seats.append((
                 "bearing_output_input", "Main output bearing, input side",
                 _flush(spec.barrel_top, spec.cap_boss_top, main.bearing.width,
                        inside_at_top=False),
-                "input_end_plate"))
+                "housing"))
         for name, label, (a, bz), host in seats:
             out.append(BearingPlacement(
                 name=name, label=label,

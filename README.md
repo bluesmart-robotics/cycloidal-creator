@@ -42,7 +42,7 @@
 - **A datasheet, not a drawing.** Contact stress, torque capacity, efficiency,
   torsional stiffness, lost motion, transmission error, PV and running
   temperature, lubrication regime, mass and inertia, bearing life.
-- **Seventy-five checks that explain themselves.** Each says what it tests, what
+- **Seventy-four checks that explain themselves.** Each says what it tests, what
   goes wrong physically when it fails, and which parameter to move — and lights
   that parameter up in the panel.
 - **Requirements in, geometry out.** Say ratio, torque, speed and envelope; get
@@ -363,11 +363,11 @@ downstream follows.
 |---|---|---|
 | Epicyclic name | planetary | star |
 | Bolted down | ring housing and both end plates | the frame: base, carrier, pins, end cap |
-| Turns | carrier, pins and boss | housing barrel and both end plates |
+| Turns | carrier, pins and boss | the housing, closed at the top, and the plate under it |
 | Reduction | `N` (the lobe count) | `Np = N+1` (the pin count) |
 | Direction | against the input | with the input |
 | Motor bolts to | the input end plate | the carrier's base |
-| Load attaches to | the boss on the axis | bolts through the input end plate |
+| Load attaches to | the boss on the axis | screws into the housing's closed top |
 | Output pins | cantilevers off one plate | beams between two |
 | Housing carried by | — (it is the ground) | a bearing at each end of the frame |
 | Cam bearing speed | `(N+1)/N ×` input | exactly the input speed |
@@ -396,7 +396,7 @@ neither is cosmetic:
   frame's two bosses, and the two shaft supports move inside them.
 
 It costs length — the barrel has to cover the cap, so a 21:1 goes from 40 mm to
-63 mm — and it costs the end cap itself.
+59 mm, base included — and it costs the end cap itself.
 
 Two things follow from grounding the other member and are worth stating because
 they are easy to get wrong. First, every relative motion inside the drive is
@@ -408,48 +408,60 @@ passes through `GearSpec.crank_rate` on its way from rpm to mm/s.
 
 The motor face has to move, and that is not cosmetic — a motor bolted to a plate
 that turns is a gearbox nobody can build. So on a ring-output drive the carrier
-grows a base at the end of its boss, the motor's pattern and register go into
-that, and the input end plate gets an output bolt circle instead. The base is
+grows a base at the end of its boss, and the motor's pattern and register go
+into that. **The housing is then a cup**: the barrel and its closed top are one
+part, bored at the top for the second main bearing, which rides the end cap's
+boss, with 3 mm (`CUP_CEILING`) closing it over that. The closed top is the
+face the driven machine bolts to. Its screws go into blind holes, tapped or
+with inserts, on a circle midway between the bearing's seat and the rim,
+where the top is solid. Only a hole deeper than the top goes down the middle
+of the wall instead, clear of the pin pockets. The end cap's boss and the
+shaft's end stop a millimetre under it. One plate is left, under the housing,
+carrying the lower main bearing. The plates that turn only carry their bearings
+(`turning_plate_thickness`, a housing wall and 2 mm unless stated), while
+`end_plate_thickness` is then the base's, which the motor stands on. The base is
 a pad the motor's size and an end plate's thickness - what its register, its
 screws' seats and the shaft support's lip need - with a flange round it the
 housing's size and only as thick as the four screws that bolt it down need,
 tapped up into it from the machine's side on the motor's flats, where they
 are out of its corners' way. Through a coupling the motor stands on a mount
-and the base stays a whole plate. The boss
-stands only as far past the output end plate as the tie screws' heads on that
-turning plate need to clear the base, and a millimetre more — off the carrier
-it stands 8 mm, for a coupling to grip; `output_boss_protrusion` overrides
-either. Those output
-bolts share the tie bolts' circle, because that is the one radius on that plate
-with barrel wall behind it to thread into; they are held half a pitch away from
-them, and `OUTPUT_BOLT_CLASH` says so when the two counts do not interleave.
+and the base stays a whole plate. The boss stands a millimetre past the plate
+under the housing — nothing turns in that gap, since the plate's screws are let
+into it — and off the carrier it stands 8 mm, for a coupling to grip;
+`output_boss_protrusion` overrides either.
 
 The tie bolts themselves are socket head cap screws, named by the size their
 hole is the clearance for — a 4.5 mm hole is an M4 — at ISO 4762's next
 preferred length past the stack, a nut and two threads. Heads go on the output
 end plate and nuts on the input one: a counterbore will not fit the wall the
-bolt circle runs down, and the input plate's outside is where a motor goes. On
-a ring-output drive that face is the one the load bolts to instead, so the input
-plate is tapped for the screws and there are no nuts: each screw is the longest
-preferred length that has one and a half diameters of thread in a metal plate,
-or two in a polymer one, and stops half a millimetre short of the face. A plate
-too thin for that keeps its nuts, and `TIE_NUTS_ON_OUTPUT_FACE` says how far
-proud of the face they stand and how thick a plate would take the thread.
+bolt circle runs down, and the input plate's outside is where a motor goes. A
+ring-output drive has one joint, and its screws come up from below through
+the plate under the housing into the housing's underside. Their heads sit in
+counterbores, so nothing stands in the gap over the base. They go midway
+between the pin circle and the rim, each between two ring pins: that is where
+both the counterbore and the thread past it have metal round them. Each is the
+largest size, no bigger than the tie-bolt hole asks for, whose counterbore
+leaves 0.75 mm to the outside — an M3 in the default 6 mm wall — at the
+shortest preferred length with one and a half diameters of thread in metal or
+two in a polymer.
 
 A printed part's own thread strips long before the screw is loaded, so a
 polymer drive can ask for heat-set inserts (`heat_set_inserts`): knurled brass,
-pressed in hot, wherever a screw threads into plastic — the tie screws into
-the turning plate, from the face that meets the barrel, and the four that bolt
-the base down, from below. The screw then needs only one and a half diameters
-in it, as in metal. An insert's hole is wider than the screw's and wants
-1.5 mm of plastic round it, which a round housing's bolt circle down the middle
-of a 6 mm wall has not got; there the plate is tapped as before and
-`INSERTS_DO_NOT_FIT` names the wall, or the square housing, that would take
-them. The base's flange thickens to the insert's length, half a millimetre for
-the plastic it displaces and half a millimetre over the hole's end.
+pressed in hot, wherever a screw threads into plastic. On a ring-output
+drive that is up into the housing's underside for the plate's screws, down into
+its face for the driven machine's, and up into the base for the four that bolt
+it down. The screw then needs only one and a half diameters in it, as in
+metal. An insert's hole is wider than the screw's and wants 1.5 mm of plastic
+round it. Where a part has not got that, it is tapped as before, and
+`INSERTS_DO_NOT_FIT` names the wall, the square housing or the plate
+thickness that would take them. The base's flange thickens to the insert's
+length, plus half a millimetre for the plastic it displaces and half a
+millimetre over the end of the hole.
 
 **What puts the plates on the ring's axis is two dowels at each end, not the
-bolts.** The plates carry the shaft supports and the output bearing, so they
+bolts** — at the one end with a plate on a ring-output drive, since the top
+there is the housing itself. The plates carry the shaft supports and the output
+bearing, so they
 decide where the crank's axis is, and the ring pins are in the barrel; a bolt
 in a clearance hole locates nothing, and an M4 in 4.5 mm lets a plate sit half
 a millimetre off - against a machined drive's few hundredths of profile
@@ -626,7 +638,7 @@ Beyond the geometry checks, every design gets a datasheet:
 
 ## Checks
 
-Seventy-five of them. Errors block export; warnings do not; several are readings
+Seventy-four of them. Errors block export; warnings do not; several are readings
 rather than tests.
 
 **Profile** — `K1_TOO_HIGH` · `K1_HIGH` · `UNDERCUT` · `UNDERCUT_MARGIN` ·
@@ -657,8 +669,8 @@ rather than tests.
 **Mounting** — `HOUSING_BOLT_CLASH` · `OUTPUT_BOLT_CLASH` ·
 `MOTOR_SHAFT_TOO_BIG` · `MOTOR_SHAFT_MISMATCH` · `MOTOR_SHAFT_SHORT` ·
 `MOTOR_SCREW_SEAT` · `MOTOR_HOLLOW_TOO_SMALL` · `COUPLING_DOES_NOT_FIT` ·
-`MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD` · `TIE_NUTS_ON_OUTPUT_FACE` ·
-`INSERTS_DO_NOT_FIT` · `PLATES_NOT_LOCATED` · `PLATE_DOWEL_CLASH`
+`MOTOR_FACE_CLASH` · `MOTOR_RADIAL_LOAD` · `INSERTS_DO_NOT_FIT` ·
+`PLATES_NOT_LOCATED` · `PLATE_DOWEL_CLASH`
 
 **The motor** — `MOTOR_OPERATING_POINT` · `MOTOR_TORQUE_SHORT` ·
 `MOTOR_SUPPLY_VOLTAGE` · `MOTOR_OVERLOADS_DRIVE`
