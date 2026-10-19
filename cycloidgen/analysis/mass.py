@@ -450,11 +450,22 @@ def analyse_mass(spec: GearSpec, bores: SeatBores | None = None,
     # leaving it out would report a gearbox lighter than the one exported.
     # Where the base is a flange and a pad, the flange is the outline at its own
     # thickness and the pad the rest of the way down under the motor.
-    if spec.ground_frame_fitted:
+    if spec.base_wraps_motor:
+        # The plate the motor stands on, the sleeve's outline across, and the
+        # sleeve under it down to the motor's back, less its cable's slot.
+        width, height = spec.cable_slot
+        h, _ = spec.sleeve_bore
+        flange_volume += (spec.sleeve_area * spec.plate_thickness
+                          + (spec.sleeve_area - spec.sleeve_bore_area)
+                          * spec.motor_face.body_length
+                          - width * height * (spec.sleeve_half_width - h)
+                          - math.pi * (bores.hub / 2.0) ** 2 * spec.plate_thickness)
+    elif spec.ground_frame_fitted:
         flange = spec.base_flange_thickness
         flange_volume += (spec.housing_section_area * flange
                           + spec.base_pad_area * (spec.plate_thickness - flange)
                           - math.pi * (bores.hub / 2.0) ** 2 * spec.plate_thickness)
+    if spec.ground_frame_fitted:
         flange_volume -= (len(spec.base_mount_centres) * math.pi
                           * (spec.base_mount_hole / 2.0) ** 2 * spec.base_mount_depth)
         flange_volume -= _base_motor_cuts(spec, bores)

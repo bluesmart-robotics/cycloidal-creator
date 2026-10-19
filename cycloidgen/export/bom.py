@@ -510,6 +510,20 @@ def _face_note(s) -> str:
 
 def _base_note(s) -> str:
     """The base on a ring drive's carrier, said as what it is."""
+    if s.base_wraps_motor:
+        mounts = s.base_mount_centres
+        size = s.bolt_size_asked
+        how = (f"drilled Ø{s.base_mount_hole:g} for {len(mounts)} x {size.name} "
+               f"heat-set inserts" if s.base_insert is not None else
+               f"tapped {len(mounts)} x {size.name}")
+        width, height = s.cable_slot
+        return (f"; one part with the base the drive stands on, on the end of the "
+                f"boss - a plate {s.plate_thickness:g} mm thick that the motor "
+                f"bolts to, and a sleeve {2 * s.sleeve_half_width:.1f} mm square "
+                f"down round the motor to its back, {how} "
+                f"{s.base_mount_depth:g} deep up into its corners to bolt it down "
+                f"by, with a {width:.1f} x {height:g} mm slot in its +x flat for "
+                f"the motor's cable")
     if not s.base_has_flange:
         return (f"; one part with the base the drive is bolted down by, on the "
                 f"end of the boss - {s.housing_size_text} x {s.plate_thickness:g} mm")

@@ -497,7 +497,8 @@ class _Builder:
                           _circle(0.0, 0.0, min(r, wider), segments), z1,
                           up=wider > r)
 
-    def layered(self, outer: np.ndarray, layers) -> None:
+    def layered(self, outer: np.ndarray, layers, *, cap_bottom: bool = True,
+                cap_top: bool = True) -> None:
         """A part built up in layers along the axis, closed where they meet.
 
         ``layers`` is ``(z0, z1, bore, holes)`` from the bottom up: ``bore``
@@ -509,7 +510,9 @@ class _Builder:
         that stops is a floor or a ceiling.  The same name has to carry the
         same loop wherever it appears, so that the faces meet.  Everything
         else between two layers is interior and is left out, as
-        :meth:`cap` explains.
+        :meth:`cap` explains.  A hole that starts where a bore narrows - a
+        screw's, through the floor of a pocket - is a hole in that step rather
+        than a blind end of its own.
         """
         def area(loop: np.ndarray) -> float:
             x, y = loop[:, 0], loop[:, 1]
@@ -519,26 +522,32 @@ class _Builder:
             loops = ([bore] if bore is not None else []) + list(holes.values())
             self.prism(outer, loops, z0, z1, cap_bottom=False, cap_top=False)
         first, last = layers[0], layers[-1]
-        self.cap(outer, ([first[2]] if first[2] is not None else [])
-                 + list(first[3].values()), first[0], up=False)
-        self.cap(outer, ([last[2]] if last[2] is not None else [])
-                 + list(last[3].values()), last[1], up=True)
+        if cap_bottom:
+            self.cap(outer, ([first[2]] if first[2] is not None else [])
+                     + list(first[3].values()), first[0], up=False)
+        if cap_top:
+            self.cap(outer, ([last[2]] if last[2] is not None else [])
+                     + list(last[3].values()), last[1], up=True)
         for (_, z, below, h_below), (_, _, above, h_above) in pairwise(layers):
+            gone = {n: lp for n, lp in h_below.items() if n not in h_above}
+            new = {n: lp for n, lp in h_above.items() if n not in h_below}
             if below is not above:
                 if below is None:
                     self.cap(above, (), z, up=True)
                 elif above is None:
                     self.cap(below, (), z, up=False)
                 elif area(below) > area(above):
-                    self.cap(below, (above,), z, up=False)
+                    opening = {n: lp for n, lp in new.items() if _within(lp, below)}
+                    self.cap(below, (above, *opening.values()), z, up=False)
+                    new = {n: lp for n, lp in new.items() if n not in opening}
                 else:
-                    self.cap(above, (below,), z, up=True)
-            for name, loop in h_below.items():
-                if name not in h_above:
-                    self.cap(loop, (), z, up=False)
-            for name, loop in h_above.items():
-                if name not in h_below:
-                    self.cap(loop, (), z, up=True)
+                    opening = {n: lp for n, lp in gone.items() if _within(lp, above)}
+                    self.cap(above, (below, *opening.values()), z, up=True)
+                    gone = {n: lp for n, lp in gone.items() if n not in opening}
+            for loop in gone.values():
+                self.cap(loop, (), z, up=False)
+            for loop in new.values():
+                self.cap(loop, (), z, up=True)
 
     def build(self, spec: GearSpec) -> Mesh:
         outer = [lp[0] for lp in self._loops]
@@ -679,6 +688,86 @@ def _plate_bolt_holes(spec: GearSpec, motor_face: bool) -> list[np.ndarray]:
     if spec.coupled:
         return holes                  # the motor's are on its mount's flange
     return holes + motor_bolt_holes(spec)
+
+
+def _within(loop: np.ndarray, region: np.ndarray) -> bool:
+    """Whether ``loop`` lies inside the polygon ``region``: its first point,
+    by the crossings of a ray from it."""
+    x, y = float(loop[0][0]), float(loop[0][1])
+    inside = False
+    for (x0, y0), (x1, y1) in zip(region, np.roll(region, -1, axis=0), strict=True):
+        if (y0 > y) != (y1 > y) and x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
+            inside = not inside
+    return inside
+
+
+def _sleeve_mesh(b: _Builder, spec: GearSpec, hub_r: float, bore_r: float,
+                 bores: SeatBores, boss_bottom: float) -> None:
+    """A ring drive's base wrapped round its motor: the sleeve up from the
+    motor's back, its cable's slot through the +x flat at its foot, and the
+    plate the motor stands on - with the register, the motor's screws and the
+    mount holes up into the corners, as :func:`cycloidgen.export.solid._sleeve`
+    cuts them."""
+    width, height = spec.cable_slot
+    half = spec.sleeve_half_width
+    h, _ = spec.sleeve_bore
+    w = width / 2.0
+    # The slot's corners go into both loops, so the faces that meet there share
+    # them.
+    outer = np.vstack([np.array(spec.sleeve_outline(), float), [(half, -w), (half, w)]])
+    bore = np.array(spec.sleeve_bore_outline(), float)
+    bore = np.vstack([bore[:1], [(h, -w), (h, w)], bore[1:]])
+    # At its foot the slot joins the bore to the outside: one loop round the
+    # outline from the slot's top side, then back round the bore the other way.
+    slotted = np.vstack([outer[-1:], outer[:-2], outer[-2:-1],
+                         bore[1:2], bore[:1], bore[:2:-1], bore[2:3]])
+    foot, floor = spec.sleeve_bottom, spec.base_plate_bottom
+    top_of_slot = foot + height
+    mounts = {f"mount {k}": _circle(x, y, spec.base_mount_hole / 2.0, 16)
+              for k, (x, y) in enumerate(spec.base_mount_centres)}
+    depth = foot + spec.base_mount_depth
+    motor_holes = {f"motor {k}": loop for k, loop in enumerate(motor_bolt_holes(spec))}
+    recess = _pilot_recess(spec, bores.hub)
+    runs = _bore_runs(bore_r, bores.shoulders, "output_flange", floor + recess,
+                      boss_bottom)
+    circles = {r: _circle(0.0, 0.0, r, 28) for _, _, r in runs}
+    pilot = (_circle(0.0, 0.0, spec.motor_face.pilot_diameter / 2.0, 48)
+             if recess else None)
+
+    # The slot's height of the sleeve, the slot open through it.
+    cuts = sorted({foot, top_of_slot, *(z for z in (depth,) if foot < z < top_of_slot)})
+    b.cap(slotted, list(mounts.values()), foot, up=False)
+    for z0, z1 in pairwise(cuts):
+        here = list(mounts.values()) if z0 < depth else []
+        b.prism(slotted, here, z0, z1, cap_bottom=False, cap_top=False)
+        if z1 == depth and z1 < top_of_slot:
+            for loop in mounts.values():
+                b.cap(loop, (), z1, up=False)
+    # Over the slot, the sleeve's wall it went through faces down.
+    b.cap(np.array([(h, -w), (half, -w), (half, w), (h, w)]), (), top_of_slot, up=False)
+
+    # The sleeve above it, then the plate.
+    zs = sorted({top_of_slot, floor, boss_bottom, floor + recess,
+                 *(z for z in (depth,) if top_of_slot < z < floor),
+                 *(z for z0, z1, _ in runs for z in (z0, z1))})
+    layers = []
+    for z0, z1 in pairwise(zs):
+        if z1 - z0 < 1e-9:
+            continue
+        mid = 0.5 * (z0 + z1)
+        if mid < floor:
+            holes = dict(mounts) if mid < depth else {}
+            layers.append((z0, z1, bore, holes))
+        elif mid < floor + recess:
+            layers.append((z0, z1, pilot, dict(motor_holes)))
+        else:
+            r = next(r for a, c, r in runs if a <= mid <= c)
+            layers.append((z0, z1, circles[r], dict(motor_holes)))
+    b.layered(outer, layers, cap_bottom=False, cap_top=False)
+    # The plate's top: covered by the boss standing on it, pierced by the
+    # motor's screws.
+    b.cap(outer, (_circle(0.0, 0.0, hub_r, 40), *motor_holes.values()), boss_bottom,
+          up=True)
 
 
 def _crossing(hub: np.ndarray, hub_r: float, holes: list[np.ndarray]):
@@ -1107,7 +1196,9 @@ def build_mesh(spec: GearSpec,
                    up=above > below)
         b.bored_prism(_circle(0.0, 0.0, hub_r, 40), (), in_boss, 28,
                       cap_top=False, cap_bottom=not spec.ground_frame_fitted)
-        if spec.ground_frame_fitted:
+        if spec.base_wraps_motor:
+            _sleeve_mesh(b, spec, hub_r, bore_r, bores, boss_bottom)
+        elif spec.ground_frame_fitted:
             # The base the gearbox is bolted down by, on the end of the boss.
             # Housing-sized, because it is the face of the machine at that end
             # and because a NEMA pattern needs the width.
@@ -1631,6 +1722,14 @@ def mesh_fingerprint(spec: GearSpec,
         # Whether the input plate is tapped for the tie screws, and at what:
         # its holes and the nuts' being there at all.
         spec.tie_screws_tapped, spec.tie_thread_hole, spec.base_mount_hole,
+        # The sleeve a ring drive's base wraps its motor in.
+        spec.base_wraps_motor,
+        tuple(spec.sleeve_outline()) if spec.base_wraps_motor else (),
+        spec.sleeve_bore if spec.base_wraps_motor else (),
+        tuple(spec.sleeve_bore_outline()) if spec.base_wraps_motor else (),
+        spec.sleeve_half_width if spec.base_wraps_motor else 0.0,
+        spec.sleeve_bottom if spec.base_wraps_motor else 0.0,
+        spec.cable_slot,
         # A ring drive's housing and the plate under it: the closed top, the
         # screws' counterbores and blind holes, and the face's own holes.
         spec.housing_plate_thickness, spec.cup_top, spec.tie_counterbore,

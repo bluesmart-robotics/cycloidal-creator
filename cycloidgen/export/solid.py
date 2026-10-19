@@ -742,7 +742,9 @@ def output_flange(spec: GearSpec,
         # nothing caught it, and a printer would have made two.
         bottom = spec.base_plate_bottom + CARRIER_DROP
         top = spec.boss_bottom + CARRIER_DROP
-        if spec.base_has_flange:
+        if spec.base_wraps_motor:
+            base = _sleeve(spec, bottom, top)
+        elif spec.base_has_flange:
             # A flange the housing's outline, thin, and the pad under the motor
             # the plate's whole thickness - see GearSpec.base_pad.
             flange = spec.base_flange_thickness
@@ -756,6 +758,22 @@ def output_flange(spec: GearSpec,
             base = _outline_prism(spec, bottom, spec.plate_thickness)
         if spec.coupled:
             base = base.union(_motor_mount(spec, "output_flange", -1.0))
+        elif spec.base_wraps_motor:
+            # Cut up into the plate from the motor's face, which is inside the
+            # sleeve: nothing there is a face of the part to start from.
+            frame = spec.motor_face
+            if frame.pilot_diameter > bore:
+                base = base.cut(cq.Workplane("XY").workplane(offset=bottom - 1.0)
+                                .circle(frame.pilot_diameter / 2.0)
+                                .extrude(1.0 + min(frame.pilot_depth,
+                                                   spec.plate_thickness / 2.0)))
+            base = base.cut(cq.Workplane("XY").workplane(offset=bottom - 1.0)
+                            .pushPoints(spec.motor_bolt_centres)
+                            .circle(frame.bolt_diameter / 2.0)
+                            .extrude(spec.plate_thickness + 2.0))
+            recesses = _motor_recesses(spec, top, -1.0)
+            if recesses is not None:
+                base = base.cut(recesses)
         elif spec.has_motor_face:
             frame = spec.motor_face
             # The register first, and only where the spigot is wider than the
@@ -773,10 +791,12 @@ def output_flange(spec: GearSpec,
             if recesses is not None:
                 base = base.cut(recesses)
         # Tapped up into the flange from the machine's side, the side it is
-        # bolted down from: the housing turns over the other.
+        # bolted down from: the housing turns over the other.  Up into the
+        # sleeve's corners from its foot, where it wraps the motor.
         if spec.base_mount_centres:
-            base = base.cut(cq.Workplane("XY")
-                            .workplane(offset=top - spec.base_flange_thickness)
+            start = (spec.sleeve_bottom + CARRIER_DROP if spec.base_wraps_motor
+                     else top - spec.base_flange_thickness)
+            base = base.cut(cq.Workplane("XY").workplane(offset=start)
                             .pushPoints(spec.base_mount_centres)
                             .circle(spec.base_mount_hole / 2.0)
                             .extrude(spec.base_mount_depth))
@@ -807,6 +827,25 @@ def output_flange(spec: GearSpec,
     return _round_inside(_break_edges(body, radii, min(spec.edge_chamfer, t / 4.0),
                                       outline=spec if spec.ground_frame_fitted
                                       else None))
+
+
+def _sleeve(spec: GearSpec, bottom: float, top: float) -> cq.Workplane:
+    """A ring drive's base wrapped round its motor, in the carrier's frame:
+    the plate the motor stands on, from ``bottom`` to ``top``, and the sleeve
+    under it down to the motor's back - bored to the motor's body and the
+    clearance, with the slot its cable leaves by."""
+    foot = spec.sleeve_bottom + CARRIER_DROP
+    base = (cq.Workplane("XY").workplane(offset=foot)
+            .polyline(spec.sleeve_outline()).close().extrude(top - foot))
+    base = base.cut(cq.Workplane("XY").workplane(offset=foot - 1.0)
+                    .polyline(spec.sleeve_bore_outline()).close()
+                    .extrude(bottom - foot + 1.0))
+    width, height = spec.cable_slot
+    h, _ = spec.sleeve_bore
+    reach = spec.sleeve_half_width + 1.0
+    return base.cut(cq.Workplane("XY").box(reach - h + 1.0, width, height + 1.0,
+                                           centered=False)
+                    .translate((h - 1.0, -width / 2.0, foot - 1.0)))
 
 
 def end_cap(spec: GearSpec, placements: Sequence[BearingPlacement] = (),

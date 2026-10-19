@@ -247,13 +247,14 @@ def test_the_motor_bolts_to_the_member_that_stands_still():
     # And on the ring-output drive the motor's holes are in the carrier instead.
     # The carrier is modelled in its own frame, with its top face at zero, so an
     # assembled height reads a carrier drop higher here.
+    # It wraps the motor, down to its back.
     flange = solid.output_flange(ring).val()
     box = flange.BoundingBox()
-    assert box.zmin == pytest.approx(ring.base_plate_bottom + CARRIER_DROP)
+    assert ring.base_wraps_motor
+    assert box.zmin == pytest.approx(ring.sleeve_bottom + CARRIER_DROP)
     half = ring.motor_face.bolt_span / 2.0
     reach = math.hypot(half, half) + ring.motor_face.bolt_diameter / 2.0
-    assert box.xlen / 2.0 == pytest.approx(ring.housing_outer_radius, rel=1e-3)
-    assert reach < ring.housing_outer_radius        # the pattern lands on it
+    assert reach < ring.sleeve_half_width           # the pattern lands on it
 
 
 def test_the_base_is_only_there_when_the_carrier_is_the_ground():
@@ -715,14 +716,15 @@ def test_a_carrier_drive_keeps_its_nuts():
 
 
 def test_the_ring_drive_is_the_length_its_parts_add_up_to():
-    """The base's underside to the housing's closed face, worked out by hand,
-    against the assembled solids' own extent - the motor and its screws left
-    out, which hang under the base."""
+    """The sleeve's foot to the housing's closed face, worked out by hand -
+    the motor's length in the sleeve, then the base's plate and up - against
+    the assembled solids' own extent."""
     from cycloidgen.core.spec import BASE_RUNNING_GAP, CUP_CEILING
     from cycloidgen.export import solid
 
     spec = _ring("nema17-printed-15")
-    by_hand = (spec.plate_thickness + BASE_RUNNING_GAP + spec.housing_plate_thickness
+    by_hand = (spec.motor_face.body_length
+               + spec.plate_thickness + BASE_RUNNING_GAP + spec.housing_plate_thickness
                + spec.barrel_height + spec.housing_plate_thickness + CUP_CEILING)
     assert spec.envelope_length == pytest.approx(by_hand)
     assy = solid.build_assembly(spec)
@@ -824,6 +826,9 @@ def test_the_base_is_bolted_down_from_below_into_blind_threads(name):
     spec = BASES[name]()
     assert len(spec.base_mount_centres) == 4
     body = solid.output_flange(spec).val()
+    if spec.base_wraps_motor:
+        _probe_sleeve_mounts(spec, body)
+        return
     top = spec.boss_bottom + CARRIER_DROP
     floor = top - spec.base_flange_thickness
     for x, y in spec.base_mount_centres:
@@ -836,11 +841,79 @@ def test_the_base_is_bolted_down_from_below_into_blind_threads(name):
         assert body.isInside(cq.Vector(x + hole + 0.5, y, floor + 0.5))
 
 
-def test_the_flange_is_thinner_than_the_pad_the_motor_stands_on():
-    spec = _ring("nema23-machined-29")
-    assert spec.base_has_flange
+def _probe_sleeve_mounts(spec, body):
+    """Up into the sleeve's corners from its foot: no metal in each hole, metal
+    over its end, and the wall either side of it along its diagonal."""
+    import cadquery as cq
+
+    from cycloidgen.core.spec import SLEEVE_HOLE_WALL
+
+    foot = spec.sleeve_bottom + CARRIER_DROP
+    hole = spec.base_mount_hole / 2.0
+    for x, y in spec.base_mount_centres:
+        r = math.hypot(x, y)
+        ux, uy = x / r, y / r
+        assert not body.isInside(cq.Vector(x, y, foot + spec.base_mount_depth / 2.0))
+        assert body.isInside(cq.Vector(x, y, foot + spec.base_mount_depth + 0.5))
+        for side in (1.0, -1.0):
+            d = side * (hole - 0.2)
+            assert not body.isInside(cq.Vector(x + ux * d, y + uy * d, foot + 1.0))
+            d = side * (hole + SLEEVE_HOLE_WALL - 0.2)
+            assert body.isInside(cq.Vector(x + ux * d, y + uy * d, foot + 1.0))
+
+
+def test_the_flange_is_thinner_than_the_pad_under_it():
+    """With no motor to wrap, the base is still a flange the housing's size on
+    a pad the boss's - the flange only as thick as its screws need."""
+    spec = _ring(21, end_plate_thickness=12.0)
+    assert spec.base_has_flange and not spec.base_wraps_motor
     assert spec.base_flange_thickness < spec.plate_thickness
-    assert spec.base_pad == ("square", spec.motor_face.body_width)
+    assert spec.base_pad == ("round", spec.hub_diameter)
+
+
+@pytest.mark.parametrize("key", ["nema17-printed-15", "nema23-machined-21",
+                                 "nema34-machined-29"])
+def test_a_ring_drive_s_base_wraps_its_motor(key):
+    """The base comes down round the motor's body to its back, with air round
+    the body and a wall past it, a slot through its +x flat for the cable, and
+    the drive stands on its foot - probed in the solid; and the motor the view
+    draws is inside it, clear of it."""
+    import cadquery as cq
+
+    from cycloidgen.core.spec import SLEEVE_CLEARANCE
+    from cycloidgen.export import solid
+    from cycloidgen.export.bom import bom_items
+    from cycloidgen.viz import build_mesh
+
+    spec = _ring(key)
+    assert spec.base_wraps_motor and not spec.base_has_flange
+    body = solid.output_flange(spec).val()
+    assert body.isValid() and len(body.Solids()) == 1
+    frame = spec.motor_face
+    h = frame.body_width / 2.0
+    foot = spec.sleeve_bottom + CARRIER_DROP
+    mid = foot + frame.body_length / 2.0
+    wall = spec.sleeve_half_width - h - SLEEVE_CLEARANCE
+    for x, y in ((-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)):
+        assert not body.isInside(cq.Vector(x * (h + SLEEVE_CLEARANCE / 2.0),
+                                           y * (h + SLEEVE_CLEARANCE / 2.0), mid))
+        assert body.isInside(cq.Vector(x * (h + SLEEVE_CLEARANCE + wall / 2.0),
+                                       y * (h + SLEEVE_CLEARANCE + wall / 2.0), mid))
+    width, height = spec.cable_slot
+    x = h + SLEEVE_CLEARANCE + wall / 2.0
+    assert not body.isInside(cq.Vector(x, 0.0, foot + height / 2.0))
+    assert body.isInside(cq.Vector(x, 0.0, foot + height + 0.5))
+    assert body.isInside(cq.Vector(x, width / 2.0 + 1.0, foot + height / 2.0))
+    _probe_sleeve_mounts(spec, body)
+
+    mesh = build_mesh(spec)
+    motor = next(p for p in mesh.parts if p.name == "motor")
+    v = mesh.vertices[motor.vertices]
+    assert v[:, 2].min() == pytest.approx(spec.sleeve_bottom)
+    assert np.abs(v[:, :2]).max() <= h + 1e-6
+    a = analyse(spec)
+    assert (sum(i.mass_total_g for i in bom_items(a))
+            == pytest.approx(a.mass.total_mass_g, rel=1e-6))
 
 
 def test_through_a_coupling_the_base_stays_a_whole_plate():
@@ -892,7 +965,8 @@ def test_the_inserts_holes_weigh_what_the_solids_lose_to_them():
 
     with_ = _ring("nema17-printed-15", heat_set_inserts=True)
     without = _ring("nema17-printed-15")
-    assert with_.base_flange_thickness > without.base_flange_thickness
+    # The sleeve's corners grow for the inserts' wider holes.
+    assert with_.sleeve_half_width > without.sleeve_half_width
 
     def weighed(spec):
         m = analyse(spec).mass

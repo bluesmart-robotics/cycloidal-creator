@@ -419,13 +419,19 @@ of the wall instead, clear of the pin pockets. The end cap's boss and the
 shaft's end stop a millimetre under it. One plate is left, under the housing,
 carrying the lower main bearing. The plates that turn only carry their bearings
 (`turning_plate_thickness`, a housing wall and 2 mm unless stated), while
-`end_plate_thickness` is then the base's, which the motor stands on. The base is
-a pad the motor's size and an end plate's thickness - what its register, its
-screws' seats and the shaft support's lip need - with a flange round it the
-housing's size and only as thick as the four screws that bolt it down need,
-tapped up into it from the machine's side on the motor's flats, where they
-are out of its corners' way. Through a coupling the motor stands on a mount
-and the base stays a whole plate. The boss stands a millimetre past the plate
+`end_plate_thickness` is then the base's, which the motor stands on.
+**The base wraps the motor** rather than holding it out under a plate the
+housing's size. It has a plate an end plate thick, which holds the register,
+the screws' seats and the shaft support's lip. Under that plate a sleeve
+comes down round the motor's body to its back. The sleeve is bored to the
+cut-cornered body with 0.5 mm of air round it, since a stepper runs hot and
+the sleeve is often a print. A slot in its +x flat at the foot lets the cable
+out, and the motor's back stays open. The drive stands on the sleeve's foot.
+Four screws bolt it down, up into the sleeve's corners, which the motor's own
+cut corners leave as metal; the corners grow where a mount hole or its insert
+needs more round it. With no motor, the base is a flange the housing's size on
+a pad. Through a coupling the motor stands on a mount and the base stays a
+whole plate, and so it does for an outrunner, whose can turns. The boss stands a millimetre past the plate
 under the housing — nothing turns in that gap, since the plate's screws are let
 into it — and off the carrier it stands 8 mm, for a coupling to grip;
 `output_boss_protrusion` overrides either.

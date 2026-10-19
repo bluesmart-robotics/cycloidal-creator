@@ -393,6 +393,16 @@ CUP_CEILING = 3.0
 #: ceiling, which turns over them, mm.
 CAP_CLEARANCE = 1.0
 
+#: Air round the motor's body inside the sleeve a ring drive's base wraps it
+#: in, mm: a stepper runs hot, and the sleeve is often a print.
+SLEEVE_CLEARANCE = 0.5
+
+#: The thinnest sleeve wall, mm; otherwise half the housing's.
+SLEEVE_WALL_MIN = 2.0
+
+#: Metal either side of a mount hole in the sleeve's corners, mm.
+SLEEVE_HOLE_WALL = 1.5
+
 #: How much deeper than its dowel a blind dowel hole in a ring drive's
 #: housing is, mm, so the dowel bottoms on nothing.
 DOWEL_SUMP = 0.5
@@ -1216,7 +1226,7 @@ class GearSpec(BaseModel):
     def base_has_flange(self) -> bool:
         """Whether the base is a pad and a flange rather than a plate: on a ring
         drive, unless the motor is on a mount or wider than the base."""
-        if not self.ground_frame_fitted or self.coupled:
+        if not self.ground_frame_fitted or self.coupled or self.base_wraps_motor:
             return False
         loop = self.base_pad_outline()
         if self.square_housing:
@@ -1229,6 +1239,9 @@ class GearSpec(BaseModel):
         each on an axis - the middle of a stepper's flat, out of its corners'
         way - halfway out from the pad to the edge.  None where that leaves no
         wall either side of the thread's drill."""
+        if self.base_wraps_motor and self.bolt_size_asked is not None:
+            d = self._sleeve_mount_reach / math.sqrt(2.0)
+            return [(d, d), (-d, d), (-d, -d), (d, -d)]
         if not self.base_has_flange or self.bolt_size_asked is None:
             return []
         pad = self.base_pad[1] / 2.0                   # the pad's reach along x
@@ -1246,7 +1259,132 @@ class GearSpec(BaseModel):
         insert = self.base_insert
         need = (insert.length + INSERT_SUMP if insert is not None
                 else self._thread_engagement(None, self.bolt_size_asked))
+        if self.base_wraps_motor:
+            return need                   # up a corner the motor's length
         return min(need, self.base_flange_thickness - TAPPED_COVER)
+
+    # ---- the sleeve: the base wrapped round the motor ---------------------------
+    #
+    # A stepper on a ring drive hung under a plate the housing's size, out on
+    # its own.  The base comes down round its body instead, as a sleeve to the
+    # motor's back, and the drive stands on that, bolted down up into its four
+    # corners - where a cut-cornered stepper leaves the metal to do it.  The
+    # motor's back stays open, :data:`SLEEVE_CLEARANCE` of air goes round its
+    # body, and a slot from the sleeve's foot in one flat lets its cable out.
+    # Only for a square-bodied motor bolted flush to the base: through a
+    # coupling it stands on a mount, and an outrunner's can turns.
+    @property
+    def base_wraps_motor(self) -> bool:
+        """Whether the base is a sleeve round the motor."""
+        if not self.ground_frame_fitted or not self.has_motor_face or self.coupled:
+            return False
+        frame = self.motor_face
+        return (not frame.round_body and not frame.rotor_driven
+                and frame.body_width > 0.0 and frame.body_length > 0.0)
+
+    @property
+    def sleeve_wall(self) -> float:
+        """The sleeve's wall at its flats, mm, and its corners' radius."""
+        return max(SLEEVE_WALL_MIN, self.housing_wall / 2.0)
+
+    @property
+    def sleeve_bore(self) -> tuple[float, float]:
+        """``(half-width, corner cut)`` of the sleeve's bore: the motor's body,
+        cut-cornered as it is, :data:`SLEEVE_CLEARANCE` larger all round."""
+        frame = self.motor_face
+        h, c = frame.body_width / 2.0, MOTOR_CORNER * frame.body_width
+        d = SLEEVE_CLEARANCE
+        return h + d, c + d * (2.0 - math.sqrt(2.0))
+
+    def _sleeve_corner(self, half: float) -> tuple[float, float]:
+        """How far out the bore's cut corner and the outline's rounded one
+        are along a diagonal, for a sleeve ``half`` across the flats."""
+        h, c = self.sleeve_bore
+        rc = self.sleeve_wall
+        return (2.0 * h - c) / math.sqrt(2.0), (half - rc) * math.sqrt(2.0) + rc
+
+    @property
+    def _sleeve_hole(self) -> float:
+        """The mount holes' size, for the room they need: an insert's where
+        one is asked for in a print, the tap drill otherwise."""
+        size = self.bolt_size_asked
+        if size is None:
+            return 0.0
+        if self.heat_set_inserts and self.housing_mat.E_GPa < 10.0:
+            insert = insert_for(size)
+            if insert is not None:
+                return insert.hole
+        return size.d - size.pitch
+
+    @property
+    def sleeve_half_width(self) -> float:
+        """Half the sleeve across its flats, mm: the bore and a wall - or wider,
+        where a corner would not otherwise have :data:`SLEEVE_HOLE_WALL` either
+        side of a mount hole."""
+        h, _ = self.sleeve_bore
+        half = h + self.sleeve_wall
+        inner, outer = self._sleeve_corner(half)
+        need = self._sleeve_hole + 2.0 * SLEEVE_HOLE_WALL
+        if outer - inner < need:
+            half += (need - (outer - inner)) / math.sqrt(2.0)
+        return half
+
+    @property
+    def _sleeve_mount_reach(self) -> float:
+        """A mount hole's distance from the axis, on its diagonal: midway
+        between the bore's corner and the outline's."""
+        inner, outer = self._sleeve_corner(self.sleeve_half_width)
+        return 0.5 * (inner + outer)
+
+    def sleeve_outline(self, segments: int = 8) -> list[tuple[float, float]]:
+        """The sleeve as a loop: a square with its corners rounded to its
+        wall, ``segments`` points to a corner's quarter."""
+        half, rc = self.sleeve_half_width, self.sleeve_wall
+        c = half - rc
+        loop = []
+        for k, (cx, cy) in enumerate(((c, c), (-c, c), (-c, -c), (c, -c))):
+            for j in range(segments + 1):
+                a = 0.5 * math.pi * (k + j / segments)
+                loop.append((cx + rc * math.cos(a), cy + rc * math.sin(a)))
+        return loop
+
+    def sleeve_bore_outline(self) -> list[tuple[float, float]]:
+        """The sleeve's bore as a loop: the motor's cut-cornered square, the
+        clearance larger."""
+        h, c = self.sleeve_bore
+        return [(h, -h + c), (h, h - c), (h - c, h), (-h + c, h),
+                (-h, h - c), (-h, -h + c), (-h + c, -h), (h - c, -h)]
+
+    @property
+    def sleeve_area(self) -> float:
+        """The sleeve's outline, mm^2."""
+        half, rc = self.sleeve_half_width, self.sleeve_wall
+        return (2.0 * half) ** 2 - (4.0 - math.pi) * rc ** 2
+
+    @property
+    def sleeve_bore_area(self) -> float:
+        """Its bore, mm^2: the cut-cornered square."""
+        h, c = self.sleeve_bore
+        return (2.0 * h) ** 2 - 2.0 * c ** 2
+
+    @property
+    def sleeve_bottom(self) -> float:
+        """The sleeve's foot, flush with the motor's back: what the drive stands
+        on."""
+        return self.base_plate_bottom - self.motor_face.body_length
+
+    @property
+    def cable_slot(self) -> tuple[float, float] | None:
+        """``(width, height)`` of the slot up from the sleeve's foot through
+        its +x flat, for the motor's cable; None with no sleeve.  Held to the
+        flats of the bore and the outline, so its sides are straight walls."""
+        if not self.base_wraps_motor:
+            return None
+        frame = self.motor_face
+        h, c = self.sleeve_bore
+        width = min(0.45 * frame.body_width, 2.0 * (h - c) - 2.0,
+                    2.0 * (self.sleeve_half_width - self.sleeve_wall) - 2.0)
+        return width, min(0.3 * frame.body_length, 12.0)
 
     @property
     def output_pins_are_supported_at_both_ends(self) -> bool:
@@ -2329,6 +2467,8 @@ class GearSpec(BaseModel):
         if not self.heat_set_inserts or self.housing_mat.E_GPa >= 10.0:
             return None
         wanted = insert_for(self.bolt_size_asked)
+        if wanted is not None and self.base_wraps_motor:
+            return wanted                 # the sleeve's corner is sized for it
         if (wanted is None or not self.base_has_flange
                 or wanted.length + INSERT_SUMP + TAPPED_COVER > self.plate_thickness):
             return None
@@ -2535,6 +2675,9 @@ class GearSpec(BaseModel):
         protrusion is structure between two faces of the machine, with the
         plate you bolt it down by on the end of it.
         """
+        if self.base_wraps_motor:
+            # The sleeve's foot to the housing's closed face: the motor is in it.
+            return self.cup_top - self.sleeve_bottom
         if self.ground_frame_fitted:
             # The base's underside to the housing's closed face.
             return self.cup_top - self.base_plate_bottom
@@ -2548,6 +2691,11 @@ class GearSpec(BaseModel):
         conduct some heat away as well, which this deliberately ignores - it is
         the pessimistic, free-standing case.
         """
+        if self.base_wraps_motor:
+            # The housing down to the base's plate.  Not the sleeve under it:
+            # the motor it wraps is a heater of its own.
+            return (self.housing_perimeter * (self.cup_top - self.base_plate_bottom)
+                    + 2.0 * self.housing_section_area)
         return (self.housing_perimeter * self.envelope_length
                 + 2.0 * self.housing_section_area)
 
