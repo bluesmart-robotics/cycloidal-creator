@@ -84,11 +84,16 @@ jobs:
         # every other platform's build had already succeeded.  Nothing about
         # that failure is ours and nothing about it is worth a person's
         # attention, so it is retried rather than reported.
+        # And a 503 can come back as "installed 0/0 packages" with an exit code
+        # of 0, which is how it got past this step on 2026-10-19 and failed the
+        # next one instead: so the program being there is the test, not the
+        # exit code.
         run: |
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
           foreach ($attempt in 1..4) {
             choco install nsis --no-progress -y
-            if ($LASTEXITCODE -eq 0) { exit 0 }
-            Write-Host "chocolatey exited $LASTEXITCODE on attempt $attempt"
+            if (Test-Path $makensis) { exit 0 }
+            Write-Host "chocolatey exited $LASTEXITCODE on attempt $attempt, and no makensis"
             Start-Sleep -Seconds (20 * $attempt)
           }
           throw "NSIS would not install in four attempts"

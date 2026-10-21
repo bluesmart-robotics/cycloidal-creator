@@ -79,6 +79,24 @@ def test_nsis_is_never_compiled_from_bash(path):
                 f"the /FLAG options")
 
 
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_nsis_s_install_is_judged_by_the_program_being_there(path):
+    """Chocolatey answered a 503 from its feed with "installed 0/0 packages"
+    and an exit code of 0, so a retry loop that trusted the exit code stopped
+    after one attempt with nothing installed, and the next step failed with no
+    makensis to run.  Each step that installs NSIS checks the program is there
+    before it calls the install done."""
+    definition = _load(path)
+    for name, job in definition["jobs"].items():
+        for step in job["steps"]:
+            run = step.get("run", "")
+            if "choco install nsis" not in run:
+                continue
+            assert "Test-Path $makensis" in run and "makensis.exe" in run, (
+                f"{path.name}: job {name} trusts chocolatey's exit code")
+            assert "LASTEXITCODE -eq 0" not in run, path.name
+
+
 def test_the_release_lint_can_fail_the_release():
     """The gate that was never shut.
 
